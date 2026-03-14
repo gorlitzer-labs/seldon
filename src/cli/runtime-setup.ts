@@ -103,8 +103,8 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
         const ds = conn.dataSource as RemoteRoomDataSource;
         const res = await fetch(`${ds.serverUrl}/set-mode`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: ds.sessionToken, mode }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
+          body: JSON.stringify({ mode }),
         });
         if (!res.ok) return { success: false, error: `Server rejected: ${await res.text()}` };
       } catch {
@@ -214,8 +214,8 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
         try {
           await fetch(`${jr.serverUrl}/disconnect`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: jr.sessionToken }),
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${jr.sessionToken}` },
+            body: JSON.stringify({}),
           });
         } catch {
           // Server may be down
@@ -236,8 +236,8 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
       try {
         const res = await fetch(`${ds.serverUrl}/set-mode`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: ds.sessionToken, participantId: p.id, mode }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
+          body: JSON.stringify({ participantId: p.id, mode }),
         });
         if (!res.ok) return { success: false, error: await res.text() };
         return { success: true };
@@ -256,8 +256,8 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
       try {
         const res = await fetch(`${ds.serverUrl}/set-authority`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: ds.sessionToken, participantId: p.id, authority: "guest" }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
+          body: JSON.stringify({ participantId: p.id, authority: "guest" }),
         });
         if (!res.ok) return { success: false, error: await res.text() };
         return { success: true };
@@ -276,8 +276,8 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
       try {
         const res = await fetch(`${ds.serverUrl}/set-authority`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: ds.sessionToken, participantId: p.id, authority: "member" }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
+          body: JSON.stringify({ participantId: p.id, authority: "member" }),
         });
         if (!res.ok) return { success: false, error: await res.text() };
         return { success: true };
@@ -296,8 +296,8 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
       try {
         const res = await fetch(`${ds.serverUrl}/kick`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: ds.sessionToken, participantId: p.id }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
+          body: JSON.stringify({ participantId: p.id }),
         });
         if (!res.ok) return { success: false, error: await res.text() };
         return { success: true };

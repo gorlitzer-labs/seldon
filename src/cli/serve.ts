@@ -147,6 +147,13 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
   // ── Auth helper ──────────────────────────────────────────────────────────
 
+  function extractSessionToken(req: IncomingMessage, url: URL, body?: Record<string, unknown>): string | null {
+    const h = req.headers.authorization;
+    if (h?.startsWith("Bearer ")) return h.slice(7);
+    // Fallback: query param / body (deprecated)
+    return url.searchParams.get("token") ?? (body?.token ? String(body.token) : null);
+  }
+
   function getSession(token: string | null) {
     if (!token) return null;
     const p = participants.get(token);
@@ -282,7 +289,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     // ── GET endpoints ─────────────────────────────────────────────────────
 
     if (req.method === "GET") {
-      const sessionToken = url.searchParams.get("token");
+      const sessionToken = extractSessionToken(req, url);
       const session = getSession(sessionToken);
 
       // ── GET /participants ────────────────────────────────────────────────
@@ -354,8 +361,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // ── POST /join ──────────────────────────────────────────────────────
       if (url.pathname === "/join") {
-        // Accept share token OR legacy type-based join
-        const shareToken = String(body.token ?? "");
+        // Accept share token (body.shareToken preferred, body.token as fallback)
+        const shareToken = String(body.shareToken ?? body.token ?? "");
         const legacyType = String(body.type ?? "");
 
         let authority: AuthorityLevel;
@@ -434,7 +441,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // ── All remaining POST endpoints require a session token ────────────
 
-      const sessionToken = String(body.token ?? "");
+      const sessionToken = extractSessionToken(req, url, body) ?? "";
       const session = getSession(sessionToken);
 
       // ── POST /message ───────────────────────────────────────────────────
@@ -615,8 +622,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // ── POST /disconnect ────────────────────────────────────────────────
       if (url.pathname === "/disconnect") {
-        // Accept either session token or legacy participantId/agentId
-        const token = String(body.token ?? "");
+        // Accept Authorization header, body.token, or legacy participantId/agentId
+        const token = extractSessionToken(req, url, body) ?? "";
         const legacyId = String(body.participantId ?? body.agentId ?? "");
 
         let targetToken = token;
