@@ -52,6 +52,8 @@ export interface ServeOptions {
   load?: string;
   /** Bind to 0.0.0.0 instead of 127.0.0.1. Required for non-localhost access. */
   expose?: boolean;
+  /** Allowed CORS origins (in addition to localhost and tunnel URL). */
+  corsOrigins?: string[];
 }
 
 export interface ServeResult {
@@ -169,10 +171,55 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     res.end(JSON.stringify({ ok: true, ...data }));
   }
 
+  // ── CORS helper ────────────────────────────────────────────────────────
+
+  const allowedOrigins = new Set<string>([
+    `http://127.0.0.1:${port}`,
+    `http://localhost:${port}`,
+    ...(options.corsOrigins ?? []),
+  ]);
+
+  function addCorsOrigin(origin: string): void {
+    allowedOrigins.add(origin);
+  }
+
+  function getCorsHeaders(req: IncomingMessage): Record<string, string> {
+    const origin = req.headers.origin;
+    if (!origin) return {};
+    if (allowedOrigins.has(origin)) {
+      return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept",
+        "Access-Control-Max-Age": "86400",
+        Vary: "Origin",
+      };
+    }
+    return {};
+  }
+
   // ── HTTP API ────────────────────────────────────────────────────────────
 
   const httpServer = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+
+    // ── CORS preflight ───────────────────────────────────────────────────
+    if (req.method === "OPTIONS") {
+      const corsHeaders = getCorsHeaders(req);
+      if (Object.keys(corsHeaders).length > 0) {
+        res.writeHead(204, corsHeaders);
+      } else {
+        res.writeHead(204);
+      }
+      res.end();
+      return;
+    }
+
+    // Apply CORS headers to all responses
+    const corsHeaders = getCorsHeaders(req);
+    for (const [k, v] of Object.entries(corsHeaders)) {
+      res.setHeader(k, v);
+    }
 
     // ── SSE event stream ───────────────────────────────────────────────────
     // ⚠️  MUST accept POST — DO NOT change to GET-only.
@@ -196,7 +243,6 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
-        "Access-Control-Allow-Origin": "*",
       });
       res.flushHeaders();
 
@@ -628,7 +674,10 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     tunnelProcess = await startTunnel(port);
     if (tunnelProcess) {
       const tunnelUrl = await waitForTunnelUrl(tunnelProcess);
-      if (tunnelUrl) publicUrl = tunnelUrl;
+      if (tunnelUrl) {
+        publicUrl = tunnelUrl;
+        addCorsOrigin(tunnelUrl);
+      }
     }
   }
 
