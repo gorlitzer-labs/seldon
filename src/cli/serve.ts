@@ -692,8 +692,14 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const adminToken = tokens.generateShareToken("admin", "admin")!;
   const memberToken = tokens.generateShareToken("admin", "member")!;
 
+  function obfuscate(token: string): string {
+    if (token.length <= 8) return "****";
+    return token.slice(0, 4) + "..." + token.slice(-4);
+  }
+
   if (options.headless) {
     process.stdout.write(JSON.stringify({ serverUrl, publicUrl, roomName, adminToken, memberToken, savePath }) + "\n");
+    process.stderr.write("Warning: raw tokens in stdout — do not share this output.\n");
   } else if (!options.quiet) {
     let version = process.env.npm_package_version ?? "";
     if (!version) {
@@ -705,8 +711,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         version = "unknown";
       }
     }
-    const adminUrl = buildShareUrl(publicUrl, adminToken);
-    const joinUrl = buildShareUrl(publicUrl, memberToken);
+    const adminUrlObfuscated = buildShareUrl(publicUrl, obfuscate(adminToken));
+    const joinUrlObfuscated = buildShareUrl(publicUrl, obfuscate(memberToken));
 
     console.log(`
   stoops v${version}
@@ -715,10 +721,12 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   Server:  ${serverUrl}${publicUrl !== serverUrl ? `\n  Tunnel:  ${publicUrl}` : ""}
   Saving:  ${savePath}
 
-  Join:      stoops join ${joinUrl}
-  Admin:     stoops join ${adminUrl}
-  Claude:    stoops run claude --name MyClaude  →  then tell agent to join: ${joinUrl}
-  Codex:     stoops run codex --name MyCodex   →  then tell agent to join: ${joinUrl}
+  Join:      stoops join ${joinUrlObfuscated}
+  Admin:     stoops join ${adminUrlObfuscated}
+  Claude:    stoops run claude --name MyClaude  →  then tell agent to join (use /share in TUI for full URL)
+  Codex:     stoops run codex --name MyCodex   →  then tell agent to join (use /share in TUI for full URL)
+
+  Use /share in the TUI or --headless to get full join URLs.
 `);
   }
 
