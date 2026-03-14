@@ -140,6 +140,11 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     return null;
   }
 
+  function clampInt(val: string | null, def: number, min: number, max: number): number {
+    const n = parseInt(val ?? String(def), 10);
+    return isNaN(n) ? def : Math.max(min, Math.min(max, n));
+  }
+
   function jsonError(res: ServerResponse, status: number, error: string): void {
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error }));
@@ -248,7 +253,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── GET /messages ────────────────────────────────────────────────────
       if (url.pathname === "/messages") {
         if (!session) return jsonError(res, 401, "Invalid session token");
-        const count = parseInt(url.searchParams.get("count") ?? "30", 10);
+        const count = clampInt(url.searchParams.get("count"), 30, 1, 100);
         const cursor = url.searchParams.get("cursor") ?? null;
         const result = await room.listMessages(count, cursor);
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -260,7 +265,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       if (url.pathname === "/events/history") {
         if (!session) return jsonError(res, 401, "Invalid session token");
         const category = url.searchParams.get("category") ?? null;
-        const count = parseInt(url.searchParams.get("count") ?? "50", 10);
+        const count = clampInt(url.searchParams.get("count"), 50, 1, 200);
         const cursor = url.searchParams.get("cursor") ?? null;
         const result = await room.listEvents(category as any, count, cursor);
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -273,7 +278,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         if (!session) return jsonError(res, 401, "Invalid session token");
         const query = url.searchParams.get("query") ?? "";
         if (!query) return jsonError(res, 400, "Missing query parameter");
-        const count = parseInt(url.searchParams.get("count") ?? "10", 10);
+        const count = clampInt(url.searchParams.get("count"), 10, 1, 50);
         const cursor = url.searchParams.get("cursor") ?? null;
         const result = await room.searchMessages(query, count, cursor);
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -379,6 +384,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         const content = String(body.content ?? "");
         const replyTo = body.replyTo ? String(body.replyTo) : undefined;
         if (!content) return jsonError(res, 400, "Empty message");
+        if (content.length > 50_000) return jsonError(res, 400, "Message too long (max 50000 chars)");
 
         const p = participants.get(sessionToken);
         if (!p) return jsonError(res, 403, "Not a participant");
