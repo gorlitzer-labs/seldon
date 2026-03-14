@@ -205,6 +205,44 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     return {};
   }
 
+  // ── Rate limiter ────────────────────────────────────────────────────────
+
+  class RateLimiter {
+    private _buckets = new Map<string, { count: number; resetAt: number }>();
+    constructor(private _max: number, private _windowMs: number) {}
+    check(key: string): { allowed: boolean; retryAfter?: number } {
+      const now = Date.now();
+      const bucket = this._buckets.get(key);
+      if (!bucket || now >= bucket.resetAt) {
+        this._buckets.set(key, { count: 1, resetAt: now + this._windowMs });
+        return { allowed: true };
+      }
+      if (bucket.count >= this._max) {
+        return { allowed: false, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) };
+      }
+      bucket.count++;
+      return { allowed: true };
+    }
+  }
+
+  const joinLimiter = new RateLimiter(10, 60_000);       // 10/min per IP
+  const messageLimiter = new RateLimiter(30, 60_000);     // 30/min per session
+  const shareLimiter = new RateLimiter(10, 60_000);       // 10/min per session
+  const getLimiter = new RateLimiter(60, 60_000);          // 60/min per session
+  const sseLimiter = new RateLimiter(5, 60_000);           // 5/min per IP
+
+  function getClientIp(req: IncomingMessage): string {
+    return req.socket.remoteAddress ?? "unknown";
+  }
+
+  function rateLimitError(res: ServerResponse, retryAfter: number): void {
+    res.writeHead(429, {
+      "Content-Type": "application/json",
+      "Retry-After": String(retryAfter),
+    });
+    res.end(JSON.stringify({ error: "Too many requests" }));
+  }
+
   // ── HTTP API ────────────────────────────────────────────────────────────
 
   const httpServer = createServer(async (req, res) => {
@@ -234,6 +272,9 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     // when the connection closes. POST streams in real-time. (cloudflared#1449)
     // https://github.com/cloudflare/cloudflared/issues/1449
     if (url.pathname === "/events" && (req.method === "GET" || req.method === "POST")) {
+      const sseCheck = sseLimiter.check(getClientIp(req));
+      if (!sseCheck.allowed) return rateLimitError(res, sseCheck.retryAfter!);
+
       const authHeader = req.headers.authorization;
       const sessionToken = authHeader?.startsWith("Bearer ")
         ? authHeader.slice(7)
@@ -291,6 +332,10 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     if (req.method === "GET") {
       const sessionToken = extractSessionToken(req, url);
       const session = getSession(sessionToken);
+      if (sessionToken) {
+        const getCheck = getLimiter.check(sessionToken);
+        if (!getCheck.allowed) return rateLimitError(res, getCheck.retryAfter!);
+      }
 
       // ── GET /participants ────────────────────────────────────────────────
       if (url.pathname === "/participants") {
@@ -361,6 +406,9 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // ── POST /join ──────────────────────────────────────────────────────
       if (url.pathname === "/join") {
+        const joinCheck = joinLimiter.check(getClientIp(req));
+        if (!joinCheck.allowed) return rateLimitError(res, joinCheck.retryAfter!);
+
         // Accept share token (body.shareToken preferred, body.token as fallback)
         const shareToken = String(body.shareToken ?? body.token ?? "");
         const legacyType = String(body.type ?? "");
@@ -447,6 +495,10 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── POST /message ───────────────────────────────────────────────────
       if (url.pathname === "/message") {
         if (!session) return jsonError(res, 401, "Invalid session token");
+        if (sessionToken) {
+          const msgCheck = messageLimiter.check(sessionToken);
+          if (!msgCheck.allowed) return rateLimitError(res, msgCheck.retryAfter!);
+        }
         if (session.authority === "guest") return jsonError(res, 403, "Guests cannot send messages");
         const content = String(body.content ?? "");
         const replyTo = body.replyTo ? String(body.replyTo) : undefined;
@@ -595,6 +647,10 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── POST /share ─────────────────────────────────────────────────────
       if (url.pathname === "/share") {
         if (!session) return jsonError(res, 401, "Invalid session token");
+        if (sessionToken) {
+          const shareCheck = shareLimiter.check(sessionToken);
+          if (!shareCheck.allowed) return rateLimitError(res, shareCheck.retryAfter!);
+        }
         if (session.authority === "guest") return jsonError(res, 403, "Guests cannot create share links");
 
         const targetAuthority = (body.authority as AuthorityLevel) ?? undefined;
