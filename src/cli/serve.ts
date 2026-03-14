@@ -620,6 +620,33 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         return;
       }
 
+      // ── POST /rotate-token ──────────────────────────────────────────────
+      if (url.pathname === "/rotate-token") {
+        if (!session || !sessionToken) return jsonError(res, 401, "Invalid session token");
+        const result = tokens.rotateSessionToken(sessionToken);
+        if (!result) return jsonError(res, 401, "Token expired or invalid");
+
+        // Move participant/guest entry to new token
+        const p = participants.get(sessionToken);
+        if (p) {
+          participants.delete(sessionToken);
+          p.sessionToken = result.newToken;
+          participants.set(result.newToken, p);
+          idToSession.set(p.id, result.newToken);
+        }
+        const g = guests.get(sessionToken);
+        if (g) {
+          guests.delete(sessionToken);
+          g.sessionToken = result.newToken;
+          guests.set(result.newToken, g);
+          idToSession.set(g.id, result.newToken);
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ sessionToken: result.newToken }));
+        return;
+      }
+
       // ── POST /disconnect ────────────────────────────────────────────────
       if (url.pathname === "/disconnect") {
         // Accept Authorization header, body.token, or legacy participantId/agentId
@@ -675,6 +702,10 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   await new Promise<void>((resolve) => {
     httpServer.listen(port, options.expose ? "0.0.0.0" : "127.0.0.1", () => resolve());
   });
+
+  // Prune expired tokens every 5 minutes
+  const pruneInterval = setInterval(() => tokens.pruneExpired(), 5 * 60 * 1000);
+  pruneInterval.unref();
 
   // Start tunnel if --share
   if (options.share) {
