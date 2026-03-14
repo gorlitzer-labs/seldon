@@ -121,8 +121,8 @@ async function httpSend(
 ): Promise<{ ok: boolean; messageId?: string }> {
   const res = await fetch(`${serverUrl}/message`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token: sessionToken, content }),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+    body: JSON.stringify({ content }),
   });
   return res.json() as Promise<{ ok: boolean; messageId?: string }>;
 }
@@ -130,8 +130,8 @@ async function httpSend(
 async function httpDisconnect(serverUrl: string, sessionToken: string): Promise<void> {
   await fetch(`${serverUrl}/disconnect`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token: sessionToken }),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+    body: JSON.stringify({}),
   }).catch(() => {});
 }
 
@@ -139,7 +139,9 @@ async function httpParticipants(
   serverUrl: string,
   sessionToken: string,
 ): Promise<Array<{ id: string; name: string; type: string; authority?: string }>> {
-  const res = await fetch(`${serverUrl}/participants?token=${sessionToken}`);
+  const res = await fetch(`${serverUrl}/participants`, {
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
   if (!res.ok) throw new Error(`Failed to get participants: ${await res.text()}`);
   const data = (await res.json()) as { participants: Array<{ id: string; name: string; type: string; authority?: string }> };
   return data.participants;
@@ -297,8 +299,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
     const shareRes = await fetch(`${server.serverUrl}/share`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: admin.sessionToken, authority: "guest" }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+      body: JSON.stringify({ authority: "guest" }),
     });
     const shareData = (await shareRes.json()) as { links: Record<string, string> };
     const guestUrl = shareData.links.guest;
@@ -319,7 +321,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
 
     // Search for the message
     const searchRes = await fetch(
-      `${server.serverUrl}/search?token=${alice.sessionToken}&query=unique123`,
+      `${server.serverUrl}/search?query=unique123`,
+      { headers: { Authorization: `Bearer ${alice.sessionToken}` } },
     );
     const searchData = (await searchRes.json()) as { items: Array<{ content: string }> };
     expect(searchData.items.length).toBeGreaterThanOrEqual(1);
@@ -352,8 +355,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
     const shareRes = await fetch(`${server.serverUrl}/share`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: admin.sessionToken, authority: "guest" }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+      body: JSON.stringify({ authority: "guest" }),
     });
     const shareData = (await shareRes.json()) as { links: Record<string, string> };
     const guestToken = new URL(shareData.links.guest).searchParams.get("token")!;
@@ -363,8 +366,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
 
     const sendRes = await fetch(`${server.serverUrl}/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: obs.sessionToken, content: "should fail" }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${obs.sessionToken}` },
+      body: JSON.stringify({ content: "should fail" }),
     });
     expect(sendRes.status).toBe(403);
   }, 15_000);
@@ -380,8 +383,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
 
     const kickRes = await fetch(`${server.serverUrl}/kick`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: alice.sessionToken, participantId: bob.participantId }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({ participantId: bob.participantId }),
     });
     expect(kickRes.status).toBe(403);
   }, 15_000);
@@ -397,8 +400,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
 
     const kickRes = await fetch(`${server.serverUrl}/kick`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: admin.sessionToken, participantId: target.participantId }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+      body: JSON.stringify({ participantId: target.participantId }),
     });
     expect(kickRes.ok).toBe(true);
 
@@ -418,17 +421,16 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     // Verify Alice can send before mute
     const send1 = await fetch(`${server.serverUrl}/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: alice.sessionToken, content: "before mute" }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({ content: "before mute" }),
     });
     expect(send1.ok).toBe(true);
 
     // Mute Alice (demote to guest)
     const muteRes = await fetch(`${server.serverUrl}/set-authority`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
       body: JSON.stringify({
-        token: admin.sessionToken,
         participantId: alice.participantId,
         authority: "guest",
       }),
@@ -438,17 +440,16 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     // Alice should now be blocked from sending
     const send2 = await fetch(`${server.serverUrl}/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: alice.sessionToken, content: "should fail" }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({ content: "should fail" }),
     });
     expect(send2.status).toBe(403);
 
     // Unmute Alice (restore to member)
     const unmuteRes = await fetch(`${server.serverUrl}/set-authority`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
       body: JSON.stringify({
-        token: admin.sessionToken,
         participantId: alice.participantId,
         authority: "member",
       }),
@@ -458,8 +459,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     // Alice should be able to send again
     const send3 = await fetch(`${server.serverUrl}/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: alice.sessionToken, content: "after unmute" }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({ content: "after unmute" }),
     });
     expect(send3.ok).toBe(true);
   }, 15_000);
@@ -491,8 +492,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
     const adminShareRes = await fetch(`${server.serverUrl}/share`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: admin.sessionToken }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+      body: JSON.stringify({}),
     });
     const adminLinks = ((await adminShareRes.json()) as { links: Record<string, string> }).links;
     expect(adminLinks.admin).toBeTruthy();
@@ -503,8 +504,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     const part = await httpJoin(server.serverUrl, server.memberToken, { name: "Part" });
     const partShareRes = await fetch(`${server.serverUrl}/share`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: part.sessionToken }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${part.sessionToken}` },
+      body: JSON.stringify({}),
     });
     const partLinks = ((await partShareRes.json()) as { links: Record<string, string> }).links;
     expect(partLinks.admin).toBeUndefined();
@@ -543,9 +544,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
 
     const res = await fetch(`${server.serverUrl}/set-authority`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
       body: JSON.stringify({
-        token: admin.sessionToken,
         participantId: admin.participantId,
         authority: "guest",
       }),
@@ -564,9 +564,8 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
 
     const res = await fetch(`${server.serverUrl}/set-authority`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
       body: JSON.stringify({
-        token: alice.sessionToken,
         participantId: bob.participantId,
         authority: "guest",
       }),
