@@ -50,6 +50,8 @@ export interface ServeOptions {
   save?: string;
   /** Path to load room state from (JSON file). Implies save to the same file. */
   load?: string;
+  /** Bind to 0.0.0.0 instead of 127.0.0.1. Required for non-localhost access. */
+  expose?: boolean;
 }
 
 export interface ServeResult {
@@ -598,7 +600,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   });
 
   await new Promise<void>((resolve) => {
-    httpServer.listen(port, "0.0.0.0", () => resolve());
+    httpServer.listen(port, options.expose ? "0.0.0.0" : "127.0.0.1", () => resolve());
   });
 
   // Start tunnel if --share
