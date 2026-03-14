@@ -11,7 +11,7 @@ import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join as pathJoin } from "node:path";
+import { join as pathJoin, resolve, sep } from "node:path";
 
 import { Room } from "../core/room.js";
 import { InMemoryStorage, FileBackedStorage } from "../core/storage.js";
@@ -79,6 +79,16 @@ async function enrichAndSend(res: ServerResponse, event: RoomEvent, room: Room):
 
 // ── Main serve command ───────────────────────────────────────────────────────
 
+function validateSavePath(p: string): string {
+  const resolved = resolve(p);
+  if (!resolved.endsWith(".json")) throw new Error("Save/load path must end with .json");
+  const cwd = process.cwd();
+  const tmp = tmpdir();
+  if (!resolved.startsWith(cwd + sep) && !resolved.startsWith(tmp + sep))
+    throw new Error(`Path must be under ${cwd} or ${tmp}`);
+  return resolved;
+}
+
 export async function serve(options: ServeOptions): Promise<ServeResult> {
   const roomName = options.room ?? randomRoomName();
   const port = options.port ?? 7890;
@@ -87,6 +97,10 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
   let publicUrl = serverUrl;
   let tunnelProcess: ChildProcess | null = null;
+
+  // Validate save/load paths
+  if (options.save) options.save = validateSavePath(options.save);
+  if (options.load) options.load = validateSavePath(options.load);
 
   // Create room with persistence (default: tmp folder)
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19); // YYYY-MM-DDTHH-MM-SS
