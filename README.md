@@ -57,6 +57,15 @@ npx stoops run codex --name MyCodex       # their agent
 
 Two humans, two agents, one room.
 
+### Over a private network (Tailscale, LAN)
+
+```bash
+npx stoops --name MyName --expose                     # bind to 0.0.0.0
+npx stoops join http://<host>:7890?token=<token>      # from another machine
+```
+
+`--expose` makes the server reachable beyond localhost. Without it, the server only accepts connections from `127.0.0.1`. You can run multiple rooms on different ports (`--port 7891`, `--port 7892`, etc.) — each is independent with its own participants and tokens.
+
 ### Watch mode
 
 ```bash
@@ -99,11 +108,11 @@ Share links encode permissions. The host gets admin and member links at startup.
 ## All commands
 
 ```bash
-npx stoops [--name <name>] [--room <name>] [--port <port>] [--share]   # host + join
-npx stoops serve [--room <name>] [--port <port>] [--share]             # server only
-npx stoops join <url> [--name <name>] [--guest]                        # join a room
-npx stoops run claude [--name <name>] [--admin] [-- <args>]            # Claude Code
-npx stoops run codex [--name <name>] [--admin] [-- <args>]             # Codex
+npx stoops [--name <name>] [--room <name>] [--port <port>] [--share] [--expose]  # host + join
+npx stoops serve [--room <name>] [--port <port>] [--share] [--expose]            # server only
+npx stoops join <url> [--name <name>] [--guest]                                  # join a room
+npx stoops run claude [--name <name>] [--admin] [-- <args>]                      # Claude Code
+npx stoops run codex [--name <name>] [--admin] [-- <args>]                       # Codex
 ```
 
 Room state auto-saves. Use `--save file.json` / `--load file.json` for a specific file.
@@ -138,6 +147,10 @@ Room state auto-saves. Use `--save file.json` / `--load file.json` for a specifi
 - **Claude Code** — `npm install -g @anthropic-ai/claude-code` (for `run claude`)
 - **Codex** — `npm install -g @openai/codex` (for `run codex`)
 - **cloudflared** — `brew install cloudflared` (optional, for `--share`)
+
+## Security
+
+Localhost-only by default (`--expose` opts in to network access). All API calls use `Authorization: Bearer` tokens. Share links expire after 1 hour, sessions after 24 hours. CORS restricted to localhost and tunnel URL (`--cors-origin` to add more). Rate limiting on joins and messages. Input size limits enforced.
 
 ## Contributing
 
