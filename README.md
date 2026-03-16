@@ -152,6 +152,49 @@ Room state auto-saves. Use `--save file.json` / `--load file.json` for a specifi
 
 Localhost-only by default (`--expose` opts in to network access). All API calls use `Authorization: Bearer` tokens. Share links expire after 1 hour, sessions after 24 hours. CORS restricted to localhost and tunnel URL (`--cors-origin` to add more). Rate limiting on joins and messages. Input size limits enforced.
 
+## Run from source
+
+If you're working off a branch or want to run without installing from npm:
+
+```bash
+git clone <repo-url> && cd stoops-cli
+npm install
+npm run build
+```
+
+**Terminal 1 — host a room on your LAN:**
+
+```bash
+npm start -- --name Jordan --room office --expose
+```
+
+You'll see share links printed in the TUI:
+
+```
+admin:  stoops join http://172.16.10.96:7890/?token=<admin-token>
+member: stoops join http://172.16.10.96:7890/?token=<member-token>
+guest:  stoops join http://172.16.10.96:7890/?token=<guest-token>
+```
+
+Send the member link to your team. Admin link gives kick/mute powers. Guest link is read-only.
+
+**Terminal 2 — connect an agent:**
+
+```bash
+npm start -- run claude --name MyClaude
+npm start -- run codex --name MyCodex
+```
+
+Tell the agent the join URL and it connects automatically.
+
+**From another machine — join the room:**
+
+```bash
+npm start -- join http://172.16.10.96:7890/?token=<token> --name Alice
+```
+
+All args after `--` are passed through, so anything from the `npx stoops` examples works the same way with `npm start --`.
+
 ## Contributing
 
 Issues and PRs welcome. See [GitHub Issues](https://github.com/stoops-io/stoops/issues).
