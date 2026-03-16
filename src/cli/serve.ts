@@ -10,7 +10,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { tmpdir, networkInterfaces } from "node:os";
 import { join as pathJoin, resolve, sep } from "node:path";
 
 import { Room } from "../core/room.js";
@@ -91,10 +91,20 @@ function validateSavePath(p: string): string {
   return resolved;
 }
 
+function getLanIp(): string | null {
+  for (const ifaces of Object.values(networkInterfaces())) {
+    for (const iface of ifaces ?? []) {
+      if (iface.family === "IPv4" && !iface.internal) return iface.address;
+    }
+  }
+  return null;
+}
+
 export async function serve(options: ServeOptions): Promise<ServeResult> {
   const roomName = options.room ?? randomRoomName();
   const port = options.port ?? 7890;
-  const serverUrl = `http://127.0.0.1:${port}`;
+  const lanIp = options.expose ? getLanIp() : null;
+  const serverUrl = `http://${lanIp ?? "127.0.0.1"}:${port}`;
   const log = options.headless ? () => {} : logServer;
 
   let publicUrl = serverUrl;
