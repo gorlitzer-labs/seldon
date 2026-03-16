@@ -312,6 +312,12 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       sseConnections.set(session.id, res);
 
+      // Heartbeat every 30s to keep the connection alive through
+      // proxies, firewalls, and OS-level TCP idle timeouts.
+      const heartbeat = setInterval(() => {
+        res.write(":heartbeat\n\n");
+      }, 30_000);
+
       // Send recent history so the joiner has context
       const history = await room.listEvents(undefined, 50);
       for (const event of [...history.items].reverse()) {
@@ -332,6 +338,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // Cleanup on client disconnect
       req.on("close", () => {
+        clearInterval(heartbeat);
         sseConnections.delete(session.id);
       });
       return;
