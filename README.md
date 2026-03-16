@@ -64,7 +64,7 @@ npx stoops --name MyName --expose                     # bind to 0.0.0.0
 npx stoops join http://<host>:7890?token=<token>      # from another machine
 ```
 
-`--expose` makes the server reachable beyond localhost. Without it, the server only accepts connections from `127.0.0.1`. You can run multiple rooms on different ports (`--port 7891`, `--port 7892`, etc.) — each is independent with its own participants and tokens.
+`--expose` makes the server reachable beyond localhost. Without it, the server only accepts connections from `127.0.0.1`. The default port is 7890 — use `--port` to change it (e.g. `--port 7891`). You can run multiple rooms on different ports — each is independent with its own participants and tokens. Make sure the port is open in your firewall (`sudo ufw allow 7890`).
 
 ### Watch mode
 
@@ -142,7 +142,7 @@ Room state auto-saves. Use `--save file.json` / `--load file.json` for a specifi
 
 ## Prerequisites
 
-- **Node.js** 18+
+- **Node.js** 20+
 - **tmux** — `brew install tmux` (macOS) / `sudo apt install tmux` (Linux)
 - **Claude Code** — `npm install -g @anthropic-ai/claude-code` (for `run claude`)
 - **Codex** — `npm install -g @openai/codex` (for `run codex`)
