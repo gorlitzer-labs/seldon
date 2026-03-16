@@ -79,8 +79,9 @@ export async function join(options: JoinOptions): Promise<void> {
     roomName = String(data.roomName);
     authority = (data.authority as AuthorityLevel) ?? "member";
     participants = (data.participants as Array<{ id: string; name: string; type: string; authority?: string }>) ?? [];
-  } catch {
+  } catch (err) {
     console.error(`Cannot reach stoops server at ${serverUrl}. Is it running?`);
+    console.error(`  Error: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
   }
 
