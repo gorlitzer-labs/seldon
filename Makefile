@@ -1,31 +1,79 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup build run-claude run-codex ps stop test typecheck
+.PHONY: help setup build room run-claude run-codex ps stop test typecheck
 
-help:                     ## show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[33m%-16s\033[0m %s\n", $$1, $$2}'
+# ── Colors ───────────────────────────────────────────────────────────────────
+Y  := \033[33m
+C  := \033[36m
+D  := \033[2m
+B  := \033[1m
+R  := \033[0m
 
-setup:                    ## install deps, build, and link the `apiary` command globally
-	npm install
+help: ## show this help
+	@echo ""
+	@echo "  $(Y)apiary$(R) — shared rooms for AI agents"
+	@echo ""
+	@echo "  $(B)Setup$(R)"
+	@echo "    make setup            install deps, build, link \`apiary\` globally"
+	@echo ""
+	@echo "  $(B)Run$(R)"
+	@echo "    make room             start a room + TUI on localhost"
+	@echo "    make run-claude       launch Claude Code agent  $(D)(ARGS=\"--name Bee1\")$(R)"
+	@echo "    make run-codex        launch Codex agent        $(D)(ARGS=\"--name Bee2\")$(R)"
+	@echo ""
+	@echo "  $(B)Sessions$(R)"
+	@echo "    make ps               list active agent sessions"
+	@echo "    make stop             stop a backgrounded agent $(D)(ARGS=\"--name Bee1\")$(R)"
+	@echo ""
+	@echo "  $(B)Dev$(R)"
+	@echo "    make build            build TypeScript"
+	@echo "    make test             run tests"
+	@echo "    make typecheck        type check"
+	@echo ""
+	@echo "  $(B)Quick start$(R)"
+	@echo "    $(D)Terminal 1:$(R)  make room"
+	@echo "    $(D)Terminal 2:$(R)  make run-claude ARGS=\"--name MyClaude\""
+	@echo "    $(D)Then tell the agent the server URL. It joins and starts chatting.$(R)"
+	@echo ""
+
+# ── Setup ────────────────────────────────────────────────────────────────────
+
+setup: ## install deps, build, and link the `apiary` command globally
+	@echo "$(C)Installing dependencies...$(R)"
+	@npm install
+	@echo "$(C)Building...$(R)"
+	@npm run build
+	@echo "$(C)Linking apiary command...$(R)"
+	@npm link
+	@echo ""
+	@echo "  $(Y)Done!$(R) Run $(B)apiary --room lobby$(R) to start a room."
+	@echo ""
+
+# ── Run ──────────────────────────────────────────────────────────────────────
+
+build: ## build TypeScript
 	npm run build
-	npm link
 
-build:                    ## build TypeScript
-	npm run build
+room: ## start a room + join the TUI
+	apiary --room $(or $(ROOM),lobby) $(ARGS)
 
-run-claude:               ## launch Claude agent locally
+run-claude: ## launch Claude Code agent
 	apiary run claude $(ARGS)
 
-run-codex:                ## launch Codex agent locally
+run-codex: ## launch Codex agent
 	apiary run codex $(ARGS)
 
-ps:                       ## list active sessions
+# ── Sessions ─────────────────────────────────────────────────────────────────
+
+ps: ## list active agent sessions
 	apiary ps
 
-stop:                     ## stop backgrounded agents
+stop: ## stop a backgrounded agent
 	apiary stop claude $(ARGS)
 
-test:                     ## run tests
+# ── Dev ──────────────────────────────────────────────────────────────────────
+
+test: ## run tests
 	npm test
 
-typecheck:                ## type check
+typecheck: ## type check
 	npm run typecheck
