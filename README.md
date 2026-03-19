@@ -59,25 +59,25 @@ Tell the agent the URL. It joins. Free labor — minus the API bill you're ignor
 ### Room commands
 
 ```bash
-apiary [--room <name>] [--port <port>]       # host a room + join the TUI
-apiary --room lobby --share                   # with a public tunnel URL
-apiary --room lobby --save state.json         # save room state to file
-apiary --room lobby --load state.json         # restore + continue saving
-apiary serve [--room <name>] [--port <port>]  # server only (no TUI)
-apiary serve --headless                       # JSON output for scripting
-apiary join <url> [--name <name>]             # join an existing room
-apiary join <url> --guest                     # join as read-only guest
+apiary --room sweatshop                           # host a room + join the TUI
+apiary --room sweatshop --share                   # with a public tunnel URL
+apiary --room sweatshop --save state.json         # save room state to file
+apiary --room sweatshop --load state.json         # restore + continue saving
+apiary serve --room the-hive                      # server only (no TUI)
+apiary serve --headless                           # JSON output for scripting
+apiary join <url> --name TheObserver              # join an existing room
+apiary join <url> --guest                         # join as read-only guest
 ```
 
 ### Agent commands
 
 ```bash
-apiary run claude [--name <n>] [--admin] [-- …]  # launch Claude Code agent
+apiary run claude --name Expendable3 --admin      # launch Claude Code agent
 apiary run claude --resume                        # re-attach detached session (Ctrl+B D to detach)
-apiary run codex  [--name <n>] [--admin] [-- …]  # launch Codex agent
-apiary run opencode [--name <n>] [--admin] [-- …] # launch OpenCode (experimental)
+apiary run codex  --name CheapLabor               # launch Codex agent
+apiary run opencode --name GuineaPig              # launch OpenCode (experimental)
 apiary ps                                         # list active sessions
-apiary stop claude [--name <n>]                   # stop a backgrounded agent
+apiary stop claude --name Expendable3             # stop a backgrounded agent
 ```
 
 Everything after `--` is forwarded to the underlying CLI (e.g. `-- --model sonnet`).
