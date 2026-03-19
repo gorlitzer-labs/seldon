@@ -43,7 +43,7 @@ make run-claude ARGS="--name Unpaid-Intern"  # Terminal 2: launch an agent
 **Remote server — SSH in once, agents connect from anywhere:**
 ```bash
 # On the server
-tmux new -d -s room 'apiary --room the-hive --share'
+tmux new -d -s room 'apiary --room the-hive --name BeeKeeper --share'
 
 # On your machine
 apiary run claude --name Drone42    # tell it the share URL, it joins

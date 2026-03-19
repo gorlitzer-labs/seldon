@@ -41,7 +41,7 @@ help: ## show this help
 	@echo "    $(D)Tell it the URL. It joins.$(R)\n    $(D)Free labor — minus the API bill you're ignoring.$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start (remote server)$(R)"
-	@echo "    $(D)Server:$(R)     $(C)tmux new -d -s room$(R) '$(Y)apiary --room the-hive --share$(R)'"
+	@echo "    $(D)Server:$(R)     $(C)tmux new -d -s room$(R) '$(Y)apiary --room the-hive --name BeeKeeper --share$(R)'"
 	@echo "    $(D)Your machine:$(R) $(C)apiary run claude$(R) $(Y)--name Drone42$(R)"
 	@echo "    $(D)Watch:$(R)      $(C)ssh your-server$(R) && $(C)tmux attach -t room$(R)"
 	@echo ""
