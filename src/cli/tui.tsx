@@ -129,6 +129,28 @@ function makeIdentityAssigner(): (name: string) => { color: string; sigil: strin
   };
 }
 
+// ── Word wrap ─────────────────────────────────────────────────────────────────
+
+function wordWrap(text: string, width: number): string[] {
+  if (width < 10) width = 10;
+  const lines: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    if (paragraph.length === 0) { lines.push(""); continue; }
+    let line = "";
+    for (const word of paragraph.split(/( +)/)) {
+      if (line.length + word.length > width && line.length > 0) {
+        lines.push(line);
+        line = word.replace(/^ +/, ""); // trim leading spaces on new line
+      } else {
+        line += word;
+      }
+    }
+    if (line.length > 0) lines.push(line);
+  }
+  if (lines.length === 0) lines.push("");
+  return lines;
+}
+
 // ── Event line ────────────────────────────────────────────────────────────────
 
 const NAME_COL = 12;
@@ -136,9 +158,11 @@ const NAME_COL = 12;
 function EventLine({
   event,
   identify,
+  cols,
 }: {
   event: DisplayEvent;
   identify: (n: string) => { color: string; sigil: string };
+  cols: number;
 }) {
   const ts = <Text color={C.muted}>{event.ts}{"  "}</Text>;
 
@@ -151,22 +175,43 @@ function EventLine({
     const sigilChar  = isSelf ? "›" : event.senderType === "agent" ? sigil : "·";
     const contentColor = isSelf ? C.text : C.secondary;
 
+    // gutter: paddingX(1) + ts(8) + "  "(2) + sigil(1) + " "(1) + name(NAME_COL) + "  "(2) + paddingX(1)
+    const gutterWidth = 1 + 8 + 2 + 1 + 1 + NAME_COL + 2 + 1;
+    const contentWidth = cols - gutterWidth;
+
+    const replyPrefix = event.replyToName ? `→ ${event.replyToName} ` : "";
+    const fullContent = replyPrefix + event.content;
+    const wrapped = wordWrap(fullContent, contentWidth);
+    const indent = " ".repeat(gutterWidth - 2); // -2 for paddingX on both sides
+
     return (
-      <Box paddingX={1}>
-        <Box flexShrink={0}>
-          {ts}
-          <Text color={sigilColor}>{sigilChar}{" "}</Text>
-          <Text color={nameColor} bold={isSelf}>
-            {event.senderName.slice(0, NAME_COL).padEnd(NAME_COL)}
-          </Text>
-          <Text>{"  "}</Text>
-        </Box>
-        <Box flexGrow={1} flexShrink={1}>
-          <Text wrap="wrap">
-            {event.replyToName && <Text color={C.dim}>{"→ "}{event.replyToName}{" "}</Text>}
-            <Text color={contentColor}>{event.content}</Text>
-          </Text>
-        </Box>
+      <Box paddingX={1} flexDirection="column" marginBottom={1}>
+        {wrapped.map((line, i) => (
+          <Box key={i}>
+            {i === 0 ? (
+              <>
+                {ts}
+                <Text color={sigilColor}>{sigilChar}{" "}</Text>
+                <Text color={nameColor} bold={isSelf}>
+                  {event.senderName.slice(0, NAME_COL).padEnd(NAME_COL)}
+                </Text>
+                <Text>{"  "}</Text>
+              </>
+            ) : (
+              <Text>{indent}</Text>
+            )}
+            <Text wrap="truncate">
+              {i === 0 && event.replyToName ? (
+                <>
+                  <Text color={C.dim}>{replyPrefix}</Text>
+                  <Text color={contentColor}>{line.slice(replyPrefix.length)}</Text>
+                </>
+              ) : (
+                <Text color={contentColor}>{line}</Text>
+              )}
+            </Text>
+          </Box>
+        ))}
       </Box>
     );
   }
@@ -461,7 +506,7 @@ function App({
               </Box>
             );
           }
-          return <EventLine key={entry.id} event={entry.event} identify={identify} />;
+          return <EventLine key={entry.id} event={entry.event} identify={identify} cols={cols} />;
         }}
       </Static>
 
