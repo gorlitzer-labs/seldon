@@ -16,6 +16,8 @@ help: ## show this help
 	@echo ""
 	@echo "  $(M)Setup$(R)"
 	@echo "    $(C)make setup$(R)            install deps, build, link \`$(Y)apiary$(R)\` globally"
+	@echo "    $(D)After setup, $(C)apiary$(R) $(D)works from anywhere — no need to be in this repo.$(R)"
+	@echo "    $(D)Changed code? Just $(C)make build$(R) $(D)— the symlink picks it up.$(R)"
 	@echo ""
 	@echo "  $(M)Run$(R)"
 	@echo "    $(C)make room$(R)             start a room + TUI on localhost"
