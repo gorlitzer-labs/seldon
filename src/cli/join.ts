@@ -79,8 +79,9 @@ export async function join(options: JoinOptions): Promise<void> {
     roomName = String(data.roomName);
     authority = (data.authority as AuthorityLevel) ?? "member";
     participants = (data.participants as Array<{ id: string; name: string; type: string; authority?: string }>) ?? [];
-  } catch {
+  } catch (err) {
     console.error(`Cannot reach stoops server at ${serverUrl}. Is it running?`);
+    console.error(`  Error: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
   }
 
@@ -95,8 +96,8 @@ export async function join(options: JoinOptions): Promise<void> {
     try {
       await fetch(`${serverUrl}/disconnect`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: sessionToken }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+        body: JSON.stringify({}),
       });
     } catch {
       // Server may be down
@@ -123,8 +124,8 @@ export async function join(options: JoinOptions): Promise<void> {
       try {
         await fetch(`${serverUrl}/message`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: sessionToken, content }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+          body: JSON.stringify({ content }),
         });
       } catch { /* server may be down */ }
     });
@@ -194,7 +195,7 @@ export async function join(options: JoinOptions): Promise<void> {
       // ── /who ──────────────────────────────────────────────────────
       case "who": {
         try {
-          const res = await fetch(`${serverUrl}/participants?token=${sessionToken}`);
+          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
           if (!res.ok) { systemEvent("Failed to get participant list."); return; }
           const data = (await res.json()) as { participants: Array<{ id: string; name: string; type: string; authority?: string }> };
           const lines = data.participants.map((p) => {
@@ -224,7 +225,7 @@ export async function join(options: JoinOptions): Promise<void> {
 
         // Look up participant by name
         try {
-          const res = await fetch(`${serverUrl}/participants?token=${sessionToken}`);
+          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
           if (!res.ok) { systemEvent("Failed to get participant list."); return; }
           const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
           const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
@@ -232,8 +233,8 @@ export async function join(options: JoinOptions): Promise<void> {
 
           const kickRes = await fetch(`${serverUrl}/kick`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: sessionToken, participantId: target.id }),
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+            body: JSON.stringify({ participantId: target.id }),
           });
           if (!kickRes.ok) { systemEvent(`Failed to kick: ${await kickRes.text()}`); return; }
           systemEvent(`Kicked ${targetName}.`);
@@ -250,7 +251,7 @@ export async function join(options: JoinOptions): Promise<void> {
         if (!targetName) { systemEvent("Usage: /mute <name>"); return; }
 
         try {
-          const res = await fetch(`${serverUrl}/participants?token=${sessionToken}`);
+          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
           if (!res.ok) { systemEvent("Failed to get participant list."); return; }
           const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
           const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
@@ -258,8 +259,8 @@ export async function join(options: JoinOptions): Promise<void> {
 
           const authRes = await fetch(`${serverUrl}/set-authority`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: sessionToken, participantId: target.id, authority: "guest" }),
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+            body: JSON.stringify({ participantId: target.id, authority: "guest" }),
           });
           if (!authRes.ok) { systemEvent(`Failed to mute: ${await authRes.text()}`); return; }
           systemEvent(`Muted ${targetName} (guest).`);
@@ -276,7 +277,7 @@ export async function join(options: JoinOptions): Promise<void> {
         if (!targetName) { systemEvent("Usage: /unmute <name>"); return; }
 
         try {
-          const res = await fetch(`${serverUrl}/participants?token=${sessionToken}`);
+          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
           if (!res.ok) { systemEvent("Failed to get participant list."); return; }
           const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
           const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
@@ -284,8 +285,8 @@ export async function join(options: JoinOptions): Promise<void> {
 
           const authRes = await fetch(`${serverUrl}/set-authority`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: sessionToken, participantId: target.id, authority: "member" }),
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+            body: JSON.stringify({ participantId: target.id, authority: "member" }),
           });
           if (!authRes.ok) { systemEvent(`Failed to unmute: ${await authRes.text()}`); return; }
           systemEvent(`Unmuted ${targetName} (member).`);
@@ -303,7 +304,7 @@ export async function join(options: JoinOptions): Promise<void> {
         if (!targetName || !mode) { systemEvent("Usage: /setmode <name> <mode>"); return; }
 
         try {
-          const res = await fetch(`${serverUrl}/participants?token=${sessionToken}`);
+          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
           if (!res.ok) { systemEvent("Failed to get participant list."); return; }
           const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
           const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
@@ -311,8 +312,8 @@ export async function join(options: JoinOptions): Promise<void> {
 
           const modeRes = await fetch(`${serverUrl}/set-mode`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: sessionToken, participantId: target.id, mode }),
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+            body: JSON.stringify({ participantId: target.id, mode }),
           });
           if (!modeRes.ok) { systemEvent(`Failed to set mode: ${await modeRes.text()}`); return; }
           systemEvent(`Set ${targetName} to ${mode}.`);
@@ -332,13 +333,13 @@ export async function join(options: JoinOptions): Promise<void> {
         }
 
         try {
-          const body: Record<string, unknown> = { token: sessionToken };
-          if (targetAuthority) body.authority = targetAuthority;
+          const shareBody: Record<string, unknown> = {};
+          if (targetAuthority) shareBody.authority = targetAuthority;
 
           const res = await fetch(`${serverUrl}/share`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+            body: JSON.stringify(shareBody),
           });
           if (!res.ok) { systemEvent(`Failed: ${await res.text()}`); return; }
           const data = (await res.json()) as { links: Record<string, string> };
@@ -382,8 +383,8 @@ export async function join(options: JoinOptions): Promise<void> {
       try {
         await fetch(`${serverUrl}/message`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: sessionToken, content }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+          body: JSON.stringify({ content }),
         });
       } catch {
         // Server may be down — silently fail

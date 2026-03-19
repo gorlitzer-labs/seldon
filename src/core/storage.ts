@@ -41,7 +41,8 @@
  */
 
 import { writeFile, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
 
 import type { RoomEvent } from "./events.js";
 import type { EventCategory, Message, PaginatedResult } from "./types.js";
@@ -254,6 +255,12 @@ export class FileBackedStorage extends InMemoryStorage {
   constructor(filePath: string) {
     super();
     this._filePath = resolve(filePath);
+    // Defense-in-depth: ensure path is under cwd or tmp
+    const cwd = process.cwd();
+    const tmp = tmpdir();
+    if (!this._filePath.startsWith(cwd + sep) && !this._filePath.startsWith(tmp + sep)) {
+      throw new Error(`FileBackedStorage path must be under ${cwd} or ${tmp}`);
+    }
   }
 
   async addMessage(message: Message): Promise<Message> {

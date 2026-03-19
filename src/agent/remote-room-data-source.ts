@@ -70,7 +70,8 @@ export class RemoteRoomDataSource implements RoomDataSource {
   async getMessage(id: string): Promise<Message | null> {
     try {
       const res = await fetch(
-        `${this._serverUrl}/message/${encodeURIComponent(id)}?token=${this._sessionToken}`,
+        `${this._serverUrl}/message/${encodeURIComponent(id)}`,
+        { headers: { Authorization: `Bearer ${this._sessionToken}` } },
       );
       if (!res.ok) return null;
       const data = (await res.json()) as { message: Message };
@@ -85,11 +86,13 @@ export class RemoteRoomDataSource implements RoomDataSource {
     limit = 10,
     cursor: string | null = null,
   ): Promise<PaginatedResult<Message>> {
-    const params = new URLSearchParams({ token: this._sessionToken, query, count: String(limit) });
+    const params = new URLSearchParams({ query, count: String(limit) });
     if (cursor) params.set("cursor", cursor);
 
     try {
-      const res = await fetch(`${this._serverUrl}/search?${params}`);
+      const res = await fetch(`${this._serverUrl}/search?${params}`, {
+        headers: { Authorization: `Bearer ${this._sessionToken}` },
+      });
       if (!res.ok) return { items: [], has_more: false, next_cursor: null };
       return (await res.json()) as PaginatedResult<Message>;
     } catch {
@@ -101,11 +104,13 @@ export class RemoteRoomDataSource implements RoomDataSource {
     limit = 30,
     cursor: string | null = null,
   ): Promise<PaginatedResult<Message>> {
-    const params = new URLSearchParams({ token: this._sessionToken, count: String(limit) });
+    const params = new URLSearchParams({ count: String(limit) });
     if (cursor) params.set("cursor", cursor);
 
     try {
-      const res = await fetch(`${this._serverUrl}/messages?${params}`);
+      const res = await fetch(`${this._serverUrl}/messages?${params}`, {
+        headers: { Authorization: `Bearer ${this._sessionToken}` },
+      });
       if (!res.ok) return { items: [], has_more: false, next_cursor: null };
       return (await res.json()) as PaginatedResult<Message>;
     } catch {
@@ -118,12 +123,14 @@ export class RemoteRoomDataSource implements RoomDataSource {
     limit = 50,
     cursor: string | null = null,
   ): Promise<PaginatedResult<RoomEvent>> {
-    const params = new URLSearchParams({ token: this._sessionToken, count: String(limit) });
+    const params = new URLSearchParams({ count: String(limit) });
     if (category) params.set("category", category);
     if (cursor) params.set("cursor", cursor);
 
     try {
-      const res = await fetch(`${this._serverUrl}/events/history?${params}`);
+      const res = await fetch(`${this._serverUrl}/events/history?${params}`, {
+        headers: { Authorization: `Bearer ${this._sessionToken}` },
+      });
       if (!res.ok) return { items: [], has_more: false, next_cursor: null };
       return (await res.json()) as PaginatedResult<RoomEvent>;
     } catch {
@@ -136,13 +143,13 @@ export class RemoteRoomDataSource implements RoomDataSource {
     replyToId?: string,
     image?: { url: string; mimeType: string; sizeBytes: number } | null,
   ): Promise<Message> {
-    const body: Record<string, unknown> = { token: this._sessionToken, content };
+    const body: Record<string, unknown> = { content };
     if (replyToId) body.replyTo = replyToId;
     if (image) body.image = image;
 
     const res = await fetch(`${this._serverUrl}/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._sessionToken}` },
       body: JSON.stringify(body),
     });
 
@@ -167,8 +174,8 @@ export class RemoteRoomDataSource implements RoomDataSource {
   async emitEvent(event: RoomEvent): Promise<void> {
     const res = await fetch(`${this._serverUrl}/event`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: this._sessionToken, event }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._sessionToken}` },
+      body: JSON.stringify({ event }),
     });
 
     if (!res.ok) {

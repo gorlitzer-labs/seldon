@@ -10,8 +10,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
-import { join as pathJoin } from "node:path";
+import { tmpdir, networkInterfaces } from "node:os";
+import { join as pathJoin, resolve, sep } from "node:path";
 
 import { Room } from "../core/room.js";
 import { InMemoryStorage, FileBackedStorage } from "../core/storage.js";
@@ -50,6 +50,10 @@ export interface ServeOptions {
   save?: string;
   /** Path to load room state from (JSON file). Implies save to the same file. */
   load?: string;
+  /** Bind to 0.0.0.0 instead of 127.0.0.1. Required for non-localhost access. */
+  expose?: boolean;
+  /** Allowed CORS origins (in addition to localhost and tunnel URL). */
+  corsOrigins?: string[];
 }
 
 export interface ServeResult {
@@ -77,14 +81,38 @@ async function enrichAndSend(res: ServerResponse, event: RoomEvent, room: Room):
 
 // ── Main serve command ───────────────────────────────────────────────────────
 
+function validateSavePath(p: string): string {
+  const resolved = resolve(p);
+  if (!resolved.endsWith(".json")) throw new Error("Save/load path must end with .json");
+  const cwd = process.cwd();
+  const tmp = tmpdir();
+  if (!resolved.startsWith(cwd + sep) && !resolved.startsWith(tmp + sep))
+    throw new Error(`Path must be under ${cwd} or ${tmp}`);
+  return resolved;
+}
+
+function getLanIp(): string | null {
+  for (const ifaces of Object.values(networkInterfaces())) {
+    for (const iface of ifaces ?? []) {
+      if (iface.family === "IPv4" && !iface.internal) return iface.address;
+    }
+  }
+  return null;
+}
+
 export async function serve(options: ServeOptions): Promise<ServeResult> {
   const roomName = options.room ?? randomRoomName();
   const port = options.port ?? 7890;
-  const serverUrl = `http://127.0.0.1:${port}`;
+  const lanIp = options.expose ? getLanIp() : null;
+  const serverUrl = `http://${lanIp ?? "127.0.0.1"}:${port}`;
   const log = options.headless ? () => {} : logServer;
 
   let publicUrl = serverUrl;
   let tunnelProcess: ChildProcess | null = null;
+
+  // Validate save/load paths
+  if (options.save) options.save = validateSavePath(options.save);
+  if (options.load) options.load = validateSavePath(options.load);
 
   // Create room with persistence (default: tmp folder)
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19); // YYYY-MM-DDTHH-MM-SS
@@ -129,6 +157,13 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
   // ── Auth helper ──────────────────────────────────────────────────────────
 
+  function extractSessionToken(req: IncomingMessage, url: URL, body?: Record<string, unknown>): string | null {
+    const h = req.headers.authorization;
+    if (h?.startsWith("Bearer ")) return h.slice(7);
+    // Fallback: query param / body (deprecated)
+    return url.searchParams.get("token") ?? (body?.token ? String(body.token) : null);
+  }
+
   function getSession(token: string | null) {
     if (!token) return null;
     const p = participants.get(token);
@@ -136,6 +171,11 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     const g = guests.get(token);
     if (g) return { ...g, kind: "guest" as const };
     return null;
+  }
+
+  function clampInt(val: string | null, def: number, min: number, max: number): number {
+    const n = parseInt(val ?? String(def), 10);
+    return isNaN(n) ? def : Math.max(min, Math.min(max, n));
   }
 
   function jsonError(res: ServerResponse, status: number, error: string): void {
@@ -148,10 +188,93 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     res.end(JSON.stringify({ ok: true, ...data }));
   }
 
+  // ── CORS helper ────────────────────────────────────────────────────────
+
+  const allowedOrigins = new Set<string>([
+    `http://127.0.0.1:${port}`,
+    `http://localhost:${port}`,
+    ...(options.corsOrigins ?? []),
+  ]);
+
+  function addCorsOrigin(origin: string): void {
+    allowedOrigins.add(origin);
+  }
+
+  function getCorsHeaders(req: IncomingMessage): Record<string, string> {
+    const origin = req.headers.origin;
+    if (!origin) return {};
+    if (allowedOrigins.has(origin)) {
+      return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept",
+        "Access-Control-Max-Age": "86400",
+        Vary: "Origin",
+      };
+    }
+    return {};
+  }
+
+  // ── Rate limiter ────────────────────────────────────────────────────────
+
+  class RateLimiter {
+    private _buckets = new Map<string, { count: number; resetAt: number }>();
+    constructor(private _max: number, private _windowMs: number) {}
+    check(key: string): { allowed: boolean; retryAfter?: number } {
+      const now = Date.now();
+      const bucket = this._buckets.get(key);
+      if (!bucket || now >= bucket.resetAt) {
+        this._buckets.set(key, { count: 1, resetAt: now + this._windowMs });
+        return { allowed: true };
+      }
+      if (bucket.count >= this._max) {
+        return { allowed: false, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) };
+      }
+      bucket.count++;
+      return { allowed: true };
+    }
+  }
+
+  const joinLimiter = new RateLimiter(10, 60_000);       // 10/min per IP
+  const messageLimiter = new RateLimiter(30, 60_000);     // 30/min per session
+  const shareLimiter = new RateLimiter(10, 60_000);       // 10/min per session
+  const getLimiter = new RateLimiter(60, 60_000);          // 60/min per session
+  const sseLimiter = new RateLimiter(5, 60_000);           // 5/min per IP
+
+  function getClientIp(req: IncomingMessage): string {
+    return req.socket.remoteAddress ?? "unknown";
+  }
+
+  function rateLimitError(res: ServerResponse, retryAfter: number): void {
+    res.writeHead(429, {
+      "Content-Type": "application/json",
+      "Retry-After": String(retryAfter),
+    });
+    res.end(JSON.stringify({ error: "Too many requests" }));
+  }
+
   // ── HTTP API ────────────────────────────────────────────────────────────
 
   const httpServer = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+
+    // ── CORS preflight ───────────────────────────────────────────────────
+    if (req.method === "OPTIONS") {
+      const corsHeaders = getCorsHeaders(req);
+      if (Object.keys(corsHeaders).length > 0) {
+        res.writeHead(204, corsHeaders);
+      } else {
+        res.writeHead(204);
+      }
+      res.end();
+      return;
+    }
+
+    // Apply CORS headers to all responses
+    const corsHeaders = getCorsHeaders(req);
+    for (const [k, v] of Object.entries(corsHeaders)) {
+      res.setHeader(k, v);
+    }
 
     // ── SSE event stream ───────────────────────────────────────────────────
     // ⚠️  MUST accept POST — DO NOT change to GET-only.
@@ -159,6 +282,9 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     // when the connection closes. POST streams in real-time. (cloudflared#1449)
     // https://github.com/cloudflare/cloudflared/issues/1449
     if (url.pathname === "/events" && (req.method === "GET" || req.method === "POST")) {
+      const sseCheck = sseLimiter.check(getClientIp(req));
+      if (!sseCheck.allowed) return rateLimitError(res, sseCheck.retryAfter!);
+
       const authHeader = req.headers.authorization;
       const sessionToken = authHeader?.startsWith("Bearer ")
         ? authHeader.slice(7)
@@ -175,7 +301,6 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
-        "Access-Control-Allow-Origin": "*",
       });
       res.flushHeaders();
 
@@ -186,6 +311,12 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       res.socket?.setNoDelay(true);
 
       sseConnections.set(session.id, res);
+
+      // Heartbeat every 30s to keep the connection alive through
+      // proxies, firewalls, and OS-level TCP idle timeouts.
+      const heartbeat = setInterval(() => {
+        res.write(":heartbeat\n\n");
+      }, 30_000);
 
       // Send recent history so the joiner has context
       const history = await room.listEvents(undefined, 50);
@@ -207,6 +338,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // Cleanup on client disconnect
       req.on("close", () => {
+        clearInterval(heartbeat);
         sseConnections.delete(session.id);
       });
       return;
@@ -215,8 +347,12 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     // ── GET endpoints ─────────────────────────────────────────────────────
 
     if (req.method === "GET") {
-      const sessionToken = url.searchParams.get("token");
+      const sessionToken = extractSessionToken(req, url);
       const session = getSession(sessionToken);
+      if (sessionToken) {
+        const getCheck = getLimiter.check(sessionToken);
+        if (!getCheck.allowed) return rateLimitError(res, getCheck.retryAfter!);
+      }
 
       // ── GET /participants ────────────────────────────────────────────────
       if (url.pathname === "/participants") {
@@ -246,7 +382,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── GET /messages ────────────────────────────────────────────────────
       if (url.pathname === "/messages") {
         if (!session) return jsonError(res, 401, "Invalid session token");
-        const count = parseInt(url.searchParams.get("count") ?? "30", 10);
+        const count = clampInt(url.searchParams.get("count"), 30, 1, 100);
         const cursor = url.searchParams.get("cursor") ?? null;
         const result = await room.listMessages(count, cursor);
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -258,7 +394,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       if (url.pathname === "/events/history") {
         if (!session) return jsonError(res, 401, "Invalid session token");
         const category = url.searchParams.get("category") ?? null;
-        const count = parseInt(url.searchParams.get("count") ?? "50", 10);
+        const count = clampInt(url.searchParams.get("count"), 50, 1, 200);
         const cursor = url.searchParams.get("cursor") ?? null;
         const result = await room.listEvents(category as any, count, cursor);
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -271,7 +407,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         if (!session) return jsonError(res, 401, "Invalid session token");
         const query = url.searchParams.get("query") ?? "";
         if (!query) return jsonError(res, 400, "Missing query parameter");
-        const count = parseInt(url.searchParams.get("count") ?? "10", 10);
+        const count = clampInt(url.searchParams.get("count"), 10, 1, 50);
         const cursor = url.searchParams.get("cursor") ?? null;
         const result = await room.searchMessages(query, count, cursor);
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -287,8 +423,11 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // ── POST /join ──────────────────────────────────────────────────────
       if (url.pathname === "/join") {
-        // Accept share token OR legacy type-based join
-        const shareToken = String(body.token ?? "");
+        const joinCheck = joinLimiter.check(getClientIp(req));
+        if (!joinCheck.allowed) return rateLimitError(res, joinCheck.retryAfter!);
+
+        // Accept share token (body.shareToken preferred, body.token as fallback)
+        const shareToken = String(body.shareToken ?? body.token ?? "");
         const legacyType = String(body.type ?? "");
 
         let authority: AuthorityLevel;
@@ -367,16 +506,21 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // ── All remaining POST endpoints require a session token ────────────
 
-      const sessionToken = String(body.token ?? "");
+      const sessionToken = extractSessionToken(req, url, body) ?? "";
       const session = getSession(sessionToken);
 
       // ── POST /message ───────────────────────────────────────────────────
       if (url.pathname === "/message") {
         if (!session) return jsonError(res, 401, "Invalid session token");
+        if (sessionToken) {
+          const msgCheck = messageLimiter.check(sessionToken);
+          if (!msgCheck.allowed) return rateLimitError(res, msgCheck.retryAfter!);
+        }
         if (session.authority === "guest") return jsonError(res, 403, "Guests cannot send messages");
         const content = String(body.content ?? "");
         const replyTo = body.replyTo ? String(body.replyTo) : undefined;
         if (!content) return jsonError(res, 400, "Empty message");
+        if (content.length > 50_000) return jsonError(res, 400, "Message too long (max 50000 chars)");
 
         const p = participants.get(sessionToken);
         if (!p) return jsonError(res, 403, "Not a participant");
@@ -520,6 +664,10 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── POST /share ─────────────────────────────────────────────────────
       if (url.pathname === "/share") {
         if (!session) return jsonError(res, 401, "Invalid session token");
+        if (sessionToken) {
+          const shareCheck = shareLimiter.check(sessionToken);
+          if (!shareCheck.allowed) return rateLimitError(res, shareCheck.retryAfter!);
+        }
         if (session.authority === "guest") return jsonError(res, 403, "Guests cannot create share links");
 
         const targetAuthority = (body.authority as AuthorityLevel) ?? undefined;
@@ -545,10 +693,37 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         return;
       }
 
+      // ── POST /rotate-token ──────────────────────────────────────────────
+      if (url.pathname === "/rotate-token") {
+        if (!session || !sessionToken) return jsonError(res, 401, "Invalid session token");
+        const result = tokens.rotateSessionToken(sessionToken);
+        if (!result) return jsonError(res, 401, "Token expired or invalid");
+
+        // Move participant/guest entry to new token
+        const p = participants.get(sessionToken);
+        if (p) {
+          participants.delete(sessionToken);
+          p.sessionToken = result.newToken;
+          participants.set(result.newToken, p);
+          idToSession.set(p.id, result.newToken);
+        }
+        const g = guests.get(sessionToken);
+        if (g) {
+          guests.delete(sessionToken);
+          g.sessionToken = result.newToken;
+          guests.set(result.newToken, g);
+          idToSession.set(g.id, result.newToken);
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ sessionToken: result.newToken }));
+        return;
+      }
+
       // ── POST /disconnect ────────────────────────────────────────────────
       if (url.pathname === "/disconnect") {
-        // Accept either session token or legacy participantId/agentId
-        const token = String(body.token ?? "");
+        // Accept Authorization header, body.token, or legacy participantId/agentId
+        const token = extractSessionToken(req, url, body) ?? "";
         const legacyId = String(body.participantId ?? body.agentId ?? "");
 
         let targetToken = token;
@@ -598,15 +773,22 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   });
 
   await new Promise<void>((resolve) => {
-    httpServer.listen(port, "0.0.0.0", () => resolve());
+    httpServer.listen(port, options.expose ? "0.0.0.0" : "127.0.0.1", () => resolve());
   });
+
+  // Prune expired tokens every 5 minutes
+  const pruneInterval = setInterval(() => tokens.pruneExpired(), 5 * 60 * 1000);
+  pruneInterval.unref();
 
   // Start tunnel if --share
   if (options.share) {
     tunnelProcess = await startTunnel(port);
     if (tunnelProcess) {
       const tunnelUrl = await waitForTunnelUrl(tunnelProcess);
-      if (tunnelUrl) publicUrl = tunnelUrl;
+      if (tunnelUrl) {
+        publicUrl = tunnelUrl;
+        addCorsOrigin(tunnelUrl);
+      }
     }
   }
 
@@ -614,8 +796,14 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const adminToken = tokens.generateShareToken("admin", "admin")!;
   const memberToken = tokens.generateShareToken("admin", "member")!;
 
+  function obfuscate(token: string): string {
+    if (token.length <= 8) return "****";
+    return token.slice(0, 4) + "..." + token.slice(-4);
+  }
+
   if (options.headless) {
     process.stdout.write(JSON.stringify({ serverUrl, publicUrl, roomName, adminToken, memberToken, savePath }) + "\n");
+    process.stderr.write("Warning: raw tokens in stdout — do not share this output.\n");
   } else if (!options.quiet) {
     let version = process.env.npm_package_version ?? "";
     if (!version) {
@@ -627,8 +815,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         version = "unknown";
       }
     }
-    const adminUrl = buildShareUrl(publicUrl, adminToken);
-    const joinUrl = buildShareUrl(publicUrl, memberToken);
+    const adminUrlObfuscated = buildShareUrl(publicUrl, obfuscate(adminToken));
+    const joinUrlObfuscated = buildShareUrl(publicUrl, obfuscate(memberToken));
 
     console.log(`
   stoops v${version}
@@ -637,10 +825,12 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   Server:  ${serverUrl}${publicUrl !== serverUrl ? `\n  Tunnel:  ${publicUrl}` : ""}
   Saving:  ${savePath}
 
-  Join:      stoops join ${joinUrl}
-  Admin:     stoops join ${adminUrl}
-  Claude:    stoops run claude --name MyClaude  →  then tell agent to join: ${joinUrl}
-  Codex:     stoops run codex --name MyCodex   →  then tell agent to join: ${joinUrl}
+  Join:      stoops join ${joinUrlObfuscated}
+  Admin:     stoops join ${adminUrlObfuscated}
+  Claude:    stoops run claude --name MyClaude  →  then tell agent to join (use /share in TUI for full URL)
+  Codex:     stoops run codex --name MyCodex   →  then tell agent to join (use /share in TUI for full URL)
+
+  Use /share in the TUI or --headless to get full join URLs.
 `);
   }
 

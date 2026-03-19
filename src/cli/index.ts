@@ -116,6 +116,8 @@ async function main(): Promise<void> {
       port,
       share: args.includes("--share"),
       headless: args.includes("--headless"),
+      expose: args.includes("--expose"),
+      corsOrigins: getAllFlags("cors-origin"),
       save: getFlag("save"),
       load: getFlag("load"),
     });
@@ -135,6 +137,8 @@ async function main(): Promise<void> {
       port,
       share: args.includes("--share"),
       quiet: true,
+      expose: args.includes("--expose"),
+      corsOrigins: getAllFlags("cors-origin"),
       save: getFlag("save"),
       load: getFlag("load"),
     });

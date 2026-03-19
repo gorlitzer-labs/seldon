@@ -14,13 +14,39 @@ import type { AuthorityLevel } from "../core/types.js";
 interface SessionData {
   participantId: string;
   authority: AuthorityLevel;
+  createdAt: number;
+  expiresAt: number;
 }
 
+interface ShareTokenData {
+  authority: AuthorityLevel;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface TokenManagerOptions {
+  /** Session token TTL in ms. Default: 24 hours. */
+  sessionTtlMs?: number;
+  /** Share token TTL in ms. Default: 1 hour. */
+  shareTtlMs?: number;
+}
+
+const DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000; // 24h
+const DEFAULT_SHARE_TTL = 60 * 60 * 1000; // 1h
+
 export class TokenManager {
-  /** share token hash → authority level */
-  private _shareTokens = new Map<string, AuthorityLevel>();
+  /** share token → share data */
+  private _shareTokens = new Map<string, ShareTokenData>();
   /** session token → participant data */
   private _sessionTokens = new Map<string, SessionData>();
+
+  private _sessionTtlMs: number;
+  private _shareTtlMs: number;
+
+  constructor(options?: TokenManagerOptions) {
+    this._sessionTtlMs = options?.sessionTtlMs ?? DEFAULT_SESSION_TTL;
+    this._shareTtlMs = options?.shareTtlMs ?? DEFAULT_SHARE_TTL;
+  }
 
   /**
    * Generate a share token at the given authority tier.
@@ -29,25 +55,48 @@ export class TokenManager {
   generateShareToken(callerAuthority: AuthorityLevel, targetAuthority: AuthorityLevel): string | null {
     if (!canGrant(callerAuthority, targetAuthority)) return null;
     const token = randomBytes(16).toString("hex");
-    this._shareTokens.set(token, targetAuthority);
+    const now = Date.now();
+    this._shareTokens.set(token, {
+      authority: targetAuthority,
+      createdAt: now,
+      expiresAt: now + this._shareTtlMs,
+    });
     return token;
   }
 
-  /** Validate a share token and return its authority level. */
+  /** Validate a share token and return its authority level. Deletes if expired. */
   validateShareToken(token: string): AuthorityLevel | null {
-    return this._shareTokens.get(token) ?? null;
+    const data = this._shareTokens.get(token);
+    if (!data) return null;
+    if (Date.now() > data.expiresAt) {
+      this._shareTokens.delete(token);
+      return null;
+    }
+    return data.authority;
   }
 
   /** Create a session token for a participant. */
   createSessionToken(participantId: string, authority: AuthorityLevel): string {
     const token = randomBytes(16).toString("hex");
-    this._sessionTokens.set(token, { participantId, authority });
+    const now = Date.now();
+    this._sessionTokens.set(token, {
+      participantId,
+      authority,
+      createdAt: now,
+      expiresAt: now + this._sessionTtlMs,
+    });
     return token;
   }
 
-  /** Validate a session token and return participant data. */
+  /** Validate a session token and return participant data. Deletes if expired. */
   validateSessionToken(token: string): SessionData | null {
-    return this._sessionTokens.get(token) ?? null;
+    const data = this._sessionTokens.get(token);
+    if (!data) return null;
+    if (Date.now() > data.expiresAt) {
+      this._sessionTokens.delete(token);
+      return null;
+    }
+    return data;
   }
 
   /** Revoke a session token (on disconnect). */
@@ -69,6 +118,38 @@ export class TokenManager {
       if (data.participantId === participantId) return token;
     }
     return null;
+  }
+
+  /** Rotate a session token: create new with same participant data, delete old. */
+  rotateSessionToken(oldToken: string): { newToken: string; data: SessionData } | null {
+    const data = this._sessionTokens.get(oldToken);
+    if (!data) return null;
+    if (Date.now() > data.expiresAt) {
+      this._sessionTokens.delete(oldToken);
+      return null;
+    }
+    this._sessionTokens.delete(oldToken);
+    const newToken = randomBytes(16).toString("hex");
+    const now = Date.now();
+    const newData: SessionData = {
+      participantId: data.participantId,
+      authority: data.authority,
+      createdAt: now,
+      expiresAt: now + this._sessionTtlMs,
+    };
+    this._sessionTokens.set(newToken, newData);
+    return { newToken, data: newData };
+  }
+
+  /** Sweep expired tokens from both maps. */
+  pruneExpired(): void {
+    const now = Date.now();
+    for (const [token, data] of this._shareTokens) {
+      if (now > data.expiresAt) this._shareTokens.delete(token);
+    }
+    for (const [token, data] of this._sessionTokens) {
+      if (now > data.expiresAt) this._sessionTokens.delete(token);
+    }
   }
 }
 

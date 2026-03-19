@@ -54,7 +54,8 @@
     "watch": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/cli/index.js"
   },
   "author": "Izzat Alsharif <work@izzatalsharif.com>",
   "license": "MIT",
