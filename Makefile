@@ -21,7 +21,7 @@ help: ## show this help
 	@echo "    $(D)Changed code? Just $(C)make build$(R) $(D)— the symlink picks it up.$(R)"
 	@echo ""
 	@echo "  $(M)Run$(R)"
-	@echo "    $(C)make room$(R)             $(D)→ apiary --room sweatshop$(R)"
+	@echo "    $(C)make room$(R)             $(D)→ apiary --room sweatshop$(R)   $(D)(ROOM= NAME=$(Y)BeeKeeper$(R)$(D))$(R)"
 	@echo "    $(C)make run-claude$(R)       $(D)→ apiary run claude$(R)      $(D)(ARGS=\"--name $(Y)Expendable3$(R)$(D)\")$(R)"
 	@echo "    $(C)make run-codex$(R)        $(D)→ apiary run codex$(R)       $(D)(ARGS=\"--name $(Y)CheapLabor$(R)$(D)\")$(R)"
 	@echo ""
@@ -68,7 +68,7 @@ build: ## build TypeScript
 	npm run build
 
 room: ## start a room + join the TUI
-	apiary --room $(or $(ROOM),lobby) $(ARGS)
+	apiary --room $(or $(ROOM),lobby) $(if $(NAME),--name $(NAME)) $(ARGS)
 
 run-claude: ## launch Claude Code agent
 	apiary run claude $(ARGS)
