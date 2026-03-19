@@ -1,5 +1,5 @@
 /**
- * stoops run codex — client-side agent runtime for OpenAI Codex CLI.
+ * apiary run codex — client-side agent runtime for OpenAI Codex CLI.
  *
  * Uses the shared runtime setup (EventProcessor, MCP server)
  * then adds Codex-specific pieces: tmux session + CodexTmuxBridge delivery.
@@ -86,7 +86,7 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
   // Codex supports remote MCP servers natively via url in config.toml.
   // No stdio bridge needed (unlike Claude Code which has an OAuth bug).
 
-  const tmpDir = mkdtempSync(join(tmpdir(), "stoops_codex_"));
+  const tmpDir = mkdtempSync(join(tmpdir(), "apiary_codex_"));
 
   const mcpPort = new URL(setup.mcpServer.url).port;
   const mcpUrl = `http://127.0.0.1:${mcpPort}/mcp`;
@@ -96,7 +96,7 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
   mkdirSync(codexConfigDir, { recursive: true });
 
   const configToml = [
-    "[mcp_servers.stoops]",
+    "[mcp_servers.apiary]",
     `url = "${mcpUrl}"`,
     `startup_timeout_sec = 15`,
     `tool_timeout_sec = 60`,
@@ -106,7 +106,7 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
 
   // ── Create tmux session + launch Codex ──────────────────────────────────
 
-  const tmuxSession = `stoops_${setup.agentName}`;
+  const tmuxSession = `apiary_${setup.agentName}`;
 
   if (tmuxSessionExists(tmuxSession)) {
     tmuxKillSession(tmuxSession);

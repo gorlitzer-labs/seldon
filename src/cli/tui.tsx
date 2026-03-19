@@ -1,5 +1,5 @@
 /**
- * stoops TUI — ink-based terminal UI for the room server.
+ * apiary TUI — ink-based terminal UI for the room server.
  *
  * Uses ink's <Static> for events (rendered once, selectable terminal text)
  * and a dynamic footer for input + status. Same architecture as Claude Code.
@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { render, Box, Text, Static, useStdout, useInput } from "ink";
 
-// ── Palette (from stoops-app) ─────────────────────────────────────────────────
+// ── Palette (from apiary-app) ─────────────────────────────────────────────────
 
 const C = {
   cyan:      "#00d4ff",

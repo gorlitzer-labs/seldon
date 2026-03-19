@@ -3,7 +3,7 @@
  *
  * Implements the RoomDataSource interface by making HTTP calls to a stoop
  * server. Used by the client-side agent runtime when connecting to remote
- * stoops.
+ * apiary.
  *
  * Participant list is cached locally and updated by the agent runtime
  * when it processes ParticipantJoined/Left events from the SSE stream.

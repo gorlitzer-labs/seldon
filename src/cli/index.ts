@@ -1,19 +1,10 @@
 #!/usr/bin/env node
 
-/**
- * stoops CLI — shared rooms for AI agents.
- *
- * Usage:
- *   stoops [--room <name>] [--port <port>] [--share]                         Host a room + join it
- *   stoops serve [--room <name>] [--port <port>] [--share]                   Headless server only
- *   stoops join <url> [--name <name>] [--guest]                              Join a room as a human
- *   stoops run claude [--name <name>] [--admin] [-- <args>]                Connect Claude Code
- *   stoops run opencode [--name <name>] [--admin] [-- <args>]                Connect OpenCode
- */
+/** apiary CLI — shared rooms for AI agents. */
 
 import { serve } from "./serve.js";
 import { join } from "./join.js";
-import { runClaude } from "./claude/run.js";
+import { runClaude, stopClaude, listClaudeSessions } from "./claude/run.js";
 import { runOpencode } from "./opencode/run.js";
 import { runCodex } from "./codex/run.js";
 import { buildShareUrl } from "./auth.js";
@@ -42,12 +33,20 @@ function getAllFlags(name: string, arr: string[] = args): string[] {
 
 function printUsage(stream: typeof console.log = console.log): void {
   stream("Usage:");
-  stream("  stoops [--room <name>] [--port <port>] [--share]                         Host + join");
-  stream("  stoops serve [--room <name>] [--port <port>] [--share]                   Headless server");
-  stream("  stoops join <url> [--name <name>] [--guest]                              Join a room");
-  stream("  stoops run claude [--name <name>] [--admin] [-- <args>]                  Connect Claude Code");
-  stream("  stoops run opencode [--name <name>] [--admin] [-- <args>]                Connect OpenCode");
-  stream("  stoops run codex [--name <name>] [--admin] [-- <args>]                   Connect Codex");
+  stream("");
+  stream("  Room");
+  stream("    apiary [--room <name>] [--port <port>] [--share] [--expose]   Host a room + join the TUI");
+  stream("    apiary serve [options]                                        Server only (no TUI)");
+  stream("    apiary join <url> [--name <name>] [--guest]                   Join an existing room");
+  stream("");
+  stream("  Agents");
+  stream("    apiary run claude [--name <n>] [--admin] [--resume] [-- …]    Launch or resume Claude Code");
+  stream("    apiary run codex  [--name <n>] [--admin] [-- …]              Launch Codex");
+  stream("    apiary stop claude [--name <n>]                               Stop a backgrounded agent");
+  stream("    apiary ps                                                     List active sessions");
+  stream("");
+  stream("  Detach from a Claude session with Ctrl+B D — it keeps running.");
+  stream("  Re-attach with: apiary run claude --resume");
 }
 
 async function main(): Promise<void> {
@@ -57,23 +56,48 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── stoops run <runtime> ───────────────────────────────────────────────
+  // ── apiary stop <runtime> ──────────────────────────────────────────────
+  if (args[0] === "stop" && args[1] === "claude") {
+    const name = getFlag("name", args.slice(2));
+    await stopClaude(name);
+    return;
+  }
+
+  // ── apiary ps ────────────────────────────────────────────────────────────
+  if (args[0] === "ps") {
+    const sessions = listClaudeSessions();
+    if (sessions.length === 0) {
+      console.log("No active sessions.");
+    } else {
+      console.log("Active sessions:");
+      for (const s of sessions) {
+        let alive = false;
+        try { process.kill(s.pid, 0); alive = true; } catch { /* dead */ }
+        const status = alive ? "running" : "stale";
+        console.log(`  ${s.agentName}  (pid ${s.pid}, ${status})`);
+      }
+    }
+    return;
+  }
+
+  // ── apiary run <runtime> ───────────────────────────────────────────────
   if (args[0] === "run" && (args[1] === "claude" || args[1] === "opencode" || args[1] === "codex")) {
     const runtime = args[1];
     const restArgs = args.slice(2);
 
-    // Split on -- separator: stoops flags before, passthrough args after
+    // Split on -- separator: apiary flags before, passthrough args after
     const ddIndex = restArgs.indexOf("--");
-    const stoopsArgs = ddIndex >= 0 ? restArgs.slice(0, ddIndex) : restArgs;
+    const apiaryArgs = ddIndex >= 0 ? restArgs.slice(0, ddIndex) : restArgs;
     const extraArgs = ddIndex >= 0 ? restArgs.slice(ddIndex + 1) : [];
 
-    const joinUrls = getAllFlags("join", stoopsArgs);
+    const joinUrls = getAllFlags("join", apiaryArgs);
 
     const runtimeOptions = {
       joinUrls: joinUrls.length > 0 ? joinUrls : undefined,
-      name: getFlag("name", stoopsArgs),
-      admin: stoopsArgs.includes("--admin"),
-      headless: stoopsArgs.includes("--headless"),
+      name: getFlag("name", apiaryArgs),
+      admin: apiaryArgs.includes("--admin"),
+      headless: apiaryArgs.includes("--headless"),
+      resume: apiaryArgs.includes("--resume"),
       extraArgs,
     };
 
@@ -87,11 +111,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── stoops join <url> ──────────────────────────────────────────────────
+  // ── apiary join <url> ──────────────────────────────────────────────────
   if (args[0] === "join") {
     const server = args[1];
     if (!server || server.startsWith("--")) {
-      console.error("Usage: stoops join <url> [--name <name>] [--guest] [--headless]");
+      console.error("Usage: apiary join <url> [--name <name>] [--guest] [--headless]");
       process.exit(1);
     }
     await join({
@@ -103,7 +127,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── stoops serve ───────────────────────────────────────────────────────
+  // ── apiary serve ───────────────────────────────────────────────────────
   if (args[0] === "serve") {
     const portStr = getFlag("port");
     const port = portStr ? parseInt(portStr, 10) : undefined;
@@ -124,7 +148,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── stoops (bare) — host + join ────────────────────────────────────────
+  // ── apiary (bare) — host + join ────────────────────────────────────────
   if (args.length === 0 || args[0]?.startsWith("--")) {
     const portStr = getFlag("port");
     const port = portStr ? parseInt(portStr, 10) : undefined;

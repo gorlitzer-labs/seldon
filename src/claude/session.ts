@@ -1,4 +1,4 @@
-/** Claude Agent SDK session backend for stoops agents. */
+/** Claude Agent SDK session backend for apiary agents. */
 
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -39,7 +39,7 @@ export class ClaudeSession implements ILLMSession {
     this._resolver = resolver;
     this._model = model;
     this._options = options;
-    this._cwd = mkdtempSync(join(tmpdir(), "stoops_agent_"));
+    this._cwd = mkdtempSync(join(tmpdir(), "apiary_agent_"));
   }
 
   async start(): Promise<void> {
@@ -82,18 +82,18 @@ export class ClaudeSession implements ILLMSession {
       // Use in-process SDK server type — zero HTTP overhead
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mcpServers: Record<string, any> = {
-        stoops: {
+        apiary: {
           type: "sdk",
-          name: "stoops",
+          name: "apiary",
           instance: this._mcpServer.instance,
         },
       };
 
       const allowedTools = [
-        "mcp__stoops__catch_up",
-        "mcp__stoops__search_by_text",
-        "mcp__stoops__search_by_message",
-        "mcp__stoops__send_message",
+        "mcp__apiary__catch_up",
+        "mcp__apiary__search_by_text",
+        "mcp__apiary__search_by_message",
+        "mcp__apiary__send_message",
       ];
 
       const options: Parameters<typeof sdk.query>[0]["options"] = {

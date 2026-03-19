@@ -1,4 +1,4 @@
-/** Event formatting and mode descriptions for stoops agents. */
+/** Event formatting and mode descriptions for apiary agents. */
 
 import type { Participant } from "../core/types.js";
 import type { RoomEvent } from "../core/events.js";

@@ -2,22 +2,22 @@
  * Runtime MCP server — local MCP proxy for the client-side agent runtime.
  *
  * Claude Code / OpenCode connects to this local server. Tool calls are routed
- * to the right stoop server via the RoomResolver (which maps room names to
+ * to the right apiary server via the RoomResolver (which maps room names to
  * RemoteRoomDataSource instances).
  *
  * Tools:
  *   Always present:
- *     stoops__catch_up(room?) — with room: room catch-up. Without: list rooms + pending invites.
- *     stoops__search_by_text(room, query, count?, cursor?)
- *     stoops__search_by_message(room, ref, direction?, count?)
- *     stoops__send_message(room, content, reply_to?)
- *     stoops__set_mode(room, mode)
- *     stoops__join_room(url, alias?)
- *     stoops__leave_room(room)
+ *     apiary__catch_up(room?) — with room: room catch-up. Without: list rooms + pending invites.
+ *     apiary__search_by_text(room, query, count?, cursor?)
+ *     apiary__search_by_message(room, ref, direction?, count?)
+ *     apiary__send_message(room, content, reply_to?)
+ *     apiary__set_mode(room, mode)
+ *     apiary__join_room(url, alias?)
+ *     apiary__leave_room(room)
  *
  *   With --admin flag:
- *     stoops__admin__set_mode_for(room, participant, mode)
- *     stoops__admin__kick(room, participant)
+ *     apiary__admin__set_mode_for(room, participant, mode)
+ *     apiary__admin__kick(room, participant)
  */
 
 import { createServer } from "node:http";
@@ -131,9 +131,9 @@ function formatJoinResponse(result: JoinRoomResult): string {
 function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
   const { resolver, toolOptions } = opts;
 
-  // ── stoops__catch_up ────────────────────────────────────────────────────
+  // ── apiary__catch_up ────────────────────────────────────────────────────
   server.tool(
-    "stoops__catch_up",
+    "apiary__catch_up",
     "List your rooms and status. Call with no arguments to see connected rooms. With a room name, returns recent activity you haven't seen.",
     {
       room: z.string().optional().describe("Room name. Omit to list all connected rooms."),
@@ -158,9 +158,9 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     },
   );
 
-  // ── stoops__search_by_text ──────────────────────────────────────────────
+  // ── apiary__search_by_text ──────────────────────────────────────────────
   server.tool(
-    "stoops__search_by_text",
+    "apiary__search_by_text",
     "Search chat history by keyword.",
     {
       room: z.string().describe("Room name"),
@@ -174,9 +174,9 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     async (args: any) => handleSearchByText(resolver, args, toolOptions) as any,
   );
 
-  // ── stoops__search_by_message ──────────────────────────────────────────
+  // ── apiary__search_by_message ──────────────────────────────────────────
   server.tool(
-    "stoops__search_by_message",
+    "apiary__search_by_message",
     "Show messages around a known message ref.",
     {
       room: z.string().describe("Room name"),
@@ -191,9 +191,9 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     async (args: any) => handleSearchByMessage(resolver, args, toolOptions) as any,
   );
 
-  // ── stoops__send_message ────────────────────────────────────────────────
+  // ── apiary__send_message ────────────────────────────────────────────────
   server.tool(
-    "stoops__send_message",
+    "apiary__send_message",
     "Send a message to a room.",
     {
       room: z.string().describe("Room name"),
@@ -206,9 +206,9 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     async (args: any) => handleSendMessage(resolver, args, toolOptions) as any,
   );
 
-  // ── stoops__set_mode ────────────────────────────────────────────────────
+  // ── apiary__set_mode ────────────────────────────────────────────────────
   server.tool(
-    "stoops__set_mode",
+    "apiary__set_mode",
     "Change your engagement mode. Controls which messages are pushed to you: everyone — all messages, people — human messages only, agents — agent messages only. Prefix with standby- for @mentions only.",
     {
       room: z.string().describe("Room name"),
@@ -227,9 +227,9 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     },
   );
 
-  // ── stoops__join_room ──────────────────────────────────────────────────
+  // ── apiary__join_room ──────────────────────────────────────────────────
   server.tool(
-    "stoops__join_room",
+    "apiary__join_room",
     "Join a room. Returns your identity, participants, mode, and recent activity.",
     {
       url: z.string().describe("Share URL to join"),
@@ -249,9 +249,9 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     },
   );
 
-  // ── stoops__leave_room ─────────────────────────────────────────────────
+  // ── apiary__leave_room ─────────────────────────────────────────────────
   server.tool(
-    "stoops__leave_room",
+    "apiary__leave_room",
     "Leave a room. Events stop flowing from it.",
     {
       room: z.string().describe("Room name to leave"),
@@ -269,7 +269,7 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
   // ── Admin tools (only with --admin flag) ────────────────────────────────
   if (opts.admin) {
     server.tool(
-      "stoops__admin__set_mode_for",
+      "apiary__admin__set_mode_for",
       "Admin: set engagement mode for another participant.",
       {
         room: z.string().describe("Room name"),
@@ -290,7 +290,7 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     );
 
     server.tool(
-      "stoops__admin__kick",
+      "apiary__admin__kick",
       "Admin: kick a participant from a room.",
       {
         room: z.string().describe("Room name"),
@@ -307,7 +307,7 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     );
 
     server.tool(
-      "stoops__admin__mute",
+      "apiary__admin__mute",
       "Admin: make a participant read-only (demote to guest).",
       {
         room: z.string().describe("Room name"),
@@ -324,7 +324,7 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     );
 
     server.tool(
-      "stoops__admin__unmute",
+      "apiary__admin__unmute",
       "Admin: restore a muted participant (promote to member).",
       {
         room: z.string().describe("Room name"),
@@ -361,7 +361,7 @@ export async function createRuntimeMcpServer(
     }
 
     // Fresh McpServer per request (McpServer only allows one active transport)
-    const reqServer = new McpServer({ name: "stoops_runtime", version: "1.0.0" });
+    const reqServer = new McpServer({ name: "apiary_runtime", version: "1.0.0" });
     registerTools(reqServer, opts);
 
     const transport = new StreamableHTTPServerTransport({

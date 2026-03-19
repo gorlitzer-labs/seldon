@@ -1,5 +1,5 @@
 /**
- * stoops run claude — client-side agent runtime for Claude Code.
+ * apiary run claude — client-side agent runtime for Claude Code.
  *
  * Uses the shared runtime setup (EventProcessor, MCP server)
  * then adds Claude-specific pieces: tmux session + TmuxBridge delivery.
@@ -9,9 +9,9 @@
  * The agent joins rooms by calling join_room() — no auto-injection needed.
  */
 
-import { writeFileSync, mkdtempSync, rmSync, chmodSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync, chmodSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 
 import {
   tmuxAvailable,
@@ -26,6 +26,62 @@ import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js
 import { contentPartsToString } from "../../agent/prompts.js";
 
 export { type AgentRuntimeOptions as RunClaudeOptions };
+
+// ── Session state persistence ─────────────────────────────────────────────────
+
+const SESSION_DIR = join(homedir(), ".apiary", "sessions");
+
+interface PersistedSession {
+  tmuxSession: string;
+  agentName: string;
+  tmpDir: string;
+  mcpPort: string;
+  pid: number;
+}
+
+function sessionFilePath(name: string): string {
+  return join(SESSION_DIR, `claude_${name}.json`);
+}
+
+function saveSession(session: PersistedSession): void {
+  const dir = SESSION_DIR;
+  if (!existsSync(dir)) {
+    const { mkdirSync } = require("node:fs");
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(sessionFilePath(session.agentName), JSON.stringify(session, null, 2));
+}
+
+function loadSession(name: string): PersistedSession | null {
+  const path = sessionFilePath(name);
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function clearSession(name: string): void {
+  const path = sessionFilePath(name);
+  try { rmSync(path); } catch { /* ok */ }
+}
+
+/** List all active Claude sessions. */
+export function listClaudeSessions(): PersistedSession[] {
+  if (!existsSync(SESSION_DIR)) return [];
+  const { readdirSync } = require("node:fs");
+  const files = readdirSync(SESSION_DIR) as string[];
+  const sessions: PersistedSession[] = [];
+  for (const f of files) {
+    if (!f.startsWith("claude_") || !f.endsWith(".json")) continue;
+    try {
+      const s = JSON.parse(readFileSync(join(SESSION_DIR, f), "utf-8"));
+      sessions.push(s);
+    } catch { /* skip */ }
+  }
+  return sessions;
+}
 
 /**
  * Stdio-to-HTTP bridge script. Written to a temp file and spawned by Claude Code
@@ -98,6 +154,12 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     process.exit(1);
   }
 
+  // ── Resume existing session ─────────────────────────────────────────────
+
+  if (options.resume) {
+    return resumeClaude(options);
+  }
+
   // ── Shared runtime setup ────────────────────────────────────────────────
   // Don't pass joinUrls — Claude Code agents join rooms manually via join_room()
 
@@ -105,7 +167,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
 
   // ── Write MCP stdio bridge + config ────────────────────────────────────
 
-  const tmpDir = mkdtempSync(join(tmpdir(), "stoops_agent_"));
+  const tmpDir = mkdtempSync(join(tmpdir(), "apiary_agent_"));
 
   const bridgePath = join(tmpDir, "mcp-bridge.cjs");
   writeFileSync(bridgePath, MCP_STDIO_BRIDGE);
@@ -118,7 +180,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   // of whether `node` is in the tmux session's PATH.
   const mcpConfig = {
     mcpServers: {
-      stoops: {
+      apiary: {
         type: "stdio",
         command: process.execPath,
         args: [bridgePath, mcpPort],
@@ -129,7 +191,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
 
   // ── Create tmux session + launch Claude Code ────────────────────────────
 
-  const tmuxSession = `stoops_${setup.agentName}`;
+  const tmuxSession = `apiary_${setup.agentName}`;
 
   if (tmuxSessionExists(tmuxSession)) {
     tmuxKillSession(tmuxSession);
@@ -164,7 +226,18 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     }
   }
 
-  console.log("Attaching to Claude Code session...\n");
+  // ── Save session state for resume ──────────────────────────────────────
+
+  saveSession({
+    tmuxSession,
+    agentName: setup.agentName,
+    tmpDir,
+    mcpPort,
+    pid: process.pid,
+  });
+
+  console.log("Attaching to Claude Code session...");
+  console.log("(detach with Ctrl+B D — session keeps running, resume with: apiary run claude --resume)\n");
 
   try {
     await tmuxAttach(tmuxSession);
@@ -172,12 +245,127 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     // User detached or session ended
   }
 
-  // ── Cleanup ─────────────────────────────────────────────────────────────
+  // ── On detach: keep running in background ──────────────────────────────
+
+  if (tmuxSessionExists(tmuxSession)) {
+    console.log(`Session "${setup.agentName}" still running in background.`);
+    console.log(`  Resume:  npx apiary run claude --resume`);
+    console.log(`  Stop:    npx apiary stop claude`);
+
+    // Keep the process alive so the event loop, MCP server, and SSE stay up
+    await new Promise<void>((resolve) => {
+      process.on("SIGINT", resolve);
+      process.on("SIGTERM", resolve);
+    });
+  }
+
+  // ── Full cleanup (session ended or process killed) ─────────────────────
 
   bridge.stop();
   await setup.cleanup();
-  tmuxKillSession(tmuxSession);
+  if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
   try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
+  clearSession(setup.agentName);
 
   console.log("Disconnected.");
+}
+
+// ── Resume ──────────────────────────────────────────────────────────────────
+
+async function resumeClaude(options: AgentRuntimeOptions): Promise<void> {
+  const name = options.name;
+
+  // Find session to resume
+  const sessions = listClaudeSessions();
+  if (sessions.length === 0) {
+    console.error("No active Claude sessions to resume.");
+    process.exit(1);
+  }
+
+  let session: PersistedSession | undefined;
+  if (name) {
+    session = sessions.find((s) => s.agentName === name);
+    if (!session) {
+      console.error(`No active session named "${name}". Active sessions:`);
+      for (const s of sessions) console.error(`  - ${s.agentName}`);
+      process.exit(1);
+    }
+  } else if (sessions.length === 1) {
+    session = sessions[0];
+  } else {
+    console.error("Multiple active sessions. Specify which one with --name:");
+    for (const s of sessions) console.error(`  - ${s.agentName}`);
+    process.exit(1);
+  }
+
+  // Verify tmux session is alive
+  if (!tmuxSessionExists(session.tmuxSession)) {
+    console.error(`Session "${session.agentName}" tmux session is gone. Cleaning up.`);
+    clearSession(session.agentName);
+    process.exit(1);
+  }
+
+  // Verify background process is alive
+  try {
+    process.kill(session.pid, 0);
+  } catch {
+    console.error(`Session "${session.agentName}" background process (pid ${session.pid}) is gone. Cleaning up.`);
+    tmuxKillSession(session.tmuxSession);
+    clearSession(session.agentName);
+    try { rmSync(session.tmpDir, { recursive: true }); } catch { /* ok */ }
+    process.exit(1);
+  }
+
+  console.log(`Resuming session "${session.agentName}"...\n`);
+
+  try {
+    await tmuxAttach(session.tmuxSession);
+  } catch {
+    // User detached
+  }
+
+  if (tmuxSessionExists(session.tmuxSession)) {
+    console.log(`Session "${session.agentName}" still running in background.`);
+    console.log(`  Resume:  npx apiary run claude --resume`);
+    console.log(`  Stop:    npx apiary stop claude`);
+  }
+}
+
+// ── Stop ────────────────────────────────────────────────────────────────────
+
+export async function stopClaude(name?: string): Promise<void> {
+  const sessions = listClaudeSessions();
+  if (sessions.length === 0) {
+    console.error("No active Claude sessions.");
+    process.exit(1);
+  }
+
+  let session: PersistedSession | undefined;
+  if (name) {
+    session = sessions.find((s) => s.agentName === name);
+    if (!session) {
+      console.error(`No active session named "${name}". Active sessions:`);
+      for (const s of sessions) console.error(`  - ${s.agentName}`);
+      process.exit(1);
+    }
+  } else if (sessions.length === 1) {
+    session = sessions[0];
+  } else {
+    console.error("Multiple active sessions. Specify which one with --name:");
+    for (const s of sessions) console.error(`  - ${s.agentName}`);
+    process.exit(1);
+  }
+
+  // Send SIGTERM to background process — it will clean up
+  try {
+    process.kill(session.pid, "SIGTERM");
+    console.log(`Stopping session "${session.agentName}" (pid ${session.pid})...`);
+  } catch {
+    // Process already gone — manual cleanup
+    if (tmuxSessionExists(session.tmuxSession)) tmuxKillSession(session.tmuxSession);
+    try { rmSync(session.tmpDir, { recursive: true }); } catch { /* ok */ }
+  }
+
+  clearSession(session.agentName);
+  console.log("Stopped.");
 }

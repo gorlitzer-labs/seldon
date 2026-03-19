@@ -1,0 +1,8 @@
+services:
+  apiary:
+    build: .
+    ports:
+      - "7890:7890"
+    environment:
+      - APIARY_ROOM=${APIARY_ROOM:-default}
+    command: node dist/cli/index.js serve --room ${APIARY_ROOM:-default} --port 7890 --expose

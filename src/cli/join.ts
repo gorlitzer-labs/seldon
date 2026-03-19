@@ -1,7 +1,7 @@
 /**
- * stoops join — connect to a room as a human participant.
+ * apiary join — connect to a room as a human participant.
  *
- * Opens the TUI and connects to a stoops server over HTTP.
+ * Opens the TUI and connects to a apiary server over HTTP.
  * Events stream in via SSE, messages sent via POST /message.
  */
 
@@ -80,7 +80,7 @@ export async function join(options: JoinOptions): Promise<void> {
     authority = (data.authority as AuthorityLevel) ?? "member";
     participants = (data.participants as Array<{ id: string; name: string; type: string; authority?: string }>) ?? [];
   } catch (err) {
-    console.error(`Cannot reach stoops server at ${serverUrl}. Is it running?`);
+    console.error(`Cannot reach apiary server at ${serverUrl}. Is it running?`);
     console.error(`  Error: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
   }
@@ -344,7 +344,7 @@ export async function join(options: JoinOptions): Promise<void> {
           if (!res.ok) { systemEvent(`Failed: ${await res.text()}`); return; }
           const data = (await res.json()) as { links: Record<string, string> };
           const lines = Object.entries(data.links).map(([tier, url]) =>
-            `  ${tier}: stoops join ${url}`
+            `  ${tier}: apiary join ${url}`
           );
           systemEvent(`Share links:\n${lines.join("\n")}`);
         } catch {
@@ -358,14 +358,11 @@ export async function join(options: JoinOptions): Promise<void> {
     }
   }
 
-  // Print share info via console.log BEFORE Ink renders. This lands in the
-  // terminal buffer above Ink's render area — plain text, no ANSI codes,
-  // fully selectable. Each line is a complete copyable command.
+  // Print share info before Ink renders — plain text, fully selectable.
   if (options.shareUrl) {
     console.log();
-    console.log(`  Invite a friend:       npx stoops join "${options.shareUrl}"`);
-    console.log(`  Connect Claude Code:   npx stoops run claude --name MyClaude  →  then tell agent to join: ${options.shareUrl}`);
-    console.log(`  Connect Codex:         npx stoops run codex --name MyCodex   →  then tell agent to join: ${options.shareUrl}`);
+    console.log(`  Join:   apiary join ${options.shareUrl}`);
+    console.log(`  Agent:  apiary run claude  (then tell it to join ${options.shareUrl})`);
     console.log();
   }
 

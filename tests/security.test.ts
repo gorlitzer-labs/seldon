@@ -1,5 +1,5 @@
 /**
- * Security tests for stoops — exercises hardening features.
+ * Security tests for apiary — exercises hardening features.
  *
  * Requires a built CLI at dist/cli/index.js. Run `npm run build` first.
  */

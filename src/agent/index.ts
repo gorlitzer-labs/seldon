@@ -1,4 +1,4 @@
-/** stoops/agent — agent orchestration framework. */
+/** apiary/agent — agent orchestration framework. */
 
 export { type ILLMSession } from "./types.js";
 export { type RoomResolver, type RoomConnection, type LLMQueryStats, type LLMSessionOptions, type ClaudeSessionOptions, type LangGraphSessionOptions, type QueryTurn, type ContentPart, type AgentIdentity, type ProcessorBridge, type SessionCallbacks, type ToolHandlerOptions } from "./types.js";

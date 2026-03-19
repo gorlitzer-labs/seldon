@@ -47,7 +47,7 @@ describe("detectCodexStateFromLines", () => {
 
   test("detects approval: MCP elicitation", () => {
     const lines = screen(`
-  stoops needs your approval.
+  apiary needs your approval.
 
   The MCP server is requesting access to perform an action.
 

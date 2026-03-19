@@ -1,4 +1,4 @@
-/** Core types for stoops — messages, participants, pagination. */
+/** Core types for apiary — messages, participants, pagination. */
 
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";

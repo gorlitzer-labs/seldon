@@ -1,5 +1,5 @@
 /**
- * Auth token system for stoops share links and session management.
+ * Auth token system for apiary share links and session management.
  *
  * Two token types:
  * - Share tokens — embedded in URLs, map to an authority tier.

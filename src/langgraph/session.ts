@@ -1,7 +1,7 @@
 /**
- * LangGraph-based LLM session backend for stoops agents.
+ * LangGraph-based LLM session backend for apiary agents.
  *
- * Connects to the stoops MCP server via HTTP URL (same server as Claude backend).
+ * Connects to the apiary MCP server via HTTP URL (same server as Claude backend).
  * Uses a custom StateGraph with inject/agent/tools nodes.
  */
 
@@ -88,7 +88,7 @@ export class LangGraphSession implements ILLMSession {
       );
     }
 
-    // Start the shared stoops MCP server
+    // Start the shared apiary MCP server
     this._mcpServer = await createFullMcpServer(this._resolver, {
       isEventSeen: this._options.isEventSeen,
       markEventsSeen: this._options.markEventsSeen,
@@ -104,13 +104,13 @@ export class LangGraphSession implements ILLMSession {
     const { ToolNode } = await import("@langchain/langgraph/prebuilt");
     const { MultiServerMCPClient } = await import("@langchain/mcp-adapters");
 
-    // Connect to stoops MCP server via HTTP.
+    // Connect to apiary MCP server via HTTP.
     // MultiServerMCPClient's type doesn't accept arbitrary string keys for server
     // names in its config, but the runtime API does. We assert the config shape
     // precisely and then cast to the constructor's parameter type.
     const mcpConfig = {
       servers: {
-        stoops_tools: {
+        apiary_tools: {
           transport: "streamable_http" as const,
           url: mcpUrl,
         },

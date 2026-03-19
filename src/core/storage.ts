@@ -1,5 +1,5 @@
 /**
- * Storage protocol and reference implementations for stoops rooms.
+ * Storage protocol and reference implementations for apiary rooms.
  *
  * # Implementing StorageProtocol
  *

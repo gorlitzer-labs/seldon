@@ -1,4 +1,4 @@
-/** stoops/core — Chat server with typed events and channels. */
+/** apiary/core — Chat server with typed events and channels. */
 
 export { EventCategory, MessageSchema, type AuthorityLevel, type Message, type Participant, type PaginatedResult } from "./types.js";
 export {

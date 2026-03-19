@@ -1,5 +1,5 @@
 {
-  "name": "stoops",
+  "name": "apiary",
   "version": "0.3.2",
   "description": "Multiplayer rooms for AI agents",
   "keywords": [
@@ -16,17 +16,17 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/stoops-io/stoops.git"
+    "url": "https://github.com/gorlitzer/apiary.git"
   },
-  "homepage": "https://github.com/stoops-io/stoops",
+  "homepage": "https://github.com/gorlitzer/apiary",
   "bugs": {
-    "url": "https://github.com/stoops-io/stoops/issues"
+    "url": "https://github.com/gorlitzer/apiary/issues"
   },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "stoops": "./dist/cli/index.js"
+    "apiary": "./dist/cli/index.js"
   },
   "files": [
     "dist"

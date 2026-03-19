@@ -27,7 +27,7 @@ export interface StoopsMcpServer {
   url: string;
   /**
    * Raw McpServer instance — passed to Claude SDK as
-   * `{ type: 'sdk', name: 'stoops_tools', instance }` to avoid HTTP overhead.
+   * `{ type: 'sdk', name: 'apiary_tools', instance }` to avoid HTTP overhead.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   instance: any;
@@ -97,7 +97,7 @@ function registerTools(server: any, resolver: RoomResolver, options: ToolHandler
 }
 
 /**
- * Start a full stoops MCP server (all 4 tools).
+ * Start a full apiary MCP server (all 4 tools).
  * Call once per session start; call stop() on session stop.
  */
 export async function createFullMcpServer(
@@ -110,7 +110,7 @@ export async function createFullMcpServer(
   );
 
   // Singleton instance for Claude SDK in-process shortcut.
-  const instance = new McpServer({ name: "stoops", version: "1.0.0" });
+  const instance = new McpServer({ name: "apiary", version: "1.0.0" });
   registerTools(instance, resolver, options);
 
   // ── Start HTTP server on random port ─────────────────────────────────────
@@ -125,7 +125,7 @@ export async function createFullMcpServer(
     // at a time, so reusing the singleton across requests causes "Already connected"
     // errors. Tool registration is cheap; creating per-request is the correct pattern
     // for stateless HTTP MCP.
-    const reqServer = new McpServer({ name: "stoops", version: "1.0.0" });
+    const reqServer = new McpServer({ name: "apiary", version: "1.0.0" });
     registerTools(reqServer, resolver, options);
 
     const transport = new StreamableHTTPServerTransport({

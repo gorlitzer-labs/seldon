@@ -1,5 +1,5 @@
 /**
- * Shared interfaces for stoops agent infrastructure.
+ * Shared interfaces for apiary agent infrastructure.
  *
  * Two layers:
  *

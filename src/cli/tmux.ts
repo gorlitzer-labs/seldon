@@ -1,5 +1,5 @@
 /**
- * tmux helpers for stoops CLI.
+ * tmux helpers for apiary CLI.
  *
  * Thin wrappers around tmux commands. Used by the server process to
  * inject room events into Claude Code sessions.

@@ -1,12 +1,12 @@
 /**
- * stoops run opencode — client-side agent runtime for OpenCode.
+ * apiary run opencode — client-side agent runtime for OpenCode.
  *
- * Spawns `opencode serve` with OPENCODE_CONFIG_CONTENT to inject the stoops
+ * Spawns `opencode serve` with OPENCODE_CONFIG_CONTENT to inject the apiary
  * MCP server. The user opens OpenCode's UI, starts a conversation, and tells
  * the agent to join a room URL.
  *
  * Session detection: we subscribe to OpenCode's global SSE event stream and
- * watch for stoops tool call events. Each event carries the sessionID of the
+ * watch for apiary tool call events. Each event carries the sessionID of the
  * calling session — no guessing, no race conditions.
  */
 
@@ -26,19 +26,19 @@ export async function runOpencode(options: AgentRuntimeOptions): Promise<void> {
   // ── Room → OpenCode session mapping ────────────────────────────────────
   //
   // Each OpenCode session can join different rooms. Lazily detected on first
-  // delivery for each room by inspecting session messages for stoops tool calls.
+  // delivery for each room by inspecting session messages for apiary tool calls.
 
   const roomSessions = new Map<string, string>();   // roomId → OpenCode sessionId
 
-  /** Find the OpenCode session that most recently called a stoops tool. */
-  async function findStoopsSession(): Promise<string | null> {
+  /** Find the OpenCode session that most recently called an apiary tool. */
+  async function findApiarySession(): Promise<string | null> {
     try {
       const res = await fetch(`${opencodeUrl}/session`);
       if (!res.ok) return null;
       // Sessions sorted by time.updated desc — first is most recent
       const sessions = await res.json() as Array<{ id: string; time: { updated: number } }>;
 
-      // Check the most recently updated sessions for stoops tool parts
+      // Check the most recently updated sessions for apiary tool parts
       for (const sess of sessions.slice(0, 3)) {
         const msgRes = await fetch(`${opencodeUrl}/session/${sess.id}/message`);
         if (!msgRes.ok) continue;
@@ -47,7 +47,7 @@ export async function runOpencode(options: AgentRuntimeOptions): Promise<void> {
         }>;
         for (const msg of messages) {
           for (const part of msg.parts ?? []) {
-            if (part.type === "tool" && part.tool?.includes("stoops__")) {
+            if (part.type === "tool" && part.tool?.includes("apiary__")) {
               return sess.id;
             }
           }
@@ -72,7 +72,7 @@ export async function runOpencode(options: AgentRuntimeOptions): Promise<void> {
 
   const opencodeConfig = {
     mcp: {
-      stoops: {
+      apiary: {
         type: "remote",
         url: setup.mcpServer.url,
         oauth: false,
@@ -141,7 +141,7 @@ export async function runOpencode(options: AgentRuntimeOptions): Promise<void> {
 
     // Lazy session detection: look up on first delivery for this room
     if (!roomSessions.has(roomId)) {
-      const sid = await findStoopsSession();
+      const sid = await findApiarySession();
       if (!sid) return;
       roomSessions.set(roomId, sid);
       console.log(`  Linked room ${roomId} → session ${sid}`);

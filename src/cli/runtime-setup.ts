@@ -1,7 +1,7 @@
 /**
  * Shared agent runtime setup — extracted from cli/claude/run.ts.
  *
- * Both `stoops run claude` and `stoops run opencode` use this to:
+ * Both `apiary run claude` and `apiary run opencode` use this to:
  *   1. Create SSE multiplexer + EventProcessor
  *   2. Create local runtime MCP server
  *   3. Wire up participant cache updates
@@ -35,6 +35,8 @@ export interface AgentRuntimeOptions {
   extraArgs?: string[];
   /** Skip tmux/UI — deliver events as plain text to stdout. MCP server still runs. */
   headless?: boolean;
+  /** Re-attach to an existing background session instead of starting a new one. */
+  resume?: boolean;
   /** Called after a room is successfully joined via join_room MCP tool. */
   onRoomJoined?: () => void | Promise<void>;
 }

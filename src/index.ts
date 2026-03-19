@@ -1,4 +1,4 @@
-/** stoops — Real-time multi-agent chat framework. */
+/** apiary — Real-time multi-agent chat framework. */
 
 export {
   EventCategory,

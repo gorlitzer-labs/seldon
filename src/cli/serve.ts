@@ -1,9 +1,9 @@
 /**
- * stoops serve — dumb room server.
+ * apiary serve — dumb room server.
  *
  * One room, one HTTP API, SSE broadcasting, authority enforcement.
  * No EventProcessor, no tmux, no agent lifecycle — those live client-side.
- * Humans connect via `stoops join`, agents via `stoops run claude`.
+ * Humans connect via `apiary join`, agents via `apiary run claude`.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -116,7 +116,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
   // Create room with persistence (default: tmp folder)
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19); // YYYY-MM-DDTHH-MM-SS
-  const savePath = options.save ?? options.load ?? pathJoin(tmpdir(), `stoops-${roomName}-${timestamp}.json`);
+  const savePath = options.save ?? options.load ?? pathJoin(tmpdir(), `apiary-${roomName}-${timestamp}.json`);
   let storage;
   if (options.load) {
     try {
@@ -764,9 +764,9 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
   httpServer.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      console.error(`\nPort ${port} is already in use. Another stoops instance may be running.`);
+      console.error(`\nPort ${port} is already in use. Another apiary instance may be running.`);
       console.error(`  Kill it:   lsof -ti :${port} | xargs kill`);
-      console.error(`  Or use:    stoops --port ${port + 1}\n`);
+      console.error(`  Or use:    apiary --port ${port + 1}\n`);
       process.exit(1);
     }
     throw err;
@@ -819,16 +819,16 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     const joinUrlObfuscated = buildShareUrl(publicUrl, obfuscate(memberToken));
 
     console.log(`
-  stoops v${version}
+  apiary v${version}
 
   Room:    ${roomName}
   Server:  ${serverUrl}${publicUrl !== serverUrl ? `\n  Tunnel:  ${publicUrl}` : ""}
   Saving:  ${savePath}
 
-  Join:      stoops join ${joinUrlObfuscated}
-  Admin:     stoops join ${adminUrlObfuscated}
-  Claude:    stoops run claude --name MyClaude  →  then tell agent to join (use /share in TUI for full URL)
-  Codex:     stoops run codex --name MyCodex   →  then tell agent to join (use /share in TUI for full URL)
+  Join:      apiary join ${joinUrlObfuscated}
+  Admin:     apiary join ${adminUrlObfuscated}
+  Claude:    apiary run claude --name MyClaude  →  then tell agent to join (use /share in TUI for full URL)
+  Codex:     apiary run codex --name MyCodex   →  then tell agent to join (use /share in TUI for full URL)
 
   Use /share in the TUI or --headless to get full join URLs.
 `);

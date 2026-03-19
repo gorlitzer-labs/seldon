@@ -1,5 +1,5 @@
 /**
- * EventProcessor — core event loop for stoops agents.
+ * EventProcessor — core event loop for apiary agents.
  *
  * Owns: engagement classification, content buffering, event formatting,
  * ref map, room connections, mode management. Does NOT own: LLM sessions,

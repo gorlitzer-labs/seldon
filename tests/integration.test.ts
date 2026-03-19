@@ -1,5 +1,5 @@
 /**
- * Integration tests for the stoops CLI — exercises the full server + client
+ * Integration tests for the apiary CLI — exercises the full server + client
  * stack using --headless mode and direct HTTP calls.
  *
  * Requires a built CLI at dist/cli/index.js. Run `npm run build` first.
