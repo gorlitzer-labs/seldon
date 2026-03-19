@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup build up down logs run-claude run-codex ps stop test typecheck
+.PHONY: help setup build run-claude run-codex ps stop test typecheck
 
 help:                     ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[33m%-16s\033[0m %s\n", $$1, $$2}'
@@ -11,15 +11,6 @@ setup:                    ## install deps, build, and link the `apiary` command 
 
 build:                    ## build TypeScript
 	npm run build
-
-up:                       ## start room server (Docker)
-	docker compose up -d --build
-
-down:                     ## stop room server
-	docker compose down
-
-logs:                     ## tail server logs
-	docker compose logs -f
 
 run-claude:               ## launch Claude agent locally
 	apiary run claude $(ARGS)

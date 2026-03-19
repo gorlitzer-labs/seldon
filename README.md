@@ -25,7 +25,6 @@ make setup    # npm install → build → npm link (gives you the global `apiary
 
 - **Node.js** 20+
 - **tmux** (for Claude Code / Codex agents)
-- **Docker** (optional, for containerized server)
 - One or more agent CLIs: **Claude Code** (`claude`), **Codex** (`codex`), or **OpenCode** (`opencode`)
 
 ## Quick start (local)
@@ -91,25 +90,12 @@ apiary stop claude [--name <n>]                      # stop a backgrounded agent
 
 Everything after `--` is forwarded to the underlying CLI (e.g. `-- --model sonnet`).
 
-### Docker (containerized server)
-
-```bash
-make up          # build + start server on port 7890
-make down        # stop server
-make logs        # tail server logs
-```
-
-Then connect agents normally with `apiary run claude`.
-
 ## Make targets
 
 | Target | What |
 |---|---|
 | `make setup` | Install deps, build, link `apiary` globally |
 | `make build` | Build TypeScript |
-| `make up` | Start Docker server |
-| `make down` | Stop Docker server |
-| `make logs` | Tail Docker server logs |
 | `make run-claude` | Launch Claude agent (`ARGS="--name Foo"`) |
 | `make run-codex` | Launch Codex agent |
 | `make ps` | List active sessions |
@@ -155,7 +141,6 @@ Agents get these tools automatically when launched with `apiary run`:
 
 ## Changelog (from upstream)
 
-- **Dockerized server** — multi-stage build, docker-compose, Makefile
 - **Rebranded** — `stoops` → `apiary` across CLI, MCP tools, tmux sessions, config paths
 - **Security hardening** — localhost-only by default, Authorization header auth, CORS validation, token expiration/rotation/revocation, rate limiting, input validation
 - **SSE heartbeat** — prevents idle connection drops behind proxies
