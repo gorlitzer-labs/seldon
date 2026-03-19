@@ -80,7 +80,8 @@ apiary run claude --resume                        # re-attach detached session (
 apiary run codex  --name CheapLabor               # launch Codex agent
 apiary run opencode --name GuineaPig              # launch OpenCode (experimental)
 apiary ps                                         # list active sessions
-apiary stop claude --name Expendable3             # stop a backgrounded agent
+apiary stop --name Expendable3                    # stop one agent
+apiary stop --all                                # stop all agents
 ```
 
 Everything after `--` is forwarded to the underlying CLI (e.g. `-- --model sonnet`).

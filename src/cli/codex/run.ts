@@ -113,7 +113,9 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
   }
 
   const cwd = process.cwd().split("/").pop() ?? process.cwd();
-  const tabTitle = `🐝 ${setup.agentName} · ${cwd}`;
+  const bees = ["🐝", "🐛", "🦋", "🐞", "🪲", "🐜", "🦗", "🪳", "🦂", "🕷️"];
+  const bee = bees[Math.floor(Math.random() * bees.length)];
+  const tabTitle = `${bee} ${setup.agentName} · ${cwd}`;
 
   console.log("Launching Codex...");
   tmuxCreateSession(tmuxSession, tabTitle);

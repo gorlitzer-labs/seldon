@@ -27,7 +27,7 @@ help: ## show this help
 	@echo ""
 	@echo "  $(M)Sessions$(R)"
 	@echo "    $(C)make ps$(R)               $(D)→ apiary ps$(R)"
-	@echo "    $(C)make stop$(R)             $(D)→ apiary stop claude$(R)     $(D)(NAME=$(Y)Expendable3$(R)$(D))$(R)"
+	@echo "    $(C)make stop$(R)             $(D)→ apiary stop$(R)             $(D)(NAME=$(Y)Expendable3$(R)$(D) or ALL=1)$(R)"
 	@echo ""
 	@echo "  $(M)Dev$(R)"
 	@echo "    $(C)make build$(R)            build TypeScript"
@@ -83,7 +83,7 @@ ps: ## list active agent sessions
 	apiary ps
 
 stop: ## stop a backgrounded agent
-	apiary stop claude $(if $(NAME),--name $(NAME)) $(ARGS)
+	apiary stop $(if $(NAME),--name $(NAME)) $(if $(ALL),--all) $(ARGS)
 
 # ── Dev ──────────────────────────────────────────────────────────────────────
 

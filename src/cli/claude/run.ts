@@ -196,7 +196,9 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   }
 
   const cwd = process.cwd().split("/").pop() ?? process.cwd();
-  const tabTitle = `🐝 ${setup.agentName} · ${cwd}`;
+  const bees = ["🐝", "🐛", "🦋", "🐞", "🪲", "🐜", "🦗", "🪳", "🦂", "🕷️"];
+  const bee = bees[Math.floor(Math.random() * bees.length)];
+  const tabTitle = `${bee} ${setup.agentName} · ${cwd}`;
 
   console.log("Launching Claude Code...");
   tmuxCreateSession(tmuxSession, tabTitle);
@@ -334,11 +336,19 @@ async function resumeClaude(options: AgentRuntimeOptions): Promise<void> {
 
 // ── Stop ────────────────────────────────────────────────────────────────────
 
-export async function stopClaude(name?: string): Promise<void> {
+export async function stopClaude(name?: string, all?: boolean): Promise<void> {
   const sessions = listClaudeSessions();
   if (sessions.length === 0) {
     console.error("No active Claude sessions.");
     process.exit(1);
+  }
+
+  if (all) {
+    for (const s of sessions) {
+      stopSession(s);
+    }
+    console.log(`Stopped ${sessions.length} session${sessions.length > 1 ? "s" : ""}.`);
+    return;
   }
 
   let session: PersistedSession | undefined;
@@ -352,21 +362,22 @@ export async function stopClaude(name?: string): Promise<void> {
   } else if (sessions.length === 1) {
     session = sessions[0];
   } else {
-    console.error("Multiple active sessions. Specify which one with --name:");
+    console.error("Multiple active sessions. Use --name or --all:");
     for (const s of sessions) console.error(`  - ${s.agentName}`);
     process.exit(1);
   }
 
-  // Send SIGTERM to background process — it will clean up
+  stopSession(session);
+  console.log("Stopped.");
+}
+
+function stopSession(session: PersistedSession): void {
   try {
     process.kill(session.pid, "SIGTERM");
-    console.log(`Stopping session "${session.agentName}" (pid ${session.pid})...`);
+    console.log(`Stopping "${session.agentName}" (pid ${session.pid})...`);
   } catch {
-    // Process already gone — manual cleanup
     if (tmuxSessionExists(session.tmuxSession)) tmuxKillSession(session.tmuxSession);
     try { rmSync(session.tmpDir, { recursive: true }); } catch { /* ok */ }
   }
-
   clearSession(session.agentName);
-  console.log("Stopped.");
 }

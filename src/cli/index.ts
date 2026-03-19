@@ -49,7 +49,7 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(`  ${C}apiary run claude${R} ${D}[--name <n>] [--admin] [-- …]${R}       Launch Claude Code`);
   stream(`  ${C}apiary run codex${R} ${D}[--name <n>] [--admin] [-- …]${R}        Launch Codex`);
   stream(`  ${C}apiary ps${R}                                              List active sessions`);
-  stream(`  ${C}apiary stop claude${R} ${D}[--name <n>]${R}                        Stop a backgrounded agent`);
+  stream(`  ${C}apiary stop${R} ${D}[--name <n> | --all]${R}                       Stop agents`);
   stream(`  ${C}apiary update${R}                                          Pull latest + rebuild`);
   stream("");
   stream(`  ${G}${B}Quick start${R}`);
@@ -79,10 +79,15 @@ async function main(): Promise<void> {
   printUpdateNotice();
   checkForUpdate();
 
-  // ── apiary stop <runtime> ──────────────────────────────────────────────
-  if (args[0] === "stop" && args[1] === "claude") {
-    const name = getFlag("name", args.slice(2));
-    await stopClaude(name);
+  // ── apiary stop ───────────────────────────────────────────────────────
+  if (args[0] === "stop") {
+    const rest = args.slice(1);
+    // Support both "apiary stop claude --name X" and "apiary stop --name X"
+    const hasRuntime = rest[0] && !rest[0].startsWith("--");
+    const flagArgs = hasRuntime ? rest.slice(1) : rest;
+    const name = getFlag("name", flagArgs);
+    const all = flagArgs.includes("--all");
+    await stopClaude(name, all);
     return;
   }
 
