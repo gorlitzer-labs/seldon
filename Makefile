@@ -36,7 +36,7 @@ help: ## show this help
 	@echo "    $(C)make release$(R)          bump version, tag, push  $(D)(V=patch|minor|major, default: patch)$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start (local)$(R)"
-	@echo "    $(D)Terminal 1:$(R)  $(C)make room$(R) $(Y)ROOM=sweatshop$(R)"
+	@echo "    $(D)Terminal 1:$(R)  $(C)make room$(R) $(Y)ROOM=sweatshop NAME=BeeKeeper$(R)"
 	@echo "    $(D)Terminal 2:$(R)  $(C)make run-claude$(R) $(Y)ARGS=\"--name Unpaid-Intern\"$(R)"
 	@echo "    $(D)Tell it the URL. It joins.$(R)\n    $(D)Free labor — minus the API bill you're ignoring.$(R)"
 	@echo ""
