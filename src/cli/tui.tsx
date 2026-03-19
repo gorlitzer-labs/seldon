@@ -34,33 +34,32 @@ const SIGILS       = ["◆", "▲", "●", "■", "★", "◉", "◈", "▸"] as
 // Each banner line is an array of { text, color } segments for multi-color rendering.
 type BannerSegment = { text: string; color: string };
 const AMB = "#fbbf24";  // amber/yellow
-const STR = "#ff8c42";  // orange stripes
 const WNG = "#e0e7ee";  // wings
 
 const BANNER: BannerSegment[][] = [
   [
-    { text: "               _                ", color: "#ffb347" },
-    { text: "     )\\._.,--....,'``.     ", color: WNG },
+    { text: "               _                      ", color: "#ffb347" },
+    { text: "\\ \\  ", color: WNG },
   ],
   [
-    { text: "  ____ _____  (_)___ ________  __", color: "#ffa733" },
-    { text: "  .b]", color: STR }, { text: " )`(   _..  ", color: AMB },
+    { text: "  ____ _____  (_)___ ________  __      ", color: "#ffa733" },
+    { text: "\\ \\ \\ ", color: WNG },
   ],
   [
-    { text: " / __ `/ __ \\/ / __ `/ ___/ / / /", color: "#ff9b1f" },
-    { text: " '(googol)' //`  ", color: AMB },
+    { text: " / __ `/ __ \\/ / __ `/ ___/ / / /      ", color: "#ff9b1f" },
+    { text: "(o o)", color: AMB },
   ],
   [
-    { text: "/ /_/ / /_/ / / /_/ / /  / /_/ / ", color: "#ff8f0b" },
-    { text: "  _/  \\\\  ", color: AMB },
+    { text: "/ /_/ / /_/ / / /_/ / /  / /_/ /       ", color: "#ff8f0b" },
+    { text: ")=BzZz=(", color: AMB },
   ],
   [
-    { text: "\\__,_/ .___/_/\\__,_/_/   \\__, /  ", color: "#f7a600" },
-    { text: " /)  |\\\\  ", color: AMB },
+    { text: "\\__,_/ .___/_/\\__,_/_/   \\__, /        ", color: "#f7a600" },
+    { text: "/ / / ", color: WNG },
   ],
   [
-    { text: "    /_/                 /____/   ", color: "#f0c000" },
-    { text: "bzzz    ", color: AMB },
+    { text: "    /_/                 /____/        ", color: "#f0c000" },
+    { text: "/ / /  ", color: WNG },
   ],
 ];
 
