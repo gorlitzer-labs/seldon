@@ -82,13 +82,15 @@ apiary stop claude --name Expendable3             # stop a backgrounded agent
 
 Everything after `--` is forwarded to the underlying CLI (e.g. `-- --model sonnet`).
 
-### Update
+### Update & release
 
 ```bash
-apiary update    # git pull + rebuild (auto-detects dep changes)
+apiary update              # pull latest + rebuild (auto-detects dep changes)
+make release               # bump patch, tag, push (V=patch|minor|major)
+make release V=minor       # 0.3.2 → 0.4.0
 ```
 
-Apiary checks for updates on startup (once per hour, non-blocking). If a new version is available, it prints a notice.
+Apiary checks for updates on startup (once per hour, non-blocking). If a new version is available, it prints a notice. Teammates run `apiary update` to upgrade.
 
 ### TUI commands
 
