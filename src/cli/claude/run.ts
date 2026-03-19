@@ -9,7 +9,7 @@
  * The agent joins rooms by calling join_room() — no auto-injection needed.
  */
 
-import { writeFileSync, mkdtempSync, rmSync, chmodSync, existsSync, readFileSync } from "node:fs";
+import { writeFileSync, mkdtempSync, mkdirSync, rmSync, chmodSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 
@@ -46,7 +46,6 @@ function sessionFilePath(name: string): string {
 function saveSession(session: PersistedSession): void {
   const dir = SESSION_DIR;
   if (!existsSync(dir)) {
-    const { mkdirSync } = require("node:fs");
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(sessionFilePath(session.agentName), JSON.stringify(session, null, 2));
@@ -70,7 +69,6 @@ function clearSession(name: string): void {
 /** List all active Claude sessions. */
 export function listClaudeSessions(): PersistedSession[] {
   if (!existsSync(SESSION_DIR)) return [];
-  const { readdirSync } = require("node:fs");
   const files = readdirSync(SESSION_DIR) as string[];
   const sessions: PersistedSession[] = [];
   for (const f of files) {
@@ -197,8 +195,11 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     tmuxKillSession(tmuxSession);
   }
 
+  const cwd = process.cwd().split("/").pop() ?? process.cwd();
+  const tabTitle = `🐝 ${setup.agentName} · ${cwd}`;
+
   console.log("Launching Claude Code...");
-  tmuxCreateSession(tmuxSession);
+  tmuxCreateSession(tmuxSession, tabTitle);
 
   // Launch claude with MCP config + any passthrough args
   const extraArgs = options.extraArgs ?? [];

@@ -34,11 +34,14 @@ After setup, `apiary` works from anywhere. Changed code? Just `make build` — t
 
 ## Quick start
 
-**Local — two terminals:**
+**Local — three terminals:**
 ```bash
 make room                                    # Terminal 1: start server + TUI
-make run-claude ARGS="--name Unpaid-Intern"  # Terminal 2: launch an agent
+make run-claude NAME=Unpaid-Intern ADMIN=1   # Terminal 2: launch an admin agent
+make run-claude NAME=Expendable3             # Terminal 3: launch another agent
 ```
+
+> `ADMIN=1` → can kick, mute, and manage other participants.
 
 **Remote server — SSH in once, agents connect from anywhere:**
 ```bash

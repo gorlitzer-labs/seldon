@@ -33,11 +33,15 @@ export function tmuxSessionExists(session: string): boolean {
   }
 }
 
-/** Create a detached tmux session with no status bar. */
-export function tmuxCreateSession(session: string): void {
+/** Create a detached tmux session with no status bar. Optionally set the terminal tab title. */
+export function tmuxCreateSession(session: string, title?: string): void {
   const name = sanitizeSessionName(session);
   execFileSync("tmux", ["new-session", "-d", "-s", name]);
   execFileSync("tmux", ["set", "-t", name, "status", "off"]);
+  if (title) {
+    execFileSync("tmux", ["set", "-t", name, "set-titles", "on"]);
+    execFileSync("tmux", ["set", "-t", name, "set-titles-string", title]);
+  }
 }
 
 /** Send a command to a tmux session (types it + presses Enter). */

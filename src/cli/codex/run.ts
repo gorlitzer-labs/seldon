@@ -112,8 +112,11 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
     tmuxKillSession(tmuxSession);
   }
 
+  const cwd = process.cwd().split("/").pop() ?? process.cwd();
+  const tabTitle = `🐝 ${setup.agentName} · ${cwd}`;
+
   console.log("Launching Codex...");
-  tmuxCreateSession(tmuxSession);
+  tmuxCreateSession(tmuxSession, tabTitle);
 
   // Launch codex with config dir pointing to our temp directory + passthrough args
   const extraArgs = options.extraArgs ?? [];

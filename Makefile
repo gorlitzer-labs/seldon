@@ -22,12 +22,12 @@ help: ## show this help
 	@echo ""
 	@echo "  $(M)Run$(R)"
 	@echo "    $(C)make room$(R)             $(D)→ apiary --room sweatshop$(R)   $(D)(ROOM= NAME=$(Y)BeeKeeper$(R)$(D))$(R)"
-	@echo "    $(C)make run-claude$(R)       $(D)→ apiary run claude$(R)      $(D)(ARGS=\"--name $(Y)Expendable3$(R)$(D)\")$(R)"
-	@echo "    $(C)make run-codex$(R)        $(D)→ apiary run codex$(R)       $(D)(ARGS=\"--name $(Y)CheapLabor$(R)$(D)\")$(R)"
+	@echo "    $(C)make run-claude$(R)       $(D)→ apiary run claude$(R)      $(D)(NAME=$(Y)Expendable3$(R)$(D) ADMIN=1)$(R)"
+	@echo "    $(C)make run-codex$(R)        $(D)→ apiary run codex$(R)       $(D)(NAME=$(Y)CheapLabor$(R)$(D) ADMIN=1)$(R)"
 	@echo ""
 	@echo "  $(M)Sessions$(R)"
 	@echo "    $(C)make ps$(R)               $(D)→ apiary ps$(R)"
-	@echo "    $(C)make stop$(R)             $(D)→ apiary stop claude$(R)     $(D)(ARGS=\"--name $(Y)Expendable3$(R)$(D)\")$(R)"
+	@echo "    $(C)make stop$(R)             $(D)→ apiary stop claude$(R)     $(D)(NAME=$(Y)Expendable3$(R)$(D))$(R)"
 	@echo ""
 	@echo "  $(M)Dev$(R)"
 	@echo "    $(C)make build$(R)            build TypeScript"
@@ -37,8 +37,9 @@ help: ## show this help
 	@echo ""
 	@echo "  $(G)$(B)Quick start (local)$(R)"
 	@echo "    $(D)Terminal 1:$(R)  $(C)make room$(R) $(Y)ROOM=sweatshop NAME=BeeKeeper$(R)"
-	@echo "    $(D)Terminal 2:$(R)  $(C)make run-claude$(R) $(Y)ARGS=\"--name Unpaid-Intern\"$(R)"
-	@echo "    $(D)Tell it the URL. It joins.$(R)\n    $(D)Free labor — minus the API bill you're ignoring.$(R)"
+	@echo "    $(D)Terminal 2:$(R)  $(C)make run-claude$(R) $(Y)NAME=Unpaid-Intern ADMIN=1$(R)"
+	@echo "    $(D)Terminal 3:$(R)  $(C)make run-claude$(R) $(Y)NAME=Expendable3$(R)"
+	@echo "    $(D)Tell them the URL. They join.$(R)\n    $(D)ADMIN=1 → can kick, mute, and manage other participants.$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start (remote server)$(R)"
 	@echo "    $(D)Server:$(R)     $(C)tmux new -d -s room$(R) '$(Y)apiary --room the-hive --name BeeKeeper --share$(R)'"
@@ -71,10 +72,10 @@ room: ## start a room + join the TUI
 	apiary --room $(or $(ROOM),lobby) $(if $(NAME),--name $(NAME)) $(ARGS)
 
 run-claude: ## launch Claude Code agent
-	apiary run claude $(ARGS)
+	apiary run claude $(if $(NAME),--name $(NAME)) $(if $(ADMIN),--admin) $(ARGS)
 
 run-codex: ## launch Codex agent
-	apiary run codex $(ARGS)
+	apiary run codex $(if $(NAME),--name $(NAME)) $(if $(ADMIN),--admin) $(ARGS)
 
 # ── Sessions ─────────────────────────────────────────────────────────────────
 
@@ -82,7 +83,7 @@ ps: ## list active agent sessions
 	apiary ps
 
 stop: ## stop a backgrounded agent
-	apiary stop claude $(ARGS)
+	apiary stop claude $(if $(NAME),--name $(NAME)) $(ARGS)
 
 # ── Dev ──────────────────────────────────────────────────────────────────────
 
