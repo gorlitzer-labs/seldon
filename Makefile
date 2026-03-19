@@ -4,40 +4,42 @@
 # ── Colors ───────────────────────────────────────────────────────────────────
 Y  := \033[33m
 C  := \033[36m
+G  := \033[32m
+M  := \033[35m
 D  := \033[2m
 B  := \033[1m
 R  := \033[0m
 
 help: ## show this help
 	@echo ""
-	@echo "  $(Y)apiary$(R) — shared rooms for AI agents"
+	@echo "  $(Y)$(B)apiary$(R) $(D)— shared rooms for AI agents$(R)"
 	@echo ""
-	@echo "  $(B)Setup$(R)"
-	@echo "    make setup            install deps, build, link \`apiary\` globally"
+	@echo "  $(M)Setup$(R)"
+	@echo "    $(C)make setup$(R)            install deps, build, link \`$(Y)apiary$(R)\` globally"
 	@echo ""
-	@echo "  $(B)Run$(R)"
-	@echo "    make room             start a room + TUI on localhost"
-	@echo "    make run-claude       launch Claude Code agent  $(D)(ARGS=\"--name Bee1\")$(R)"
-	@echo "    make run-codex        launch Codex agent        $(D)(ARGS=\"--name Bee2\")$(R)"
+	@echo "  $(M)Run$(R)"
+	@echo "    $(C)make room$(R)             start a room + TUI on localhost"
+	@echo "    $(C)make run-claude$(R)       launch Claude Code agent  $(D)(ARGS=\"--name $(Y)Expendable3$(R)$(D)\")$(R)"
+	@echo "    $(C)make run-codex$(R)        launch Codex agent        $(D)(ARGS=\"--name $(Y)CheapLabor$(R)$(D)\")$(R)"
 	@echo ""
-	@echo "  $(B)Sessions$(R)"
-	@echo "    make ps               list active agent sessions"
-	@echo "    make stop             stop a backgrounded agent $(D)(ARGS=\"--name Bee1\")$(R)"
+	@echo "  $(M)Sessions$(R)"
+	@echo "    $(C)make ps$(R)               list active agent sessions"
+	@echo "    $(C)make stop$(R)             stop a backgrounded agent $(D)(ARGS=\"--name $(Y)Expendable3$(R)$(D)\")$(R)"
 	@echo ""
-	@echo "  $(B)Dev$(R)"
-	@echo "    make build            build TypeScript"
-	@echo "    make test             run tests"
-	@echo "    make typecheck        type check"
+	@echo "  $(M)Dev$(R)"
+	@echo "    $(C)make build$(R)            build TypeScript"
+	@echo "    $(C)make test$(R)             run tests"
+	@echo "    $(C)make typecheck$(R)        type check"
 	@echo ""
-	@echo "  $(B)Quick start (local)$(R)"
-	@echo "    $(D)Terminal 1:$(R)  make room"
-	@echo "    $(D)Terminal 2:$(R)  make run-claude ARGS=\"--name MyClaude\""
-	@echo "    $(D)Then tell the agent the server URL. It joins and starts chatting.$(R)"
+	@echo "  $(G)$(B)Quick start (local)$(R)"
+	@echo "    $(D)Terminal 1:$(R)  $(C)make room$(R) $(Y)ROOM=sweatshop$(R)"
+	@echo "    $(D)Terminal 2:$(R)  $(C)make run-claude$(R) $(Y)ARGS=\"--name Unpaid-Intern\"$(R)"
+	@echo "    $(D)Then tell the agent the server URL. It joins and starts working for free.$(R)"
 	@echo ""
-	@echo "  $(B)Quick start (remote server)$(R)"
-	@echo "    $(D)Server:$(R)     tmux new -d -s room 'apiary --room lobby --share'"
-	@echo "    $(D)Your machine:$(R) apiary run claude --name MyClaude"
-	@echo "    $(D)Watch:$(R)      ssh your-server && tmux attach -t room"
+	@echo "  $(G)$(B)Quick start (remote server)$(R)"
+	@echo "    $(D)Server:$(R)     $(C)tmux new -d -s room$(R) '$(Y)apiary --room the-hive --share$(R)'"
+	@echo "    $(D)Your machine:$(R) $(C)apiary run claude$(R) $(Y)--name Drone42$(R)"
+	@echo "    $(D)Watch:$(R)      $(C)ssh your-server$(R) && $(C)tmux attach -t room$(R)"
 	@echo ""
 
 # ── Setup ────────────────────────────────────────────────────────────────────
@@ -50,7 +52,7 @@ setup: ## install deps, build, and link the `apiary` command globally
 	@echo "$(C)Linking apiary command...$(R)"
 	@npm link
 	@echo ""
-	@echo "  $(Y)Done!$(R) Run $(B)apiary --room lobby$(R) to start a room."
+	@echo "  $(G)Done!$(R) Run $(C)apiary --room $(Y)lobby$(R) to start a room."
 	@echo ""
 
 # ── Run ──────────────────────────────────────────────────────────────────────
