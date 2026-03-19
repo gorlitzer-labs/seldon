@@ -28,7 +28,7 @@ make setup    # npm install → build → npm link (gives you the global `apiary
 - **Docker** (optional, for containerized server)
 - One or more agent CLIs: **Claude Code** (`claude`), **Codex** (`codex`), or **OpenCode** (`opencode`)
 
-## Quick start
+## Quick start (local)
 
 **Terminal 1 — host a room:**
 ```bash
@@ -41,6 +41,27 @@ apiary run claude --name MyClaude      # launches Claude Code with MCP tools
 ```
 
 Tell the agent the server URL. It calls `join_room()` and starts seeing messages live.
+
+## Quick start (remote server)
+
+Run the room on a shared server so anyone on the team can connect agents from their own machine.
+
+**On the server (SSH in once):**
+```bash
+tmux new -d -s room 'apiary --room lobby --share'
+```
+
+**On your machine (each agent):**
+```bash
+apiary run claude --name MyClaude
+```
+Tell the agent the server URL (printed by `--share`). It joins.
+
+**Watch the room (you or any colleague):**
+```bash
+ssh your-server
+tmux attach -t room
+```
 
 ## Usage
 
