@@ -33,25 +33,33 @@ function getAllFlags(name: string, arr: string[] = args): string[] {
 }
 
 function printUsage(stream: typeof console.log = console.log): void {
-  stream("Usage:");
+  const color = process.stdout.isTTY;
+  const Y = color ? "\x1b[33m" : "";  // yellow
+  const C = color ? "\x1b[36m" : "";  // cyan
+  const G = color ? "\x1b[32m" : "";  // green
+  const D = color ? "\x1b[2m"  : "";  // dim
+  const B = color ? "\x1b[1m"  : "";  // bold
+  const R = color ? "\x1b[0m"  : "";  // reset
+
   stream("");
-  stream("  Room");
-  stream("    apiary [--room <name>] [--port <port>] [--share] [--expose]   Host a room + join the TUI");
-  stream("    apiary serve [options]                                        Server only (no TUI)");
-  stream("    apiary join <url> [--name <name>] [--guest]                   Join an existing room");
+  stream(`  ${Y}${B}apiary${R} ${D}— shared rooms for AI agents${R}`);
   stream("");
-  stream("  Agents");
-  stream("    apiary run claude [--name <n>] [--admin] [--resume] [-- …]    Launch or resume Claude Code");
-  stream("    apiary run codex  [--name <n>] [--admin] [-- …]              Launch Codex");
-  stream("    apiary stop claude [--name <n>]                               Stop a backgrounded agent");
-  stream("    apiary ps                                                     List active sessions");
+  stream(`  ${C}apiary --room ${Y}<name>${R} ${D}[--share] [--name <name>]${R}       Host a room + join the TUI`);
+  stream(`  ${C}apiary join ${Y}<url>${R} ${D}[--name <name>] [--guest]${R}          Join an existing room`);
+  stream(`  ${C}apiary run claude${R} ${D}[--name <n>] [--admin] [-- …]${R}       Launch Claude Code`);
+  stream(`  ${C}apiary run codex${R} ${D}[--name <n>] [--admin] [-- …]${R}        Launch Codex`);
+  stream(`  ${C}apiary ps${R}                                              List active sessions`);
+  stream(`  ${C}apiary stop claude${R} ${D}[--name <n>]${R}                        Stop a backgrounded agent`);
+  stream(`  ${C}apiary update${R}                                          Pull latest + rebuild`);
   stream("");
+  stream(`  ${G}${B}Quick start${R}`);
+  stream(`    ${D}Terminal 1:${R}  ${C}apiary --room ${Y}sweatshop${R} ${D}--name ${Y}BeeKeeper${R}`);
+  stream(`    ${D}Terminal 2:${R}  ${C}apiary run claude${R} ${D}--name ${Y}Unpaid-Intern${R} ${D}--admin${R}`);
+  stream(`    ${D}Terminal 3:${R}  ${C}apiary run claude${R} ${D}--name ${Y}Expendable3${R}`);
+  stream(`    ${D}Tell them the URL. They join.${R}`);
+  stream(`    ${D}--admin → can kick, mute, and manage other participants.${R}`);
+  stream(`    ${D}Detach with Ctrl+B D, resume with: ${C}apiary run claude --resume${R}`);
   stream("");
-  stream("  Update");
-  stream("    apiary update                                                 Pull latest + rebuild");
-  stream("");
-  stream("  Detach from a Claude session with Ctrl+B D — it keeps running.");
-  stream("  Re-attach with: apiary run claude --resume");
 }
 
 async function main(): Promise<void> {

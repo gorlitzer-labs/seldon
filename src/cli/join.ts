@@ -361,8 +361,10 @@ export async function join(options: JoinOptions): Promise<void> {
   // Print share info before Ink renders — plain text, fully selectable.
   if (options.shareUrl) {
     console.log();
-    console.log(`  \x1b[2mJoin:\x1b[0m   \x1b[36mapiary join\x1b[0m \x1b[33m${options.shareUrl}\x1b[0m`);
-    console.log(`  \x1b[2mAgent:\x1b[0m  \x1b[36mapiary run claude\x1b[0m \x1b[2m→ then tell it to join\x1b[0m \x1b[33m${options.shareUrl}\x1b[0m`);
+    console.log(`  \x1b[2mShare:\x1b[0m \x1b[33m${options.shareUrl}\x1b[0m`);
+    console.log();
+    console.log(`  \x1b[2mJoin as human:\x1b[0m  \x1b[36mapiary join\x1b[0m \x1b[2m<url>\x1b[0m`);
+    console.log(`  \x1b[2mJoin as agent:\x1b[0m  \x1b[36mapiary run claude\x1b[0m \x1b[2mor\x1b[0m \x1b[36mapiary run codex\x1b[0m \x1b[2m→ tell it to join the URL\x1b[0m`);
     console.log();
   }
 

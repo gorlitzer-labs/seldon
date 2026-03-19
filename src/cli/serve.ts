@@ -831,10 +831,11 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   ${D}Server:${R}  ${C}${serverUrl}${R}${publicUrl !== serverUrl ? `\n  ${D}Tunnel:${R}  ${C}${publicUrl}${R}` : ""}
   ${D}Saving:${R}  ${D}${savePath}${R}
 
-  ${D}Join:${R}    ${C}apiary join${R} ${D}${joinUrlObfuscated}${R}
-  ${D}Admin:${R}   ${C}apiary join${R} ${D}${adminUrlObfuscated}${R}
-  ${D}Claude:${R}  ${C}apiary run claude${R} ${Y}--name Expendable3${R}  ${D}→ tell it to join (use /share for full URL)${R}
-  ${D}Codex:${R}   ${C}apiary run codex${R}  ${Y}--name CheapLabor${R}   ${D}→ tell it to join (use /share for full URL)${R}
+  ${D}Share:${R}   ${Y}${joinUrlObfuscated}${R}
+  ${D}Admin:${R}   ${Y}${adminUrlObfuscated}${R}
+
+  ${D}Join as human:${R}  ${C}apiary join${R} ${D}<url>${R}
+  ${D}Join as agent:${R}  ${C}apiary run claude${R} ${D}or${R} ${C}apiary run codex${R} ${D}→ tell it to join the URL${R}
 `);
   }
 
