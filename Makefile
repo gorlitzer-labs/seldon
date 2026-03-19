@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup update build room run-claude run-codex ps stop test typecheck
+.PHONY: help setup update build room run-claude run-codex ps stop test typecheck release
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 Y  := \033[33m
@@ -33,6 +33,7 @@ help: ## show this help
 	@echo "    $(C)make build$(R)            build TypeScript"
 	@echo "    $(C)make test$(R)             run tests"
 	@echo "    $(C)make typecheck$(R)        type check"
+	@echo "    $(C)make release$(R)          bump version, tag, push  $(D)(V=patch|minor|major, default: patch)$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start (local)$(R)"
 	@echo "    $(D)Terminal 1:$(R)  $(C)make room$(R) $(Y)ROOM=sweatshop$(R)"
@@ -90,3 +91,20 @@ test: ## run tests
 
 typecheck: ## type check
 	npm run typecheck
+
+V ?= patch
+release: ## bump version, tag, and push (V=patch|minor|major)
+	@echo "$(C)  Running tests...$(R)"
+	@npm test
+	@echo "$(C)  Bumping $(Y)$(V)$(R)$(C) version...$(R)"
+	@npm version $(V) --no-git-tag-version
+	@NEW_V=$$(node -p "require('./package.json').version"); \
+	 npm run build; \
+	 git add -A; \
+	 git commit -m "v$$NEW_V"; \
+	 git tag "v$$NEW_V"; \
+	 echo "$(C)  Pushing...$(R)"; \
+	 git push && git push --tags; \
+	 echo ""; \
+	 echo "  $(G)$(B)Released v$$NEW_V$(R)"; \
+	 echo ""
