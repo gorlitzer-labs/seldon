@@ -34,7 +34,7 @@ help: ## show this help
 	@echo "  $(G)$(B)Quick start (local)$(R)"
 	@echo "    $(D)Terminal 1:$(R)  $(C)make room$(R) $(Y)ROOM=sweatshop$(R)"
 	@echo "    $(D)Terminal 2:$(R)  $(C)make run-claude$(R) $(Y)ARGS=\"--name Unpaid-Intern\"$(R)"
-	@echo "    $(D)Tell it the URL. It joins. Free labor — minus the API bill you're ignoring.$(R)"
+	@echo "    $(D)Tell it the URL. It joins.$(R)\n    $(D)Free labor — minus the API bill you're ignoring.$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start (remote server)$(R)"
 	@echo "    $(D)Server:$(R)     $(C)tmux new -d -s room$(R) '$(Y)apiary --room the-hive --share$(R)'"
