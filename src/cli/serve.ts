@@ -818,19 +818,23 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     const adminUrlObfuscated = buildShareUrl(publicUrl, obfuscate(adminToken));
     const joinUrlObfuscated = buildShareUrl(publicUrl, obfuscate(memberToken));
 
+    const Y = "\x1b[33m";
+    const C = "\x1b[36m";
+    const D = "\x1b[2m";
+    const B = "\x1b[1m";
+    const R = "\x1b[0m";
+
     console.log(`
-  apiary v${version}
+  ${Y}${B}apiary${R} ${D}v${version}${R}
 
-  Room:    ${roomName}
-  Server:  ${serverUrl}${publicUrl !== serverUrl ? `\n  Tunnel:  ${publicUrl}` : ""}
-  Saving:  ${savePath}
+  ${D}Room:${R}    ${Y}${roomName}${R}
+  ${D}Server:${R}  ${C}${serverUrl}${R}${publicUrl !== serverUrl ? `\n  ${D}Tunnel:${R}  ${C}${publicUrl}${R}` : ""}
+  ${D}Saving:${R}  ${D}${savePath}${R}
 
-  Join:      apiary join ${joinUrlObfuscated}
-  Admin:     apiary join ${adminUrlObfuscated}
-  Claude:    apiary run claude --name MyClaude  →  then tell agent to join (use /share in TUI for full URL)
-  Codex:     apiary run codex --name MyCodex   →  then tell agent to join (use /share in TUI for full URL)
-
-  Use /share in the TUI or --headless to get full join URLs.
+  ${D}Join:${R}    ${C}apiary join${R} ${D}${joinUrlObfuscated}${R}
+  ${D}Admin:${R}   ${C}apiary join${R} ${D}${adminUrlObfuscated}${R}
+  ${D}Claude:${R}  ${C}apiary run claude${R} ${Y}--name Expendable3${R}  ${D}→ tell it to join (use /share for full URL)${R}
+  ${D}Codex:${R}   ${C}apiary run codex${R}  ${Y}--name CheapLabor${R}   ${D}→ tell it to join (use /share for full URL)${R}
 `);
   }
 

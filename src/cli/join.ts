@@ -361,8 +361,8 @@ export async function join(options: JoinOptions): Promise<void> {
   // Print share info before Ink renders — plain text, fully selectable.
   if (options.shareUrl) {
     console.log();
-    console.log(`  Join:   apiary join ${options.shareUrl}`);
-    console.log(`  Agent:  apiary run claude  (then tell it to join ${options.shareUrl})`);
+    console.log(`  \x1b[2mJoin:\x1b[0m   \x1b[36mapiary join\x1b[0m \x1b[33m${options.shareUrl}\x1b[0m`);
+    console.log(`  \x1b[2mAgent:\x1b[0m  \x1b[36mapiary run claude\x1b[0m \x1b[2m→ then tell it to join\x1b[0m \x1b[33m${options.shareUrl}\x1b[0m`);
     console.log();
   }
 
