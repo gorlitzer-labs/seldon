@@ -29,10 +29,15 @@ help: ## show this help
 	@echo "    make test             run tests"
 	@echo "    make typecheck        type check"
 	@echo ""
-	@echo "  $(B)Quick start$(R)"
+	@echo "  $(B)Quick start (local)$(R)"
 	@echo "    $(D)Terminal 1:$(R)  make room"
 	@echo "    $(D)Terminal 2:$(R)  make run-claude ARGS=\"--name MyClaude\""
 	@echo "    $(D)Then tell the agent the server URL. It joins and starts chatting.$(R)"
+	@echo ""
+	@echo "  $(B)Quick start (remote server)$(R)"
+	@echo "    $(D)Server:$(R)     tmux new -d -s room 'apiary --room lobby --share'"
+	@echo "    $(D)Your machine:$(R) apiary run claude --name MyClaude"
+	@echo "    $(D)Watch:$(R)      ssh your-server && tmux attach -t room"
 	@echo ""
 
 # ── Setup ────────────────────────────────────────────────────────────────────
