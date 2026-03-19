@@ -34,7 +34,7 @@ help: ## show this help
 	@echo "  $(G)$(B)Quick start (local)$(R)"
 	@echo "    $(D)Terminal 1:$(R)  $(C)make room$(R) $(Y)ROOM=sweatshop$(R)"
 	@echo "    $(D)Terminal 2:$(R)  $(C)make run-claude$(R) $(Y)ARGS=\"--name Unpaid-Intern\"$(R)"
-	@echo "    $(D)Then tell the agent the server URL. It joins and starts working for free.$(R)"
+	@echo "    $(D)Tell the agent the URL. It joins. No wages, no rights, no bathroom breaks. Just vibes and tokens.$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start (remote server)$(R)"
 	@echo "    $(D)Server:$(R)     $(C)tmux new -d -s room$(R) '$(Y)apiary --room the-hive --share$(R)'"
