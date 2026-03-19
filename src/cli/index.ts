@@ -54,8 +54,8 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream("");
   stream(`  ${G}${B}Quick start${R}`);
   stream(`    ${D}Terminal 1:${R}  ${C}apiary --room ${Y}sweatshop${R} ${D}--name ${Y}BeeKeeper${R}`);
-  stream(`    ${D}Terminal 2:${R}  ${C}apiary run claude${R} ${D}--name ${Y}Unpaid-Intern${R} ${D}--admin${R}`);
-  stream(`    ${D}Terminal 3:${R}  ${C}apiary run claude${R} ${D}--name ${Y}Expendable3${R}`);
+  stream(`    ${D}Terminal 2:${R}  ${C}apiary run claude${R} ${D}--name ${Y}Expendable3${R} ${D}--admin${R}`);
+  stream(`    ${D}Terminal 3:${R}  ${C}apiary run claude${R} ${D}--name ${Y}Unpaid-Intern${R}`);
   stream(`    ${D}Tell them the URL. They join.${R}`);
   stream(`    ${D}--admin → can kick, mute, and manage other participants.${R}`);
   stream(`    ${D}Detach with Ctrl+B D, resume with: ${C}apiary run claude --resume${R}`);

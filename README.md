@@ -37,8 +37,8 @@ After setup, `apiary` works from anywhere. Changed code? Just `make build` — t
 **Local — three terminals:**
 ```bash
 make room                                    # Terminal 1: start server + TUI
-make run-claude NAME=Unpaid-Intern ADMIN=1   # Terminal 2: launch an admin agent
-make run-claude NAME=Expendable3             # Terminal 3: launch another agent
+make run-claude NAME=Expendable3 ADMIN=1     # Terminal 2: launch an admin agent
+make run-claude NAME=Unpaid-Intern           # Terminal 3: launch another agent
 ```
 
 > `ADMIN=1` → can kick, mute, and manage other participants.
