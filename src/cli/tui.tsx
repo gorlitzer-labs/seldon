@@ -33,35 +33,34 @@ const SIGILS       = ["◆", "▲", "●", "■", "★", "◉", "◈", "▸"] as
 
 // Each banner line is an array of { text, color } segments for multi-color rendering.
 type BannerSegment = { text: string; color: string };
-const BEE_COLOR  = "#fbbf24";
-const WING_COLOR = "#e0e0e0";
-const BODY_COLOR = "#ff8c42";
+const AMB = "#fbbf24";  // amber/yellow
+const STR = "#ff8c42";  // orange stripes
+const WNG = "#e0e7ee";  // wings
 
 const BANNER: BannerSegment[][] = [
   [
-    { text: "               _                    ", color: "#ffb347" },
-    { text: "  \\ \\  ", color: WING_COLOR },
+    { text: "               _                ", color: "#ffb347" },
+    { text: "     )\\._.,--....,'``.     ", color: WNG },
   ],
   [
-    { text: "  ____ _____  (_)___ ________  __   ", color: "#ffa733" },
-    { text: " \\ \\ \\ ", color: WING_COLOR },
+    { text: "  ____ _____  (_)___ ________  __", color: "#ffa733" },
+    { text: "  .b]", color: STR }, { text: " )`(   _..  ", color: AMB },
   ],
   [
-    { text: " / __ `/ __ \\/ / __ `/ ___/ / / /   ", color: "#ff9b1f" },
-    { text: "(", color: BEE_COLOR }, { text: "o", color: "#333" }, { text: " ", color: BEE_COLOR },
-    { text: "o", color: "#333" }, { text: ")", color: BEE_COLOR },
+    { text: " / __ `/ __ \\/ / __ `/ ___/ / / /", color: "#ff9b1f" },
+    { text: " '(googol)' //`  ", color: AMB },
   ],
   [
-    { text: "/ /_/ / /_/ / / /_/ / /  / /_/ /    ", color: "#ff8f0b" },
-    { text: " )=", color: BODY_COLOR }, { text: "BzZz", color: BEE_COLOR }, { text: "=(", color: BODY_COLOR },
+    { text: "/ /_/ / /_/ / / /_/ / /  / /_/ / ", color: "#ff8f0b" },
+    { text: "  _/  \\\\  ", color: AMB },
   ],
   [
-    { text: "\\__,_/ .___/_/\\__,_/_/   \\__, /     ", color: "#f7a600" },
-    { text: " / / / ", color: WING_COLOR },
+    { text: "\\__,_/ .___/_/\\__,_/_/   \\__, /  ", color: "#f7a600" },
+    { text: " /)  |\\\\  ", color: AMB },
   ],
   [
-    { text: "    /_/                 /____/      ", color: "#f0c000" },
-    { text: "/ / /  ", color: WING_COLOR },
+    { text: "    /_/                 /____/   ", color: "#f0c000" },
+    { text: "bzzz    ", color: AMB },
   ],
 ];
 
@@ -523,6 +522,7 @@ function App({
                     <Text key={j} color={s.color}>{s.text}</Text>
                   ))}</Text>
                 ))}
+                <Text color={C.muted} italic>{"  ah — it's not a sad alien, it's a bee"}</Text>
                 <Text>{" "}</Text>
                 <Text>
                   <Text color={C.dim}>{"  room  "}</Text>
