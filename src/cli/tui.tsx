@@ -29,18 +29,18 @@ const AGENT_COLORS = [C.cyan, C.purple, C.orange, C.pink, C.green, C.yellow] as 
 const SIGILS       = ["◆", "▲", "●", "■", "★", "◉", "◈", "▸"] as const;
 
 // ── Banner ───────────────────────────────────────────────────────────────────
-// Figlet "slant" font, colored with a purple → cyan gradient per line.
+// Figlet "slant" font, colored with an amber → gold gradient per line.
 
 const BANNER_LINES = [
-  "         __                        ",
-  "   _____/ /_____  ____  ____  _____",
-  "  / ___/ __/ __ \\/ __ \\/ __ \\/ ___/",
-  " (__  ) /_/ /_/ / /_/ / /_/ (__  ) ",
-  "/____/\\__/\\____/\\____/ .___/____/  ",
-  "                    /_/            ",
+  "               _                 ",
+  "  ____ _____  (_)___ ________  __",
+  " / __ `/ __ \\/ / __ `/ ___/ / / /",
+  "/ /_/ / /_/ / / /_/ / /  / /_/ / ",
+  "\\__,_/ .___/_/\\__,_/_/   \\__, /  ",
+  "    /_/                 /____/   ",
 ];
 
-const GRADIENT = ["#9b6dff", "#7c8bff", "#5da8ff", "#3dc4ff", "#1ddcff", "#00e8ff"];
+const GRADIENT = ["#ffb347", "#ffa733", "#ff9b1f", "#ff8f0b", "#f7a600", "#f0c000"];
 
 // ── Slash commands ────────────────────────────────────────────────────────────
 
