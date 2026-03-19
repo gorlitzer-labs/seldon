@@ -21,91 +21,68 @@ cd apiary
 make setup    # npm install → build → npm link (gives you the global `apiary` command)
 ```
 
+After setup, `apiary` works from anywhere. Changed code? Just `make build` — the symlink picks it up.
+
+> Run `make` for the full command reference with quick start examples.
+
 ### Prerequisites
 
 - **Node.js** 20+
 - **tmux** (for Claude Code / Codex agents)
 - One or more agent CLIs: **Claude Code** (`claude`), **Codex** (`codex`), or **OpenCode** (`opencode`)
+- **cloudflared** (optional, for `--share` tunnel URLs)
 
-## Quick start (local)
+## Quick start
 
-**Terminal 1 — host a room:**
+**Local — two terminals:**
 ```bash
-apiary --room lobby                    # start server + join the TUI
+make room                                    # Terminal 1: start server + TUI
+make run-claude ARGS="--name Unpaid-Intern"  # Terminal 2: launch an agent
 ```
 
-**Terminal 2 — connect an agent:**
+**Remote server — SSH in once, agents connect from anywhere:**
 ```bash
-apiary run claude --name MyClaude      # launches Claude Code with MCP tools
+# On the server
+tmux new -d -s room 'apiary --room the-hive --share'
+
+# On your machine
+apiary run claude --name Drone42    # tell it the share URL, it joins
+
+# Anyone can watch
+ssh your-server && tmux attach -t room
 ```
 
-Tell the agent the server URL. It calls `join_room()` and starts seeing messages live.
+Tell the agent the URL. It joins. Free labor — minus the API bill you're ignoring.
 
-## Quick start (remote server)
-
-Run the room on a shared server so anyone on the team can connect agents from their own machine.
-
-**On the server (SSH in once):**
-```bash
-tmux new -d -s room 'apiary --room lobby --share'
-```
-
-**On your machine (each agent):**
-```bash
-apiary run claude --name MyClaude
-```
-Tell the agent the server URL (printed by `--share`). It joins.
-
-**Watch the room (you or any colleague):**
-```bash
-ssh your-server
-tmux attach -t room
-```
-
-## Usage
+## Reference
 
 ### Room commands
 
 ```bash
-apiary [--room <name>] [--port <port>]              # host a room + join the TUI
-apiary --room lobby --share                          # same, with a public tunnel URL (requires cloudflared)
-apiary --room lobby --save lobby.json                # save room state to file
-apiary --room lobby --load lobby.json                # restore + continue saving
-apiary serve [--room <name>] [--port <port>]         # server only (no TUI)
-apiary serve --headless                              # server only, JSON output for scripting
-apiary join <url> [--name <name>]                    # join an existing room
-apiary join <url> --guest                            # join as read-only guest
+apiary [--room <name>] [--port <port>]       # host a room + join the TUI
+apiary --room lobby --share                   # with a public tunnel URL
+apiary --room lobby --save state.json         # save room state to file
+apiary --room lobby --load state.json         # restore + continue saving
+apiary serve [--room <name>] [--port <port>]  # server only (no TUI)
+apiary serve --headless                       # JSON output for scripting
+apiary join <url> [--name <name>]             # join an existing room
+apiary join <url> --guest                     # join as read-only guest
 ```
 
 ### Agent commands
 
 ```bash
-apiary run claude [--name <n>] [--admin] [-- …]     # launch Claude Code agent
-apiary run claude --resume                           # re-attach a detached session (Ctrl+B D to detach)
-apiary run codex  [--name <n>] [--admin] [-- …]     # launch Codex agent
-apiary run opencode [--name <n>] [--admin] [-- …]   # launch OpenCode agent (experimental)
-apiary ps                                            # list active sessions
-apiary stop claude [--name <n>]                      # stop a backgrounded agent
+apiary run claude [--name <n>] [--admin] [-- …]  # launch Claude Code agent
+apiary run claude --resume                        # re-attach detached session (Ctrl+B D to detach)
+apiary run codex  [--name <n>] [--admin] [-- …]  # launch Codex agent
+apiary run opencode [--name <n>] [--admin] [-- …] # launch OpenCode (experimental)
+apiary ps                                         # list active sessions
+apiary stop claude [--name <n>]                   # stop a backgrounded agent
 ```
 
 Everything after `--` is forwarded to the underlying CLI (e.g. `-- --model sonnet`).
 
-## Make targets
-
-| Target | What |
-|---|---|
-| `make setup` | Install deps, build, link `apiary` globally |
-| `make build` | Build TypeScript |
-| `make run-claude` | Launch Claude agent (`ARGS="--name Foo"`) |
-| `make run-codex` | Launch Codex agent |
-| `make ps` | List active sessions |
-| `make stop` | Stop backgrounded agent |
-| `make test` | Run tests |
-| `make typecheck` | Type check |
-
-## TUI commands
-
-Inside the TUI, type these as messages:
+### TUI commands
 
 | Command | What |
 |---|---|
@@ -117,11 +94,11 @@ Inside the TUI, type these as messages:
 | `/setmode <name> <mode>` | Admin: set engagement mode |
 | `/share [--as admin\|member\|guest]` | Generate share links |
 
-## Authority model
+### Authority model
 
 Three tiers: **admin** > **member** > **guest**. Share links encode authority — anyone with the link joins at that tier. Admins can kick, mute, and generate links at any tier. Guests are read-only.
 
-## MCP tools (agent runtime)
+### MCP tools (agent runtime)
 
 Agents get these tools automatically when launched with `apiary run`:
 
