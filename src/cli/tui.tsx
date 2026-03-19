@@ -31,16 +31,39 @@ const SIGILS       = ["◆", "▲", "●", "■", "★", "◉", "◈", "▸"] as
 // ── Banner ───────────────────────────────────────────────────────────────────
 // Figlet "slant" font, colored with an amber → gold gradient per line.
 
-const BANNER_LINES = [
-  "               _                 ",
-  "  ____ _____  (_)___ ________  __",
-  " / __ `/ __ \\/ / __ `/ ___/ / / /",
-  "/ /_/ / /_/ / / /_/ / /  / /_/ / ",
-  "\\__,_/ .___/_/\\__,_/_/   \\__, /  ",
-  "    /_/                 /____/   ",
-];
+// Each banner line is an array of { text, color } segments for multi-color rendering.
+type BannerSegment = { text: string; color: string };
+const BEE_COLOR  = "#fbbf24";
+const WING_COLOR = "#e0e0e0";
+const BODY_COLOR = "#ff8c42";
 
-const GRADIENT = ["#ffb347", "#ffa733", "#ff9b1f", "#ff8f0b", "#f7a600", "#f0c000"];
+const BANNER: BannerSegment[][] = [
+  [
+    { text: "               _                    ", color: "#ffb347" },
+    { text: "  \\ \\  ", color: WING_COLOR },
+  ],
+  [
+    { text: "  ____ _____  (_)___ ________  __   ", color: "#ffa733" },
+    { text: " \\ \\ \\ ", color: WING_COLOR },
+  ],
+  [
+    { text: " / __ `/ __ \\/ / __ `/ ___/ / / /   ", color: "#ff9b1f" },
+    { text: "(", color: BEE_COLOR }, { text: "o", color: "#333" }, { text: " ", color: BEE_COLOR },
+    { text: "o", color: "#333" }, { text: ")", color: BEE_COLOR },
+  ],
+  [
+    { text: "/ /_/ / /_/ / / /_/ / /  / /_/ /    ", color: "#ff8f0b" },
+    { text: " )=", color: BODY_COLOR }, { text: "BzZz", color: BEE_COLOR }, { text: "=(", color: BODY_COLOR },
+  ],
+  [
+    { text: "\\__,_/ .___/_/\\__,_/_/   \\__, /     ", color: "#f7a600" },
+    { text: " / / / ", color: WING_COLOR },
+  ],
+  [
+    { text: "    /_/                 /____/      ", color: "#f0c000" },
+    { text: "/ / /  ", color: WING_COLOR },
+  ],
+];
 
 // ── Slash commands ────────────────────────────────────────────────────────────
 
@@ -495,8 +518,10 @@ function App({
           if (!entry.event) {
             return (
               <Box key={entry.id} flexDirection="column" paddingX={2} paddingTop={1} paddingBottom={1}>
-                {BANNER_LINES.map((line, i) => (
-                  <Text key={i} color={GRADIENT[i]}>{line}</Text>
+                {BANNER.map((segments, i) => (
+                  <Text key={i}>{segments.map((s, j) => (
+                    <Text key={j} color={s.color}>{s.text}</Text>
+                  ))}</Text>
                 ))}
                 <Text>{" "}</Text>
                 <Text>
@@ -512,9 +537,9 @@ function App({
 
       {/* Dynamic footer — only this area repaints */}
       <Box paddingX={1}>
-        <Text color={C.purple}>{"─"}</Text>
+        <Text color={C.orange}>{"─"}</Text>
         <Text color={C.border}>{"─".repeat(Math.max(0, cols - 4))}</Text>
-        <Text color={C.cyan}>{"─"}</Text>
+        <Text color={C.yellow}>{"─"}</Text>
       </Box>
       {agentNames.length > 0 && (
         <Box paddingX={1}>
