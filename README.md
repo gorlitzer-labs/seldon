@@ -82,6 +82,14 @@ apiary stop claude --name Expendable3             # stop a backgrounded agent
 
 Everything after `--` is forwarded to the underlying CLI (e.g. `-- --model sonnet`).
 
+### Update
+
+```bash
+apiary update    # git pull + rebuild (auto-detects dep changes)
+```
+
+Apiary checks for updates on startup (once per hour, non-blocking). If a new version is available, it prints a notice.
+
 ### TUI commands
 
 | Command | What |

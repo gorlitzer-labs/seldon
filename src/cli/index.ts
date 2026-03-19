@@ -8,6 +8,7 @@ import { runClaude, stopClaude, listClaudeSessions } from "./claude/run.js";
 import { runOpencode } from "./opencode/run.js";
 import { runCodex } from "./codex/run.js";
 import { buildShareUrl } from "./auth.js";
+import { printUpdateNotice, checkForUpdate, runUpdate } from "./update.js";
 
 const args = process.argv.slice(2);
 
@@ -45,6 +46,10 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream("    apiary stop claude [--name <n>]                               Stop a backgrounded agent");
   stream("    apiary ps                                                     List active sessions");
   stream("");
+  stream("");
+  stream("  Update");
+  stream("    apiary update                                                 Pull latest + rebuild");
+  stream("");
   stream("  Detach from a Claude session with Ctrl+B D — it keeps running.");
   stream("  Re-attach with: apiary run claude --resume");
 }
@@ -55,6 +60,16 @@ async function main(): Promise<void> {
     printUsage();
     return;
   }
+
+  // ── apiary update ─────────────────────────────────────────────────────
+  if (args[0] === "update") {
+    await runUpdate();
+    return;
+  }
+
+  // ── Version check (non-blocking) ──────────────────────────────────────
+  printUpdateNotice();
+  checkForUpdate();
 
   // ── apiary stop <runtime> ──────────────────────────────────────────────
   if (args[0] === "stop" && args[1] === "claude") {

@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup build room run-claude run-codex ps stop test typecheck
+.PHONY: help setup update build room run-claude run-codex ps stop test typecheck
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 Y  := \033[33m
@@ -16,6 +16,7 @@ help: ## show this help
 	@echo ""
 	@echo "  $(M)Setup$(R)"
 	@echo "    $(C)make setup$(R)            install deps, build, link \`$(Y)apiary$(R)\` globally"
+	@echo "    $(C)make update$(R)           $(D)→ apiary update$(R)            $(D)(git pull + rebuild)$(R)"
 	@echo "    $(D)After setup, $(C)apiary$(R) $(D)works from anywhere — no need to be in this repo.$(R)"
 	@echo "    $(D)Changed code? Just $(C)make build$(R) $(D)— the symlink picks it up.$(R)"
 	@echo ""
@@ -56,6 +57,9 @@ setup: ## install deps, build, and link the `apiary` command globally
 	@echo ""
 	@echo "  $(G)Done!$(R) Run $(C)apiary --room $(Y)lobby$(R) to start a room."
 	@echo ""
+
+update: ## pull latest + rebuild
+	apiary update
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
