@@ -401,7 +401,7 @@ export async function join(options: JoinOptions): Promise<void> {
     console.log(`  \x1b[2mShare:\x1b[0m \x1b[33m${options.shareUrl}\x1b[0m`);
     console.log();
     console.log(`  \x1b[2mJoin:\x1b[0m   \x1b[36mapiary join\x1b[0m \x1b[2m<url>\x1b[0m`);
-    console.log(`  \x1b[2mAgent:\x1b[0m  \x1b[36mapiary claude\x1b[0m \x1b[2m<name>  or  \x1b[36mapiary codex\x1b[0m \x1b[2m<name>\x1b[0m`);
+    console.log(`  \x1b[2mAgent:\x1b[0m  \x1b[36mapiary claude\x1b[0m \x1b[2m<name>  → tell it the URL, it joins\x1b[0m`);
     console.log();
   }
 

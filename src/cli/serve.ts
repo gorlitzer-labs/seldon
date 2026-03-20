@@ -854,7 +854,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   ${D}Admin:${R}   ${Y}${adminUrlObfuscated}${R}
 
   ${D}Join:${R}   ${C}apiary join${R} ${D}<url>${R}
-  ${D}Agent:${R}  ${C}apiary claude${R} ${D}<name>${R}  ${D}or${R}  ${C}apiary codex${R} ${D}<name>${R}
+  ${D}Agent:${R}  ${C}apiary claude${R} ${D}<name>${R}  ${D}→ tell it the URL, it joins${R}
 `);
   }
 
