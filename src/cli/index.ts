@@ -69,6 +69,19 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ── --version / -v ──────────────────────────────────────────────────
+  if (args.includes("--version") || args.includes("-v") || args[0] === "version") {
+    try {
+      const { createRequire } = await import("node:module");
+      const require = createRequire(import.meta.url);
+      const pkg = require("../../package.json");
+      console.log(pkg.version);
+    } catch {
+      console.log("unknown");
+    }
+    return;
+  }
+
   // ── apiary update [<version>] ─────────────────────────────────────────
   if (args[0] === "update") {
     const targetVersion = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
