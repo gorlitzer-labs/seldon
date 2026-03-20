@@ -708,6 +708,36 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         return;
       }
 
+      // ── POST /tunnel ────────────────────────────────────────────────────
+      if (url.pathname === "/tunnel") {
+        if (!session || session.authority !== "admin") return jsonError(res, 403, "Admin only");
+
+        if (tunnelProcess) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ url: publicUrl, alreadyRunning: true }));
+          return;
+        }
+
+        try {
+          tunnelProcess = await startTunnel(port);
+          if (!tunnelProcess) {
+            return jsonError(res, 500, "Could not start cloudflared — is it installed?");
+          }
+          const tunnelUrl = await waitForTunnelUrl(tunnelProcess);
+          if (!tunnelUrl) {
+            tunnelProcess.kill(); tunnelProcess = null;
+            return jsonError(res, 504, "Tunnel started but timed out waiting for URL");
+          }
+          publicUrl = tunnelUrl;
+          addCorsOrigin(tunnelUrl);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ url: tunnelUrl, alreadyRunning: false }));
+        } catch {
+          return jsonError(res, 500, "Failed to start tunnel");
+        }
+        return;
+      }
+
       // ── POST /rotate-token ──────────────────────────────────────────────
       if (url.pathname === "/rotate-token") {
         if (!session || !sessionToken) return jsonError(res, 401, "Invalid session token");

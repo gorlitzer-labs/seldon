@@ -111,6 +111,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/ping",   description: "Ping a participant", params: [
     { label: "name", completions: "participants" },
   ]},
+  { name: "/tunnel", description: "Start a cloudflared tunnel", adminOnly: true },
 ];
 
 const CMD_DISPLAY_COL = 26; // width for command + params display column
