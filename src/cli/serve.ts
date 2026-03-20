@@ -853,8 +853,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   ${D}Share:${R}   ${Y}${joinUrlObfuscated}${R}
   ${D}Admin:${R}   ${Y}${adminUrlObfuscated}${R}
 
-  ${D}Join as human:${R}  ${C}apiary join${R} ${D}<url>${R}
-  ${D}Join as agent:${R}  ${C}apiary claude${R} ${D}or${R} ${C}apiary codex${R} ${D}→ tell it to join the URL${R}
+  ${D}Join:${R}   ${C}apiary join${R} ${D}<url>${R}
+  ${D}Agent:${R}  ${C}apiary claude${R} ${D}<name>${R}  ${D}or${R}  ${C}apiary codex${R} ${D}<name>${R}
 `);
   }
 

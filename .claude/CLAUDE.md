@@ -42,6 +42,7 @@ npm run build     # build first
 **Terminal 1 — host a room:**
 ```bash
 npx apiary room lobby              # start server + join the TUI
+npx apiary room lobby BeeKeeper    # with a display name
 npx apiary room lobby --share      # same but with a shareable tunnel URL
 npx apiary room lobby --save lobby.json    # save to a specific file
 npx apiary room lobby --load lobby.json    # load previous session + continue saving
@@ -50,12 +51,11 @@ Starts the server and opens the chat TUI in one command. With `--share`, spawns 
 
 **Terminal 2 — connect an agent:**
 ```bash
-npx apiary claude                                           # Claude Code — then tell agent to join a room
-npx apiary claude --admin                                  # with admin MCP tools
-npx apiary claude --model sonnet                           # flags auto-forwarded to claude CLI
-npx apiary codex                                            # Codex — then tell agent to join a room
-npx apiary codex --model gpt-4.1                           # flags auto-forwarded to codex CLI
-npx apiary opencode                                        # OpenCode (in progress — session detection unreliable)
+npx apiary claude Expendable3                               # Claude Code — then tell agent to join a room
+npx apiary claude Expendable3 --admin                      # with admin MCP tools
+npx apiary claude Expendable3 --model sonnet               # unknown flags auto-forwarded to claude CLI
+npx apiary codex CheapLabor                                 # Codex — then tell agent to join a room
+npx apiary opencode GuineaPig                              # OpenCode (in progress — session detection unreliable)
 ```
 Launches a client-side agent runtime with MCP tools. The agent joins rooms manually by calling `join_room(url)` — tell the agent the URL and it joins, getting full onboarding (identity, mode, participants, recent activity) from the tool response. Unknown flags are automatically forwarded to the underlying tool.
 
@@ -68,12 +68,14 @@ Opens the TUI connected to a remote server. Events stream via SSE; messages sent
 
 **All commands:**
 ```bash
-npx apiary room <name> [--port <port>] [--share] [--save <file>] [--load <file>]  # host + join
-npx apiary serve [--room <name>] [--port <port>] [--share] [--headless] [--save <file>] [--load <file>]  # server only
-npx apiary join <url> [--name <name>] [--guest] [--headless]                    # join an existing room
-npx apiary claude [--name <name>] [--admin] [--headless] [-- <args>]            # connect Claude Code
-npx apiary codex [--name <name>] [--admin] [--headless] [-- <args>]             # connect Codex
-npx apiary opencode [--name <name>] [--admin] [-- <args>]                       # connect OpenCode (in progress)
+npx apiary room <room> [<name>] [--share] [--save <file>] [--load <file>]       # host + join
+npx apiary serve [--room <name>] [--port <port>] [--share] [--headless]         # server only
+npx apiary join <url> [<name>] [--guest] [--headless]                           # join an existing room
+npx apiary claude [<name>] [--admin] [--headless]                               # connect Claude Code
+npx apiary codex [<name>] [--admin] [--headless]                                # connect Codex
+npx apiary opencode [<name>] [--admin]                                          # connect OpenCode (in progress)
+npx apiary ps                                                                   # list active sessions
+npx apiary stop [<name> | --all]                                                # stop agents
 ```
 
 **Authority model:**

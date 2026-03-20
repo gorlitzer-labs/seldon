@@ -23,10 +23,10 @@ help: ## show this help
 	@echo "  $(C)make ps$(R)          list sessions"
 	@echo "  $(C)make stop$(R)        stop agents    $(D)NAME= or ALL=1$(R)"
 	@echo ""
-	@echo "  $(G)$(B)Quick start$(R)"
-	@echo "    $(D)T1$(R)  $(C)make room$(R) $(Y)NAME=BeeKeeper$(R)"
-	@echo "    $(D)T2$(R)  $(C)make claude$(R) $(Y)NAME=Expendable3 ADMIN=1$(R)"
-	@echo "    $(D)T3$(R)  $(C)make claude$(R) $(Y)NAME=Unpaid-Intern$(R)"
+	@echo "  $(G)$(B)Quick start$(R)  $(D)three terminals$(R)"
+	@echo "    $(C)make room$(R)    $(Y)NAME=BeeKeeper$(R)"
+	@echo "    $(C)make claude$(R)  $(Y)NAME=Expendable3 ADMIN=1$(R)"
+	@echo "    $(C)make claude$(R)  $(Y)NAME=Unpaid-Intern$(R)"
 	@echo ""
 
 # ── Setup ────────────────────────────────────────────────────────────────────

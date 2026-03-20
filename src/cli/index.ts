@@ -44,21 +44,17 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream("");
   stream(`  ${Y}${B}apiary${R} ${D}— shared rooms for AI agents${R}`);
   stream("");
-  stream(`  ${C}apiary room ${Y}<name>${R} ${D}[--share] [--name <name>]${R}         Host a room + join the TUI`);
-  stream(`  ${C}apiary join ${Y}<url>${R} ${D}[--name <name>] [--guest]${R}          Join an existing room`);
-  stream(`  ${C}apiary claude${R} ${D}[--name <n>] [--admin] [-- …]${R}            Launch Claude Code`);
-  stream(`  ${C}apiary codex${R} ${D}[--name <n>] [--admin] [-- …]${R}             Launch Codex`);
-  stream(`  ${C}apiary ps${R}                                              List active sessions`);
-  stream(`  ${C}apiary stop${R} ${D}[--name <n> | --all]${R}                       Stop agents`);
-  stream(`  ${C}apiary update${R}                                          Pull latest + rebuild`);
+  stream(`  ${C}apiary room ${Y}<room>${R} ${D}[${Y}<name>${R}${D}] [--share]${R}                  Host a room + join the TUI`);
+  stream(`  ${C}apiary claude ${Y}<name>${R} ${D}[--admin]${R}                          Launch Claude Code`);
+  stream(`  ${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}                           Launch Codex`);
+  stream(`  ${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}] [--guest]${R}                   Join an existing room`);
+  stream(`  ${C}apiary ps${R}  ${D}/${R}  ${C}apiary stop${R} ${D}[${Y}<name>${R}${D} | --all]${R}            Sessions`);
   stream("");
   stream(`  ${G}${B}Quick start${R}`);
-  stream(`    ${D}Terminal 1:${R}  ${C}apiary room ${Y}sweatshop${R} ${D}--name ${Y}BeeKeeper${R}`);
-  stream(`    ${D}Terminal 2:${R}  ${C}apiary claude${R} ${D}--name ${Y}Expendable3${R} ${D}--admin${R}`);
-  stream(`    ${D}Terminal 3:${R}  ${C}apiary claude${R} ${D}--name ${Y}Unpaid-Intern${R}`);
+  stream(`    ${D}T1${R}  ${C}apiary room ${Y}sweatshop BeeKeeper${R}`);
+  stream(`    ${D}T2${R}  ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}`);
+  stream(`    ${D}T3${R}  ${C}apiary claude ${Y}Unpaid-Intern${R}`);
   stream(`    ${D}Tell them the URL. They join.${R}`);
-  stream(`    ${D}--admin → can kick, mute, and manage other participants.${R}`);
-  stream(`    ${D}Detach with Ctrl+B D, resume with: ${C}apiary claude --resume${R}`);
   stream("");
 }
 
@@ -79,14 +75,13 @@ async function main(): Promise<void> {
   printUpdateNotice();
   checkForUpdate();
 
-  // ── apiary stop ───────────────────────────────────────────────────────
+  // ── apiary stop [<name> | --all] ──────────────────────────────────────
   if (args[0] === "stop") {
     const rest = args.slice(1);
-    // Support both "apiary stop claude --name X" and "apiary stop --name X"
-    const hasRuntime = rest[0] && !rest[0].startsWith("--");
-    const flagArgs = hasRuntime ? rest.slice(1) : rest;
-    const name = getFlag("name", flagArgs);
-    const all = flagArgs.includes("--all");
+    const all = rest.includes("--all");
+    // Positional name or --name flag
+    const positional = rest.find((a) => !a.startsWith("--"));
+    const name = getFlag("name", rest) ?? positional;
     await stopClaude(name, all);
     return;
   }
@@ -108,10 +103,12 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── apiary room <name> — alias for apiary --room <name> ─────────────────
+  // ── apiary room <room> [<name>] — alias for apiary --room <name> ────────
   if (args[0] === "room") {
-    const roomName = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
-    const roomArgs = roomName ? args.slice(2) : args.slice(1);
+    const positionals = args.slice(1).filter((a) => !a.startsWith("--"));
+    const roomArgs = args.slice(1);
+    const roomName = positionals[0] ?? getFlag("room", roomArgs);
+    const userName = positionals[1] ?? getFlag("name", roomArgs);
     const portStr = getFlag("port", roomArgs);
     const port = portStr ? parseInt(portStr, 10) : undefined;
     if (port !== undefined && (isNaN(port) || port < 0 || port > 65535)) {
@@ -119,7 +116,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     const result = await serve({
-      room: roomName ?? getFlag("room", roomArgs),
+      room: roomName,
       port,
       share: roomArgs.includes("--share"),
       quiet: true,
@@ -137,7 +134,7 @@ async function main(): Promise<void> {
 
     await join({
       server: adminJoinUrl,
-      name: getFlag("name", roomArgs),
+      name: userName,
       shareUrl: participantShareUrl,
     });
     return;
@@ -171,9 +168,17 @@ async function main(): Promise<void> {
 
     const joinUrls = getAllFlags("join", apiaryArgs);
 
+    // First positional arg (not a flag, not consumed by a known flag) is the name
+    const positionalName = apiaryArgs.find((a, i) => {
+      if (a.startsWith("--")) return false;
+      // Check if previous arg is a flag that takes a value
+      if (i > 0 && KNOWN_FLAGS.has(apiaryArgs[i - 1])) return false;
+      return true;
+    });
+
     const runtimeOptions = {
       joinUrls: joinUrls.length > 0 ? joinUrls : undefined,
-      name: getFlag("name", apiaryArgs),
+      name: getFlag("name", apiaryArgs) ?? positionalName,
       admin: apiaryArgs.includes("--admin"),
       headless: apiaryArgs.includes("--headless"),
       resume: apiaryArgs.includes("--resume"),
@@ -190,16 +195,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── apiary join <url> ──────────────────────────────────────────────────
+  // ── apiary join <url> [<name>] ──────────────────────────────────────────
   if (args[0] === "join") {
     const server = args[1];
     if (!server || server.startsWith("--")) {
-      console.error("Usage: apiary join <url> [--name <name>] [--guest] [--headless]");
+      console.error("Usage: apiary join <url> [<name>] [--guest] [--headless]");
       process.exit(1);
     }
+    // Second positional arg is the name
+    const joinName = args[2] && !args[2].startsWith("--") ? args[2] : getFlag("name");
     await join({
       server,
-      name: getFlag("name"),
+      name: joinName,
       guest: args.includes("--guest"),
       headless: args.includes("--headless"),
     });

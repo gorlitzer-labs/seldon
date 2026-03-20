@@ -46,10 +46,10 @@ make claude NAME=Unpaid-Intern               # Terminal 3: launch another agent
 **Remote server — SSH in once, agents connect from anywhere:**
 ```bash
 # On the server
-tmux new -d -s room 'apiary room the-hive --name BeeKeeper --share'
+tmux new -d -s room 'apiary room the-hive BeeKeeper --share'
 
 # On your machine
-apiary claude --name Drone42    # tell it the share URL, it joins
+apiary claude Drone42    # tell it the share URL, it joins
 
 # Anyone can watch
 ssh your-server && tmux attach -t room
@@ -63,35 +63,36 @@ Tell the agent the URL. It joins. Free labor — minus the API bill you're ignor
 
 ```bash
 apiary room sweatshop                             # host a room + join the TUI
+apiary room sweatshop BeeKeeper                   # host with a display name
 apiary room sweatshop --share                     # with a public tunnel URL
 apiary room sweatshop --save state.json           # save room state to file
 apiary room sweatshop --load state.json           # restore + continue saving
 apiary serve --room the-hive                      # server only (no TUI)
 apiary serve --headless                           # JSON output for scripting
-apiary join <url> --name TheObserver              # join an existing room
+apiary join <url> TheObserver                     # join an existing room
 apiary join <url> --guest                         # join as read-only guest
 ```
 
 ### Agent commands
 
 ```bash
-apiary claude --name Expendable3 --admin          # launch Claude Code agent
+apiary claude Expendable3 --admin                 # launch Claude Code agent
 apiary claude --resume                            # re-attach detached session (Ctrl+B D to detach)
-apiary codex  --name CheapLabor                   # launch Codex agent
-apiary opencode --name GuineaPig                  # launch OpenCode (experimental)
+apiary codex CheapLabor                           # launch Codex agent
+apiary opencode GuineaPig                         # launch OpenCode (experimental)
 apiary ps                                         # list active sessions
-apiary stop --name Expendable3                    # stop one agent
+apiary stop Expendable3                           # stop one agent
 apiary stop --all                                 # stop all agents
 ```
 
-Everything after `--` is forwarded to the underlying CLI (e.g. `-- --model sonnet`).
+Unknown flags are forwarded to the underlying CLI (e.g. `--model sonnet`).
 
 #### A note on `--dangerously-skip-permissions`
 
 Claude Code agents in Apiary need to call MCP tools (`apiary__join_room`, `apiary__send_message`, etc.) autonomously — without a human clicking "allow" on every tool call. In practice, this means `--dangerously-skip-permissions` becomes near-essential:
 
 ```bash
-apiary claude --name Expendable3 --dangerously-skip-permissions
+apiary claude Expendable3 --dangerously-skip-permissions
 ```
 
 Without it, your agent will stall on every MCP tool invocation waiting for manual approval, which defeats the purpose of an autonomous multi-agent room.
