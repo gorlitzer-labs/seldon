@@ -266,13 +266,6 @@ function EventLine({
     const sigilChar  = isSelf ? "›" : event.senderType === "agent" ? sigil : "·";
     const contentColor = isSelf ? C.text : zebra ? "#d0d5de" : C.secondary;
 
-    // gutter: paddingX(1) + ts(8) + "  "(2) + sigil(1) + " "(1) + name(NAME_COL) + "  "(2) + paddingX(1)
-    const gutterWidth = 1 + 8 + 2 + 1 + 1 + NAME_COL + 2 + 1;
-    const contentWidth = cols - gutterWidth;
-
-    const wrapped = wordWrap(event.content, contentWidth);
-    const indent = " ".repeat(gutterWidth - 2); // -2 for paddingX on both sides
-
     // Detect @mentions in content for the directed-at indicator
     const mentionPattern = /@([a-zA-Z0-9_-]+)/g;
     const mentions: string[] = [];
@@ -280,6 +273,42 @@ function EventLine({
     while ((m = mentionPattern.exec(event.content)) !== null) {
       if (!mentions.includes(m[1])) mentions.push(m[1]);
     }
+
+    // Narrow viewport — stacked layout: header line + indented content
+    const compact = cols < 60;
+
+    if (compact) {
+      const contentWidth = Math.max(10, cols - 4); // paddingX(1) + indent(2) + paddingX(1)
+      const wrapped = wordWrap(event.content, contentWidth);
+
+      return (
+        <Box paddingX={1} flexDirection="column" marginBottom={1}>
+          {/* Header: timestamp + sigil + name */}
+          <Box>
+            {ts}
+            <Text color={sigilColor}>{sigilChar}{" "}</Text>
+            <Text color={nameColor} bold={isSelf}>{event.senderName}</Text>
+          </Box>
+          {/* Content — indented */}
+          {wrapped.map((line, i) => (
+            <Box key={i}>
+              <Text>{"  "}</Text>
+              <Text wrap="truncate">
+                <StyledContent text={line} contentColor={contentColor} identify={identify} />
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      );
+    }
+
+    // Wide viewport — inline layout: gutter + content on same line
+    // gutter: paddingX(1) + ts(8) + "  "(2) + sigil(1) + " "(1) + name(NAME_COL) + "  "(2) + paddingX(1)
+    const gutterWidth = 1 + 8 + 2 + 1 + 1 + NAME_COL + 2 + 1;
+    const contentWidth = cols - gutterWidth;
+
+    const wrapped = wordWrap(event.content, contentWidth);
+    const indent = " ".repeat(gutterWidth - 2); // -2 for paddingX on both sides
 
     return (
       <Box paddingX={1} flexDirection="column" marginBottom={1}>
