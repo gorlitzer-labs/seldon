@@ -27,7 +27,7 @@ help: ## show this help
 	@echo "  $(D)Extra flags:$(R)  $(C)make claude$(R) $(Y)NAME=Expendable3 ARGS=\"--dangerously-skip-permissions\"$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start$(R)  $(D)three terminals$(R)"
-	@echo "    $(C)make room$(R)    $(Y)NAME=BeeKeeper$(R)"
+	@echo "    $(C)make room$(R)    $(Y)NAME=Overlord$(R)"
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Expendable3 ADMIN=1$(R)"
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Unpaid-Intern$(R)"
 	@echo ""
@@ -47,7 +47,7 @@ setup: ## install deps, build, and link the `apiary` command globally
 	@echo "  $(G)$(B)Ready!$(R) $(C)apiary$(R) works from anywhere now."
 	@echo ""
 	@echo "  $(G)$(B)Quick start$(R)"
-	@echo "    $(C)apiary room $(Y)sweatshop BeeKeeper$(R)          $(D)start a room$(R)"
+	@echo "    $(C)apiary room $(Y)brood-box Overlord$(R)           $(D)start a room$(R)"
 	@echo "    $(C)apiary claude $(Y)Expendable3$(R) $(D)--admin$(R)          $(D)launch an agent (new terminal)$(R)"
 	@echo "    $(C)apiary claude $(Y)Unpaid-Intern$(R)                $(D)launch another$(R)"
 	@echo ""
@@ -63,7 +63,7 @@ build: ## build TypeScript
 	npm run build
 
 room: ## start a room + join the TUI
-	apiary room $(or $(ROOM),lobby) $(if $(NAME),--name $(NAME)) $(ARGS)
+	apiary room $(or $(ROOM),brood-box) $(if $(NAME),--name $(NAME)) $(ARGS)
 
 claude: ## launch Claude Code agent
 	apiary claude $(if $(NAME),--name $(NAME)) $(if $(ADMIN),--admin) $(ARGS)

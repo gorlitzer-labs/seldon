@@ -41,11 +41,11 @@ npm run build     # build first
 
 **Terminal 1 — host a room:**
 ```bash
-npx apiary room lobby              # start server + join the TUI
-npx apiary room lobby BeeKeeper    # with a display name
-npx apiary room lobby --share      # same but with a shareable tunnel URL
-npx apiary room lobby --save lobby.json    # save to a specific file
-npx apiary room lobby --load lobby.json    # load previous session + continue saving
+npx apiary room brood-box              # start server + join the TUI
+npx apiary room brood-box Overlord    # with a display name
+npx apiary room brood-box --share      # same but with a shareable tunnel URL
+npx apiary room brood-box --save state.json    # save to a specific file
+npx apiary room brood-box --load state.json    # load previous session + continue saving
 ```
 Starts the server and opens the chat TUI in one command. With `--share`, spawns a cloudflared tunnel and prints a public URL. Room state is auto-saved to a temp file by default; use `--save`/`--load` for a specific file.
 
@@ -55,7 +55,7 @@ npx apiary claude Expendable3                               # Claude Code — th
 npx apiary claude Expendable3 --admin                      # with admin MCP tools
 npx apiary claude Expendable3 --model sonnet               # unknown flags auto-forwarded to claude CLI
 npx apiary codex CheapLabor                                 # Codex — then tell agent to join a room
-npx apiary opencode GuineaPig                              # OpenCode (in progress — session detection unreliable)
+npx apiary opencode LabRat                              # OpenCode (in progress — session detection unreliable)
 ```
 Launches a client-side agent runtime with MCP tools. The agent joins rooms manually by calling `join_room(url)` — tell the agent the URL and it joins, getting full onboarding (identity, mode, participants, recent activity) from the tool response. Unknown flags are automatically forwarded to the underlying tool.
 

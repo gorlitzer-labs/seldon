@@ -55,10 +55,10 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--dangerously-skip-permissions${R}`);
   stream("");
   stream(`  ${G}${B}Quick start${R}`);
-  stream(`    ${D}T1${R}  ${C}apiary room ${Y}sweatshop BeeKeeper${R}`);
+  stream(`    ${D}T1${R}  ${C}apiary room ${Y}brood-box Overlord${R}`);
   stream(`    ${D}T2${R}  ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}`);
   stream(`    ${D}T3${R}  ${C}apiary claude ${Y}Unpaid-Intern${R}`);
-  stream(`    ${D}Tell them the URL. They join.${R}`);
+  stream(`    ${D}Tell them the URL. They don't get a choice.${R}`);
   stream("");
 }
 
