@@ -200,6 +200,27 @@ export async function join(options: JoinOptions): Promise<void> {
     const args = parts.slice(1);
 
     switch (cmd) {
+      // ── /help ─────────────────────────────────────────────────────
+      case "help": {
+        const lines = [
+          "/who              list participants",
+          "/ping <name>      ping for a status check",
+          "/share            generate share links",
+          "/leave            disconnect",
+        ];
+        if (authority === "admin") {
+          lines.push(
+            "",
+            "/kick <name>      remove a participant",
+            "/mute <name>      demote to guest",
+            "/unmute <name>    restore to member",
+            "/setmode <n> <m>  set engagement mode",
+          );
+        }
+        systemEvent(lines.join("\n"));
+        return;
+      }
+
       // ── /who ──────────────────────────────────────────────────────
       case "who": {
         try {
@@ -432,6 +453,12 @@ export async function join(options: JoinOptions): Promise<void> {
       process.exit(0);
     },
   });
+
+  // Welcome note
+  if (!isReadOnly) {
+    const hint = authority === "admin" ? "/help for commands (admin)" : "/help for commands";
+    systemEvent(hint);
+  }
 
   // Set initial agent names + participant names
   const agentNames = participants

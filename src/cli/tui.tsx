@@ -83,6 +83,7 @@ const ENGAGEMENT_MODES = [
 ];
 
 const SLASH_COMMANDS: SlashCommand[] = [
+  { name: "/help",    description: "Show commands" },
   { name: "/who",     description: "List participants" },
   { name: "/leave",   description: "Disconnect and exit" },
   { name: "/share",   description: "Generate share links" },
