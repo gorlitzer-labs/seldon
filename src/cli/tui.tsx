@@ -374,9 +374,8 @@ function EventLine({
       <Box paddingX={1}>
         {ts}
         <Text color={C.yellow}>{"🔔 "}</Text>
-        <Text color={C.yellow}>{"Pinged "}</Text>
         <Text color={C.yellow} bold>{event.pingerName}</Text>
-        <Text color={C.yellow}>{"."}</Text>
+        <Text color={C.yellow}>{" pinged you."}</Text>
       </Box>
     );
   }
@@ -450,9 +449,9 @@ function App({
     const shouldBell =
       event.kind === "ping" ||
       (event.kind === "message" && !event.isSelf);
-    if (shouldBell) process.stdout.write("\x07");
+    if (shouldBell && stdout.isTTY) stdout.write("\x07");
     setEvents((prev) => [...prev, event]);
-  }, []);
+  }, [stdout]);
 
   useEffect(() => {
     onReady({ push, setAgentNames, setParticipants });
@@ -780,7 +779,7 @@ function App({
             }
 
             return lines.map((line, i) => (
-              <Box key={i} width={cols - 2}>
+              <Box key={i} width={Math.max(0, cols - 2)}>
                 <Text color={C.cyan} bold>{i === 0 ? "› " : "  "}</Text>
                 <Text wrap="wrap">
                   {i === cursorLine ? (
