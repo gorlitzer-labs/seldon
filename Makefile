@@ -27,7 +27,7 @@ help: ## show this help
 	@echo "  $(D)Extra flags:$(R)  $(C)make claude$(R) $(Y)NAME=Expendable3 ARGS=\"--dangerously-skip-permissions\"$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start$(R)  $(D)three terminals$(R)"
-	@echo "    $(C)make room$(R)    $(Y)NAME=Overlord$(R)"
+	@echo "    $(C)make room$(R)    $(Y)ROOM=brood-box NAME=Overlord$(R)"
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Expendable3 ADMIN=1$(R)"
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Unpaid-Intern$(R)"
 	@echo ""
