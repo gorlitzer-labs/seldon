@@ -266,14 +266,6 @@ function EventLine({
     const sigilChar  = isSelf ? "›" : event.senderType === "agent" ? sigil : "·";
     const contentColor = isSelf ? C.text : zebra ? "#d0d5de" : C.secondary;
 
-    // Detect @mentions in content for the directed-at indicator
-    const mentionPattern = /@([a-zA-Z0-9_-]+)/g;
-    const mentions: string[] = [];
-    let m;
-    while ((m = mentionPattern.exec(event.content)) !== null) {
-      if (!mentions.includes(m[1])) mentions.push(m[1]);
-    }
-
     // Border color: sender's color for agents, dim for self, muted for other humans
     const borderColor = isSelf ? C.border : event.senderType === "agent" ? color : C.dim;
 
@@ -283,29 +275,11 @@ function EventLine({
 
     const wrapped = wordWrap(event.content, innerWidth);
 
-    // Header line: timestamp + sigil + name (+ reply/mention indicators)
-    const headerParts: React.ReactNode[] = [];
-    // Reply indicator
-    if (event.replyToName) {
-      headerParts.push(
-        <Text key="reply" color={C.muted}>{pickWhisper(event.id)} </Text>,
-        <Text key="replyName" color={C.secondary}>{event.replyToName}</Text>,
-        <Text key="replySep" color={C.dim}>{"  "}</Text>,
-      );
-    }
-    // Mention indicator (only if no reply)
-    if (!event.replyToName && mentions.length > 0) {
-      mentions.forEach((name, mi) => {
-        const { color: mColor } = identify(name);
-        headerParts.push(
-          mi === 0
-            ? <Text key={`ma${mi}`} color={C.dim}>{"→ "}</Text>
-            : <Text key={`ma${mi}`} color={C.dim}>{" · "}</Text>,
-          <Text key={`mb${mi}`} color={mColor}>{"@"}{name}</Text>,
-        );
-      });
-      headerParts.push(<Text key="mentionSep" color={C.dim}>{"  "}</Text>);
-    }
+    // Reply indicator — subtle tag in header. Mentions are already
+    // highlighted in content by StyledContent, no separate indicator needed.
+    const replyTag = event.replyToName
+      ? <><Text color={C.dim}>{"  ↩ "}</Text><Text color={C.secondary}>{event.replyToName}</Text></>
+      : null;
 
     return (
       <Box paddingX={1}>
@@ -316,13 +290,12 @@ function EventLine({
           paddingX={1}
           width={cols - 2}
         >
-          {/* Header: timestamp + sigil + name + indicators */}
+          {/* Header: timestamp + sigil + name (+ reply tag) */}
           <Box>
             {ts}
             <Text color={sigilColor}>{sigilChar}{" "}</Text>
             <Text color={nameColor} bold={isSelf}>{event.senderName}</Text>
-            {headerParts.length > 0 && <Text>{"  "}</Text>}
-            {headerParts}
+            {replyTag}
           </Box>
           {/* Content */}
           {wrapped.map((line, i) => (
