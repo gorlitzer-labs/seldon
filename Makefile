@@ -97,9 +97,9 @@ release: ## bump version, tag, and push (V=patch|minor|major NOTES="...")
 	@npm test
 	@echo "$(C)  Bumping $(Y)$(V)$(R)$(C) version...$(R)"
 	@npm version $(V) --no-git-tag-version
-	@NEW_V=$$(node -p "require('./package.json').version"); \
-	 npm run build; \
-	 git add -A; \
+	@NEW_V=$$(node -p "require('./package.json').version") && \
+	 npm run build && \
+	 git add -A && \
 	 if [ -n "$(NOTES)" ]; then \
 	   git commit -m "v$$NEW_V" -m "$(NOTES)"; \
 	   git tag -a "v$$NEW_V" -m "$(NOTES)"; \

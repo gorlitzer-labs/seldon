@@ -264,10 +264,9 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
 
     // Silence stdout/stderr so background process doesn't bleed
     // into other terminals (e.g. another agent's tmux session)
-    const devNull = await import("node:fs").then(fs => fs.openSync("/dev/null", "w"));
-    process.stdout.write = process.stderr.write = (() => true) as any;
-    try { process.stdout.fd !== undefined && (process as any).stdout._handle = null; } catch {}
-    try { process.stderr.fd !== undefined && (process as any).stderr._handle = null; } catch {}
+    const noop = (() => true) as any;
+    process.stdout.write = noop;
+    process.stderr.write = noop;
 
     // Keep the process alive so the event loop, MCP server, and SSE stay up
     await new Promise<void>((resolve) => {
