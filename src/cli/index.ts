@@ -49,6 +49,7 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(`  ${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}                           Launch Codex`);
   stream(`  ${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}] [--guest]${R}                   Join an existing room`);
   stream(`  ${C}apiary ps${R}  ${D}/${R}  ${C}apiary stop${R} ${D}[${Y}<name>${R}${D} | --all]${R}            Sessions`);
+  stream(`  ${C}apiary update${R}                                          Pull latest + rebuild`);
   stream("");
   stream(`  ${G}${B}Quick start${R}`);
   stream(`    ${D}T1${R}  ${C}apiary room ${Y}sweatshop BeeKeeper${R}`);

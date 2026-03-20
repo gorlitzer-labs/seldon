@@ -22,7 +22,6 @@ help: ## show this help
 	@echo "  $(C)make codex$(R)       launch codex   $(D)NAME= ADMIN=1$(R)"
 	@echo "  $(C)make ps$(R)          list sessions"
 	@echo "  $(C)make stop$(R)        stop agents    $(D)NAME= or ALL=1$(R)"
-	@echo "  $(C)make release$(R)     bump, tag, push $(D)V=patch|minor|major$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start$(R)  $(D)three terminals$(R)"
 	@echo "    $(C)make room$(R)    $(Y)NAME=BeeKeeper$(R)"
