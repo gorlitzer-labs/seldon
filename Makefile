@@ -30,6 +30,9 @@ help: ## show this help
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Expendable3 ADMIN=1$(R)"
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Unpaid-Intern$(R)"
 	@echo ""
+	@echo "  $(C)make test$(R)        run tests"
+	@echo "  $(C)make release$(R)     bump, tag, push $(D)V=patch|minor|major NOTES=$(R)"
+	@echo ""
 	@echo "  $(D)Dev shortcuts. Users run: $(C)apiary --help$(R)"
 	@echo ""
 
