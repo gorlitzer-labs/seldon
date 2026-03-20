@@ -274,25 +274,26 @@ function EventLine({
       if (!mentions.includes(m[1])) mentions.push(m[1]);
     }
 
-    // Narrow viewport — stacked layout: header line + indented content
-    const compact = cols < 60;
+    // Narrow viewport — stacked layout: header line + content below.
+    // The wide gutter (28 chars) squashes text on small screens.
+    // 80 cols = typical phone via Termux/SSH.
+    const compact = cols < 80;
 
     if (compact) {
       const contentWidth = Math.max(10, cols - 4); // paddingX(1) + indent(2) + paddingX(1)
       const wrapped = wordWrap(event.content, contentWidth);
 
       return (
-        <Box paddingX={1} flexDirection="column" marginBottom={1}>
+        <Box paddingX={1} flexDirection="column">
           {/* Header: timestamp + sigil + name */}
           <Box>
             {ts}
             <Text color={sigilColor}>{sigilChar}{" "}</Text>
             <Text color={nameColor} bold={isSelf}>{event.senderName}</Text>
           </Box>
-          {/* Content — indented */}
+          {/* Content — full width, natural wrap */}
           {wrapped.map((line, i) => (
             <Box key={i}>
-              <Text>{"  "}</Text>
               <Text wrap="truncate">
                 <StyledContent text={line} contentColor={contentColor} identify={identify} />
               </Text>
