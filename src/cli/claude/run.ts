@@ -262,6 +262,13 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     console.log(`  Resume:  apiary claude ${setup.agentName} --resume`);
     console.log(`  Stop:    apiary stop ${setup.agentName}`);
 
+    // Silence stdout/stderr so background process doesn't bleed
+    // into other terminals (e.g. another agent's tmux session)
+    const devNull = await import("node:fs").then(fs => fs.openSync("/dev/null", "w"));
+    process.stdout.write = process.stderr.write = (() => true) as any;
+    try { process.stdout.fd !== undefined && (process as any).stdout._handle = null; } catch {}
+    try { process.stderr.fd !== undefined && (process as any).stderr._handle = null; } catch {}
+
     // Keep the process alive so the event loop, MCP server, and SSE stay up
     await new Promise<void>((resolve) => {
       process.on("SIGINT", resolve);
@@ -277,8 +284,6 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
   clearSession(setup.agentName);
   resetTerminal();
-
-  console.log("Disconnected.");
 }
 
 // ── Resume ──────────────────────────────────────────────────────────────────
