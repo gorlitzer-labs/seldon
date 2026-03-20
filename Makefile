@@ -28,7 +28,7 @@ help: ## show this help
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Expendable3 ADMIN=1$(R)"
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Unpaid-Intern$(R)"
 	@echo ""
-	@echo "  $(D)For general use: $(C)apiary --help$(R)"
+	@echo "  $(D)Dev shortcuts. Users run: $(C)apiary --help$(R)"
 	@echo ""
 
 # ── Setup ────────────────────────────────────────────────────────────────────
