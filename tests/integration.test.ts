@@ -572,4 +572,55 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     });
     expect(res.status).toBe(403);
   }, 15_000);
+
+  // ── 14. /tunnel — non-admin rejected ──────────────────────────────────
+
+  test("/tunnel rejects non-admin", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const member = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+
+    const res = await fetch(`${server.serverUrl}/tunnel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${member.sessionToken}` },
+    });
+    expect(res.status).toBe(403);
+  }, 15_000);
+
+  // ── 15. /tunnel — requires cloudflared ────────────────────────────────
+
+  test("/tunnel returns error when cloudflared is not available", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
+
+    // With no cloudflared on PATH (CI), startTunnel returns null → 500
+    const res = await fetch(`${server.serverUrl}/tunnel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+    });
+    // Either 500 (no cloudflared) or 200 (cloudflared present) — both are valid
+    expect([200, 500]).toContain(res.status);
+
+    if (res.status === 200) {
+      const data = (await res.json()) as { url: string; alreadyRunning: boolean };
+      expect(data.url).toBeTruthy();
+      expect(typeof data.alreadyRunning).toBe("boolean");
+
+      // Second call should say already running
+      const res2 = await fetch(`${server.serverUrl}/tunnel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+      });
+      expect(res2.status).toBe(200);
+      const data2 = (await res2.json()) as { url: string; alreadyRunning: boolean };
+      expect(data2.alreadyRunning).toBe(true);
+      expect(data2.url).toBe(data.url);
+    } else {
+      const data = (await res.json()) as { error: string };
+      expect(data.error).toMatch(/cloudflared/i);
+    }
+  }, 30_000);
 });

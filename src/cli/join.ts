@@ -215,6 +215,7 @@ export async function join(options: JoinOptions): Promise<void> {
             "/mute <name>      demote to guest",
             "/unmute <name>    restore to member",
             "/setmode <n> <m>  set engagement mode",
+            "/tunnel           start cloudflared tunnel",
           );
         }
         systemEvent(lines.join("\n"));
@@ -401,6 +402,28 @@ export async function join(options: JoinOptions): Promise<void> {
             `  ${tier}: apiary join ${url}`
           );
           systemEvent(`Share links:\n${lines.join("\n")}`);
+        } catch {
+          systemEvent("Failed to reach server.");
+        }
+        return;
+      }
+
+      // ── /tunnel — start cloudflared tunnel mid-session ────────────
+      case "tunnel": {
+        if (authority !== "admin") { systemEvent("Only admins can start tunnels."); return; }
+
+        try {
+          const res = await fetch(`${serverUrl}/tunnel`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+          });
+          if (!res.ok) { systemEvent(`Failed: ${(await res.json() as { error: string }).error}`); return; }
+          const data = (await res.json()) as { url: string; alreadyRunning: boolean };
+          if (data.alreadyRunning) {
+            systemEvent(`Tunnel already running: ${data.url}`);
+          } else {
+            systemEvent(`Tunnel started: ${data.url}\nUse /share to generate share links.`);
+          }
         } catch {
           systemEvent("Failed to reach server.");
         }
@@ -655,8 +678,8 @@ function toDisplayEvent(
       return {
         id: randomUUID(),
         ts,
-        kind: "system",
-        content: `\x07🔔 ${event.pinger_name} pinged you`,
+        kind: "ping",
+        pingerName: event.pinger_name ?? "someone",
       };
     case "Activity":
       if (event.action === "mode_changed") {
