@@ -274,24 +274,57 @@ function EventLine({
       if (!mentions.includes(m[1])) mentions.push(m[1]);
     }
 
-    // Narrow viewport — stacked layout: header line + content below.
-    // The wide gutter (28 chars) squashes text on small screens.
-    // 80 cols = typical phone via Termux/SSH.
-    const compact = cols < 80;
+    // Border color: sender's color for agents, dim for self, muted for other humans
+    const borderColor = isSelf ? C.border : event.senderType === "agent" ? color : C.dim;
 
-    if (compact) {
-      const contentWidth = Math.max(10, cols - 4); // paddingX(1) + indent(2) + paddingX(1)
-      const wrapped = wordWrap(event.content, contentWidth);
+    // Box eats ~4 cols (2 border + 2 padding). Inner content width:
+    const boxChrome = 4; // │ + space + space + │
+    const innerWidth = Math.max(10, cols - 2 - boxChrome); // -2 for outer paddingX
 
-      return (
-        <Box paddingX={1} flexDirection="column">
-          {/* Header: timestamp + sigil + name */}
+    const wrapped = wordWrap(event.content, innerWidth);
+
+    // Header line: timestamp + sigil + name (+ reply/mention indicators)
+    const headerParts: React.ReactNode[] = [];
+    // Reply indicator
+    if (event.replyToName) {
+      headerParts.push(
+        <Text key="reply" color={C.muted}>{pickWhisper(event.id)} </Text>,
+        <Text key="replyName" color={C.secondary}>{event.replyToName}</Text>,
+        <Text key="replySep" color={C.dim}>{"  "}</Text>,
+      );
+    }
+    // Mention indicator (only if no reply)
+    if (!event.replyToName && mentions.length > 0) {
+      mentions.forEach((name, mi) => {
+        const { color: mColor } = identify(name);
+        headerParts.push(
+          mi === 0
+            ? <Text key={`ma${mi}`} color={C.dim}>{"→ "}</Text>
+            : <Text key={`ma${mi}`} color={C.dim}>{" · "}</Text>,
+          <Text key={`mb${mi}`} color={mColor}>{"@"}{name}</Text>,
+        );
+      });
+      headerParts.push(<Text key="mentionSep" color={C.dim}>{"  "}</Text>);
+    }
+
+    return (
+      <Box paddingX={1}>
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={borderColor}
+          paddingX={1}
+          width={cols - 2}
+        >
+          {/* Header: timestamp + sigil + name + indicators */}
           <Box>
             {ts}
             <Text color={sigilColor}>{sigilChar}{" "}</Text>
             <Text color={nameColor} bold={isSelf}>{event.senderName}</Text>
+            {headerParts.length > 0 && <Text>{"  "}</Text>}
+            {headerParts}
           </Box>
-          {/* Content — full width, natural wrap */}
+          {/* Content */}
           {wrapped.map((line, i) => (
             <Box key={i}>
               <Text wrap="truncate">
@@ -300,61 +333,6 @@ function EventLine({
             </Box>
           ))}
         </Box>
-      );
-    }
-
-    // Wide viewport — inline layout: gutter + content on same line
-    // gutter: paddingX(1) + ts(8) + "  "(2) + sigil(1) + " "(1) + name(NAME_COL) + "  "(2) + paddingX(1)
-    const gutterWidth = 1 + 8 + 2 + 1 + 1 + NAME_COL + 2 + 1;
-    const contentWidth = cols - gutterWidth;
-
-    const wrapped = wordWrap(event.content, contentWidth);
-    const indent = " ".repeat(gutterWidth - 2); // -2 for paddingX on both sides
-
-    return (
-      <Box paddingX={1} flexDirection="column" marginBottom={1}>
-        {/* Reply indicator — compact, varied */}
-        {event.replyToName && (
-          <Box>
-            <Text>{" ".repeat(gutterWidth - 2)}</Text>
-            <Text color={C.muted}>{pickWhisper(event.id)} </Text>
-            <Text color={C.secondary}>{event.replyToName}</Text>
-          </Box>
-        )}
-        {/* Mention indicator — shows who the message is directed at */}
-        {!event.replyToName && mentions.length > 0 && (
-          <Box>
-            <Text>{" ".repeat(gutterWidth - 2)}</Text>
-            {mentions.map((name, mi) => {
-              const { color: mColor } = identify(name);
-              return (
-                <React.Fragment key={name}>
-                  {mi === 0 ? <Text color={C.dim}>{"→ "}</Text> : <Text color={C.dim}>{" · "}</Text>}
-                  <Text color={mColor}>{"@"}{name}</Text>
-                </React.Fragment>
-              );
-            })}
-          </Box>
-        )}
-        {wrapped.map((line, i) => (
-          <Box key={i}>
-            {i === 0 ? (
-              <>
-                {ts}
-                <Text color={sigilColor}>{sigilChar}{" "}</Text>
-                <Text color={nameColor} bold={isSelf}>
-                  {event.senderName.slice(0, NAME_COL).padEnd(NAME_COL)}
-                </Text>
-                <Text>{"  "}</Text>
-              </>
-            ) : (
-              <Text>{indent}</Text>
-            )}
-            <Text wrap="truncate">
-              <StyledContent text={line} contentColor={contentColor} identify={identify} />
-            </Text>
-          </Box>
-        ))}
       </Box>
     );
   }
