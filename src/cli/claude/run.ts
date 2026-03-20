@@ -246,8 +246,8 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     pid: process.pid,
   });
 
-  console.log("Attaching to Claude Code session...");
-  console.log("(detach with Ctrl+B D — session keeps running, resume with: apiary claude --resume)\n");
+  console.log("Attaching...");
+  console.log(`(Ctrl+B D to detach — resume with: apiary claude ${setup.agentName} --resume)\n`);
 
   try {
     await tmuxAttach(tmuxSession);
@@ -258,9 +258,9 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   // ── On detach: keep running in background ──────────────────────────────
 
   if (tmuxSessionExists(tmuxSession)) {
-    console.log(`Session "${setup.agentName}" still running in background.`);
-    console.log(`  Resume:  npx apiary claude --resume`);
-    console.log(`  Stop:    npx apiary stop claude`);
+    console.log(`"${setup.agentName}" still running in background.`);
+    console.log(`  Resume:  apiary claude ${setup.agentName} --resume`);
+    console.log(`  Stop:    apiary stop ${setup.agentName}`);
 
     // Keep the process alive so the event loop, MCP server, and SSE stay up
     await new Promise<void>((resolve) => {
@@ -336,9 +336,9 @@ async function resumeClaude(options: AgentRuntimeOptions): Promise<void> {
   }
 
   if (tmuxSessionExists(session.tmuxSession)) {
-    console.log(`Session "${session.agentName}" still running in background.`);
-    console.log(`  Resume:  npx apiary claude --resume`);
-    console.log(`  Stop:    npx apiary stop claude`);
+    console.log(`"${session.agentName}" still running in background.`);
+    console.log(`  Resume:  apiary claude ${session.agentName} --resume`);
+    console.log(`  Stop:    apiary stop ${session.agentName}`);
   }
 }
 
