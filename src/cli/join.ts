@@ -655,8 +655,8 @@ function toDisplayEvent(
       return {
         id: randomUUID(),
         ts,
-        kind: "system",
-        content: `\x07🔔 ${event.pinger_name} pinged you`,
+        kind: "ping",
+        pingerName: event.pinger_name ?? "someone",
       };
     case "Activity":
       if (event.action === "mode_changed") {

@@ -183,9 +183,9 @@ function classify(
     return "drop";
   }
 
-  // 4a. Active: ping → content. Pings are non-blocking status checks — they
-  //     buffer as context ("someone pinged you") rather than triggering evaluation.
-  if (role === "ping") return "content";
+  // 4a. Active: ping → trigger. Pings are status checks — they trigger
+  //     immediate evaluation so the agent responds quickly with its status.
+  if (role === "ping") return "trigger";
 
   // 4b. Active: @mention → drop. The MessageSent event already carries the
   //     @mention text, so delivering a separate Mentioned event would be redundant.

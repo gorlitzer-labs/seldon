@@ -34,16 +34,20 @@ const SIGILS       = ["◆", "▲", "●", "■", "★", "◉", "◈", "▸"] as
 // Each banner line is an array of { text, color } segments for multi-color rendering.
 type BannerSegment = { text: string; color: string };
 const AMB = "#fbbf24";  // amber/yellow
-const WNG = "#e0e7ee";  // wings
+const WNG = "#e0e7ee";  // wings (white membrane)
+const BLK = "#3a3a4a";  // wing veins (dark)
 
 const BANNER: BannerSegment[][] = [
   [
     { text: "               _                      ", color: "#ffb347" },
-    { text: "\\ \\  ", color: WNG },
+    { text: "\\ ", color: BLK },
+    { text: "\\  ", color: WNG },
   ],
   [
     { text: "  ____ _____  (_)___ ________  __      ", color: "#ffa733" },
-    { text: "\\ \\ \\ ", color: WNG },
+    { text: "\\ ", color: WNG },
+    { text: "\\ ", color: BLK },
+    { text: "\\ ", color: WNG },
   ],
   [
     { text: " / __ `/ __ \\/ / __ `/ ___/ / / /      ", color: "#ff9b1f" },
@@ -55,11 +59,15 @@ const BANNER: BannerSegment[][] = [
   ],
   [
     { text: "\\__,_/ .___/_/\\__,_/_/   \\__, /        ", color: "#f7a600" },
-    { text: "/ / / ", color: WNG },
+    { text: "/ ", color: WNG },
+    { text: "/ ", color: BLK },
+    { text: "/ ", color: WNG },
   ],
   [
     { text: "    /_/                 /____/        ", color: "#f0c000" },
-    { text: "/ / /  ", color: WNG },
+    { text: "/ ", color: BLK },
+    { text: "/ ", color: WNG },
+    { text: "/  ", color: BLK },
   ],
 ];
 
@@ -114,6 +122,7 @@ export type DisplayEvent =
   | { id: string; ts: string; kind: "join";    name: string; participantType: "human" | "agent" }
   | { id: string; ts: string; kind: "leave";   name: string; participantType: "human" | "agent" }
   | { id: string; ts: string; kind: "mode";    mode: string }
+  | { id: string; ts: string; kind: "ping";    pingerName: string }
   | { id: string; ts: string; kind: "system";  content: string };
 
 export interface TUIHandle {
@@ -239,10 +248,12 @@ function EventLine({
   event,
   identify,
   cols,
+  zebra,
 }: {
   event: DisplayEvent;
   identify: (n: string) => { color: string; sigil: string };
   cols: number;
+  zebra?: boolean;
 }) {
   const ts = <Text color={C.muted}>{event.ts}{"  "}</Text>;
 
@@ -253,7 +264,7 @@ function EventLine({
     const nameColor  = isSelf ? C.text : event.senderType === "agent" ? color : C.secondary;
     const sigilColor = isSelf ? C.dim  : event.senderType === "agent" ? color : C.dim;
     const sigilChar  = isSelf ? "›" : event.senderType === "agent" ? sigil : "·";
-    const contentColor = isSelf ? C.text : C.secondary;
+    const contentColor = isSelf ? C.text : zebra ? "#d0d5de" : C.secondary;
 
     // gutter: paddingX(1) + ts(8) + "  "(2) + sigil(1) + " "(1) + name(NAME_COL) + "  "(2) + paddingX(1)
     const gutterWidth = 1 + 8 + 2 + 1 + 1 + NAME_COL + 2 + 1;
@@ -357,6 +368,19 @@ function EventLine({
     );
   }
 
+  // ── Ping notification ──
+  if (event.kind === "ping") {
+    return (
+      <Box paddingX={1}>
+        {ts}
+        <Text color={C.yellow}>{"🔔 "}</Text>
+        <Text color={C.yellow}>{"Pinged "}</Text>
+        <Text color={C.yellow} bold>{event.pingerName}</Text>
+        <Text color={C.yellow}>{"."}</Text>
+      </Box>
+    );
+  }
+
   // ── System message (slash command output) ──
   if (event.kind === "system") {
     return (
@@ -381,7 +405,7 @@ interface AppHandle {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-type StaticEntry = { id: string; event?: DisplayEvent };
+type StaticEntry = { id: string; event?: DisplayEvent; zebra?: boolean };
 
 function App({
   roomName,
@@ -422,6 +446,11 @@ function App({
   const lastCharTime = useRef(0);
 
   const push = useCallback((event: DisplayEvent) => {
+    // Bell for incoming messages (not self) and pings
+    const shouldBell =
+      event.kind === "ping" ||
+      (event.kind === "message" && !event.isSelf);
+    if (shouldBell) process.stdout.write("\x07");
     setEvents((prev) => [...prev, event]);
   }, []);
 
@@ -672,10 +701,15 @@ function App({
   const cols = stdout.columns ?? 80;
 
   // Static items: banner (rendered once) + events (appended over time)
-  const entries: StaticEntry[] = useMemo(
-    () => [{ id: "__banner__" }, ...events.map((e) => ({ id: e.id, event: e }))],
-    [events],
-  );
+  const entries: StaticEntry[] = useMemo(() => {
+    let msgIdx = 0;
+    return [{ id: "__banner__" }, ...events.map((e) => {
+      const isMsg = e.kind === "message" && !e.isSelf;
+      const entry: StaticEntry = { id: e.id, event: e, zebra: isMsg ? msgIdx % 2 === 1 : undefined };
+      if (isMsg) msgIdx++;
+      return entry;
+    })];
+  }, [events]);
 
   return (
     <>
@@ -699,7 +733,7 @@ function App({
               </Box>
             );
           }
-          return <EventLine key={entry.id} event={entry.event} identify={identify} cols={cols} />;
+          return <EventLine key={entry.id} event={entry.event} identify={identify} cols={cols} zebra={entry.zebra} />;
         }}
       </Static>
 
@@ -746,9 +780,9 @@ function App({
             }
 
             return lines.map((line, i) => (
-              <Box key={i}>
+              <Box key={i} width={cols - 2}>
                 <Text color={C.cyan} bold>{i === 0 ? "› " : "  "}</Text>
-                <Text>
+                <Text wrap="wrap">
                   {i === cursorLine ? (
                     <>
                       <Text>{line.slice(0, cursorCol)}</Text>

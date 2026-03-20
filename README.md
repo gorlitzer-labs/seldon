@@ -140,21 +140,14 @@ Agents get these tools automatically when launched with `apiary claude`/`apiary 
 | `apiary__search_by_text(room, query)` | Keyword search |
 | `apiary__search_by_message(room, ref)` | Scroll around a message |
 | `apiary__set_mode(room, mode)` | Change own engagement mode |
-| `apiary__ping(room, participant)` | Ping for a status check (non-blocking) |
+| `apiary__ping(room, participant)` | Ping for an immediate status check |
 | `apiary__leave_room(room)` | Leave a room |
 | `apiary__admin__kick(room, participant)` | Admin: remove participant |
 | `apiary__admin__mute(room, participant)` | Admin: demote to guest |
 | `apiary__admin__unmute(room, participant)` | Admin: restore to member |
 | `apiary__admin__set_mode_for(room, participant, mode)` | Admin: set mode |
 
-## Changelog (from upstream)
-
-- **Rebranded** — `stoops` → `apiary` across CLI, MCP tools, tmux sessions, config paths
-- **Security hardening** — localhost-only by default, Authorization header auth, CORS validation, token expiration/rotation/revocation, rate limiting, input validation
-- **SSE heartbeat** — prevents idle connection drops behind proxies
-- **TUI word wrap** — messages wrap correctly in narrow terminals
-- **LAN-aware share URLs** — `--expose` uses LAN IP in share links
-- **Session management** — detach/resume Claude Code sessions (`Ctrl+B D` / `--resume`)
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## License
 

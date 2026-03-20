@@ -168,7 +168,7 @@ export function formatEvent(
     }
     case "Pinged": {
       const pingerName = event.pinger_name ?? "someone";
-      return [{ type: "text", text: `${ts}${r}🔔 ${pingerName} pinged you — reply with a brief status update when you get a chance` }];
+      return [{ type: "text", text: `${ts}${r}🔔 ${pingerName} pinged you — respond NOW with a one-line status of what you're working on. Keep it short, don't stop your current task.` }];
     }
     case "ToolUse":
       return null;
