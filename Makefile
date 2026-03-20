@@ -28,6 +28,8 @@ help: ## show this help
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Expendable3 ADMIN=1$(R)"
 	@echo "    $(C)make claude$(R)  $(Y)NAME=Unpaid-Intern$(R)"
 	@echo ""
+	@echo "  $(D)For general use: $(C)apiary --help$(R)"
+	@echo ""
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -80,7 +82,7 @@ typecheck: ## type check
 	npm run typecheck
 
 V ?= patch
-release: ## bump version, tag, and push (V=patch|minor|major)
+release: ## bump version, tag, and push (V=patch|minor|major NOTES="...")
 	@echo "$(C)  Running tests...$(R)"
 	@npm test
 	@echo "$(C)  Bumping $(Y)$(V)$(R)$(C) version...$(R)"
@@ -88,8 +90,13 @@ release: ## bump version, tag, and push (V=patch|minor|major)
 	@NEW_V=$$(node -p "require('./package.json').version"); \
 	 npm run build; \
 	 git add -A; \
-	 git commit -m "v$$NEW_V"; \
-	 git tag "v$$NEW_V"; \
+	 if [ -n "$(NOTES)" ]; then \
+	   git commit -m "v$$NEW_V" -m "$(NOTES)"; \
+	   git tag -a "v$$NEW_V" -m "$(NOTES)"; \
+	 else \
+	   git commit -m "v$$NEW_V"; \
+	   git tag "v$$NEW_V"; \
+	 fi; \
 	 echo "$(C)  Pushing...$(R)"; \
 	 git push && git push --tags; \
 	 echo ""; \

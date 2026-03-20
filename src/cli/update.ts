@@ -117,7 +117,7 @@ export function checkForUpdate(): void {
 
 // ── Run update (the `apiary update` command) ────────────────────────────────
 
-export async function runUpdate(): Promise<void> {
+export async function runUpdate(targetVersion?: string): Promise<void> {
   if (!isGitRepo()) {
     console.error("apiary update requires a git checkout.");
     process.exit(1);
@@ -127,13 +127,26 @@ export async function runUpdate(): Promise<void> {
   const fromHead = getLocalHead();
 
   console.log(`\x1b[2m  Current version: v${fromVersion}\x1b[0m`);
-  console.log(`\x1b[36m  Pulling latest...\x1b[0m`);
 
-  try {
-    execFileSync("git", ["pull", "--ff-only"], { cwd: REPO_ROOT, stdio: "inherit" });
-  } catch {
-    console.error("\n\x1b[31m  git pull failed.\x1b[0m Check for uncommitted changes or merge conflicts.");
-    process.exit(1);
+  if (targetVersion) {
+    // Checkout a specific version tag
+    const tag = targetVersion.startsWith("v") ? targetVersion : `v${targetVersion}`;
+    console.log(`\x1b[36m  Switching to ${tag}...\x1b[0m`);
+    try {
+      execFileSync("git", ["fetch", "--tags"], { cwd: REPO_ROOT, stdio: "inherit" });
+      execFileSync("git", ["checkout", tag], { cwd: REPO_ROOT, stdio: "inherit" });
+    } catch {
+      console.error(`\n\x1b[31m  Version ${tag} not found.\x1b[0m`);
+      process.exit(1);
+    }
+  } else {
+    console.log(`\x1b[36m  Pulling latest...\x1b[0m`);
+    try {
+      execFileSync("git", ["pull", "--ff-only"], { cwd: REPO_ROOT, stdio: "inherit" });
+    } catch {
+      console.error("\n\x1b[31m  git pull failed.\x1b[0m Check for uncommitted changes or merge conflicts.");
+      process.exit(1);
+    }
   }
 
   // Check if deps changed

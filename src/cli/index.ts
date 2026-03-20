@@ -49,7 +49,7 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(`  ${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}                           Launch Codex`);
   stream(`  ${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}] [--guest]${R}                   Join an existing room`);
   stream(`  ${C}apiary ps${R}  ${D}/${R}  ${C}apiary stop${R} ${D}[${Y}<name>${R}${D} | --all]${R}            Sessions`);
-  stream(`  ${C}apiary update${R}                                          Pull latest + rebuild`);
+  stream(`  ${C}apiary update${R} ${D}[${Y}<version>${R}${D}]${R}                                Pull + rebuild`);
   stream("");
   stream(`  ${G}${B}Quick start${R}`);
   stream(`    ${D}T1${R}  ${C}apiary room ${Y}sweatshop BeeKeeper${R}`);
@@ -66,9 +66,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── apiary update ─────────────────────────────────────────────────────
+  // ── apiary update [<version>] ─────────────────────────────────────────
   if (args[0] === "update") {
-    await runUpdate();
+    const targetVersion = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
+    await runUpdate(targetVersion);
     return;
   }
 
