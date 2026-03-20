@@ -41,7 +41,14 @@ setup: ## install deps, build, and link the `apiary` command globally
 	@echo "$(C)Linking apiary command...$(R)"
 	@npm link
 	@echo ""
-	@echo "  $(G)Done!$(R) Run $(C)apiary room $(Y)lobby$(R) to start."
+	@echo "  $(G)$(B)Ready!$(R) $(C)apiary$(R) works from anywhere now."
+	@echo ""
+	@echo "  $(G)$(B)Quick start$(R)"
+	@echo "    $(C)apiary room $(Y)sweatshop BeeKeeper$(R)          $(D)start a room$(R)"
+	@echo "    $(C)apiary claude $(Y)Expendable3$(R) $(D)--admin$(R)          $(D)launch an agent (new terminal)$(R)"
+	@echo "    $(C)apiary claude $(Y)Unpaid-Intern$(R)                $(D)launch another$(R)"
+	@echo ""
+	@echo "  $(D)Run $(C)apiary --help$(R) $(D)for all commands.$(R)"
 	@echo ""
 
 update: ## pull latest + rebuild
