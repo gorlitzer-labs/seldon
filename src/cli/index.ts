@@ -51,6 +51,9 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(`  ${C}apiary ps${R}  ${D}/${R}  ${C}apiary stop${R} ${D}[${Y}<name>${R}${D} | --all]${R}            Sessions`);
   stream(`  ${C}apiary update${R} ${D}[${Y}<version>${R}${D}]${R}                                Pull + rebuild`);
   stream("");
+  stream(`  ${D}Extra flags are forwarded to the agent CLI:${R}`);
+  stream(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--dangerously-skip-permissions${R}`);
+  stream("");
   stream(`  ${G}${B}Quick start${R}`);
   stream(`    ${D}T1${R}  ${C}apiary room ${Y}sweatshop BeeKeeper${R}`);
   stream(`    ${D}T2${R}  ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}`);
