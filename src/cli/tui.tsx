@@ -5,7 +5,7 @@
  * and a dynamic footer for input + status. Same architecture as Claude Code.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { render, Box, Text, Static, useStdout, useInput } from "ink";
 
 // ── Palette (from apiary-app) ─────────────────────────────────────────────────
@@ -99,6 +99,9 @@ const SLASH_COMMANDS: SlashCommand[] = [
     { label: "name", completions: "participants" },
     { label: "mode", completions: ENGAGEMENT_MODES },
   ]},
+  { name: "/ping",   description: "Ping a participant", params: [
+    { label: "name", completions: "participants" },
+  ]},
 ];
 
 const CMD_DISPLAY_COL = 26; // width for command + params display column
@@ -172,6 +175,61 @@ function wordWrap(text: string, width: number): string[] {
   return lines;
 }
 
+// ── Styled content (highlight @mentions) ──────────────────────────────────────
+
+function StyledContent({
+  text,
+  contentColor,
+  identify,
+}: {
+  text: string;
+  contentColor: string;
+  identify: (n: string) => { color: string; sigil: string };
+}) {
+  // Split on @mention patterns, highlight them
+  const parts: React.ReactNode[] = [];
+  const pattern = /@([a-zA-Z0-9_-]+)/g;
+  let lastIdx = 0;
+  let match;
+  let key = 0;
+
+  while ((match = pattern.exec(text)) !== null) {
+    // Text before the mention
+    if (match.index > lastIdx) {
+      parts.push(<Text key={key++} color={contentColor}>{text.slice(lastIdx, match.index)}</Text>);
+    }
+    // The @mention itself — use the mentioned name's color
+    const mentionName = match[1];
+    const { color } = identify(mentionName);
+    parts.push(<Text key={key++} color={color} bold>{"@"}{mentionName}</Text>);
+    lastIdx = match.index + match[0].length;
+  }
+
+  // Remaining text
+  if (lastIdx < text.length) {
+    parts.push(<Text key={key++} color={contentColor}>{text.slice(lastIdx)}</Text>);
+  }
+
+  if (parts.length === 0) {
+    return <Text color={contentColor}>{text}</Text>;
+  }
+
+  return <>{parts}</>;
+}
+
+// ── Reply whispers ────────────────────────────────────────────────────────────
+// Tiny phrases that precede a reply-to name. Rotated for personality.
+
+const REPLY_WHISPERS = [
+  "re:", "↩", "∿∿", "⤷", "↫", "«", "↳", "⟲", "∿", "⮑",
+];
+
+function pickWhisper(messageId: string): string {
+  let h = 0;
+  for (let i = 0; i < messageId.length; i++) h = ((h << 5) - h + messageId.charCodeAt(i)) | 0;
+  return REPLY_WHISPERS[Math.abs(h) % REPLY_WHISPERS.length];
+}
+
 // ── Event line ────────────────────────────────────────────────────────────────
 
 const NAME_COL = 12;
@@ -200,13 +258,42 @@ function EventLine({
     const gutterWidth = 1 + 8 + 2 + 1 + 1 + NAME_COL + 2 + 1;
     const contentWidth = cols - gutterWidth;
 
-    const replyPrefix = event.replyToName ? `→ ${event.replyToName} ` : "";
-    const fullContent = replyPrefix + event.content;
-    const wrapped = wordWrap(fullContent, contentWidth);
+    const wrapped = wordWrap(event.content, contentWidth);
     const indent = " ".repeat(gutterWidth - 2); // -2 for paddingX on both sides
+
+    // Detect @mentions in content for the directed-at indicator
+    const mentionPattern = /@([a-zA-Z0-9_-]+)/g;
+    const mentions: string[] = [];
+    let m;
+    while ((m = mentionPattern.exec(event.content)) !== null) {
+      if (!mentions.includes(m[1])) mentions.push(m[1]);
+    }
 
     return (
       <Box paddingX={1} flexDirection="column" marginBottom={1}>
+        {/* Reply indicator — compact, varied */}
+        {event.replyToName && (
+          <Box>
+            <Text>{" ".repeat(gutterWidth - 2)}</Text>
+            <Text color={C.muted}>{pickWhisper(event.id)} </Text>
+            <Text color={C.secondary}>{event.replyToName}</Text>
+          </Box>
+        )}
+        {/* Mention indicator — shows who the message is directed at */}
+        {!event.replyToName && mentions.length > 0 && (
+          <Box>
+            <Text>{" ".repeat(gutterWidth - 2)}</Text>
+            {mentions.map((name, mi) => {
+              const { color: mColor } = identify(name);
+              return (
+                <React.Fragment key={name}>
+                  {mi === 0 ? <Text color={C.dim}>{"→ "}</Text> : <Text color={C.dim}>{" · "}</Text>}
+                  <Text color={mColor}>{"@"}{name}</Text>
+                </React.Fragment>
+              );
+            })}
+          </Box>
+        )}
         {wrapped.map((line, i) => (
           <Box key={i}>
             {i === 0 ? (
@@ -222,14 +309,7 @@ function EventLine({
               <Text>{indent}</Text>
             )}
             <Text wrap="truncate">
-              {i === 0 && event.replyToName ? (
-                <>
-                  <Text color={C.dim}>{replyPrefix}</Text>
-                  <Text color={contentColor}>{line.slice(replyPrefix.length)}</Text>
-                </>
-              ) : (
-                <Text color={contentColor}>{line}</Text>
-              )}
+              <StyledContent text={line} contentColor={contentColor} identify={identify} />
             </Text>
           </Box>
         ))}
@@ -321,9 +401,24 @@ function App({
   const [agentNames,    setAgentNames]    = useState<string[]>([]);
   const [participants,  setParticipants]  = useState<string[]>([]);
   const [input,         setInput]         = useState("");
+  const [cursorPos,     setCursorPos]     = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
+
+  // Atomic input + cursor update
+  const setInputAt = useCallback((newInput: string, newPos: number) => {
+    setInput(newInput);
+    setCursorPos(Math.max(0, Math.min(newPos, newInput.length)));
+  }, []);
+
+  // Clamp cursor when input changes externally
+  useEffect(() => { setCursorPos(p => Math.min(p, input.length)); }, [input]);
+
+  // Paste batching — buffer rapid chars and flush as one insert
+  const pasteBuffer = useRef({ chars: "", timer: null as NodeJS.Timeout | null, pos: 0 });
+  // Track last char time for paste-vs-submit heuristic
+  const lastCharTime = useRef(0);
 
   const push = useCallback((event: DisplayEvent) => {
     setEvents((prev) => [...prev, event]);
@@ -347,17 +442,19 @@ function App({
     | { kind: "mention"; value: string;     insert: string };
 
   const suggestionState = useMemo((): { items: SuggestionItem[]; ghostHint: string } => {
-    // @mention detection — match @partial at end of input
-    const mentionMatch = input.match(/@([a-zA-Z0-9_-]*)$/);
+    // @mention detection — match @partial at cursor position
+    const textBeforeCursor = input.slice(0, cursorPos);
+    const mentionMatch = textBeforeCursor.match(/@([a-zA-Z0-9_-]*)$/);
     if (mentionMatch && participants.length > 0) {
       const prefix = mentionMatch[1].toLowerCase();
       const filtered = participants.filter((p) => p.toLowerCase().startsWith(prefix));
       if (filtered.length > 0) {
         const before = input.slice(0, mentionMatch.index!);
+        const after = input.slice(cursorPos);
         const items: SuggestionItem[] = filtered.map((p) => ({
           kind: "mention" as const,
           value: p,
-          insert: before + "@" + p + " ",
+          insert: before + "@" + p + " " + after,
         }));
         const ghostHint = prefix.length === 0 ? "" : (filtered[0].slice(prefix.length));
         return { items, ghostHint };
@@ -426,7 +523,7 @@ function App({
     }));
 
     return { items, ghostHint };
-  }, [input, isAdmin, participants]);
+  }, [input, cursorPos, isAdmin, participants]);
 
   const suggestions = suggestionState.items;
 
@@ -456,47 +553,118 @@ function App({
         // No-param command + Enter → submit directly
         if (key.return && picked.kind === "command" && !picked.cmd.params) {
           onSend(picked.cmd.name);
-          setInput("");
+          setInputAt("", 0);
           return;
         }
-        setInput(picked.insert);
+        setInputAt(picked.insert, picked.insert.length);
         return;
       }
       if (key.escape) {
-        setInput("");
+        setInputAt("", 0);
         return;
       }
     }
 
-    // Option+Enter → newline
-    if (key.return && key.meta) {
-      setInput((prev) => prev + "\n");
+    // Left/right arrow — cursor navigation
+    if (key.leftArrow) {
+      setCursorPos((p) => Math.max(0, p - 1));
+      return;
+    }
+    if (key.rightArrow) {
+      setCursorPos((p) => Math.min(p + 1, input.length));
       return;
     }
 
-    // Enter → submit
+    // Ctrl+A → home, Ctrl+E → end
+    if (key.ctrl && char === "a") {
+      setCursorPos(0);
+      return;
+    }
+    if (key.ctrl && char === "e") {
+      setCursorPos(input.length);
+      return;
+    }
+
+    // Ctrl+W → delete word backward
+    if (key.ctrl && char === "w") {
+      if (cursorPos === 0) return;
+      let pos = cursorPos - 1;
+      // Skip trailing spaces
+      while (pos > 0 && input[pos] === " ") pos--;
+      // Skip word chars
+      while (pos > 0 && input[pos - 1] !== " ") pos--;
+      setInputAt(input.slice(0, pos) + input.slice(cursorPos), pos);
+      return;
+    }
+
+    // Option+Enter → newline at cursor
+    if (key.return && key.meta) {
+      setInputAt(input.slice(0, cursorPos) + "\n" + input.slice(cursorPos), cursorPos + 1);
+      return;
+    }
+
+    // Enter → submit (with paste heuristic: if <10ms since last char, treat as pasted newline)
     if (key.return) {
+      const now = Date.now();
+      if (now - lastCharTime.current < 10) {
+        // Likely a pasted newline — insert instead of submitting
+        setInputAt(input.slice(0, cursorPos) + "\n" + input.slice(cursorPos), cursorPos + 1);
+        lastCharTime.current = now;
+        return;
+      }
+      // Flush any pending paste buffer before submit
+      if (pasteBuffer.current.timer) {
+        clearTimeout(pasteBuffer.current.timer);
+        const batch = pasteBuffer.current.chars;
+        const bPos = pasteBuffer.current.pos;
+        pasteBuffer.current = { chars: "", timer: null, pos: 0 };
+        if (batch) {
+          const newInput = input.slice(0, bPos) + batch + input.slice(bPos);
+          const content = newInput.trim();
+          if (content) onSend(content);
+          setInputAt("", 0);
+          return;
+        }
+      }
       const content = input.trim();
       if (content) onSend(content);
-      setInput("");
+      setInputAt("", 0);
       return;
     }
 
-    // Backspace
+    // Backspace — delete at cursor position
     if (key.backspace || key.delete) {
-      setInput((prev) => prev.slice(0, -1));
+      if (cursorPos > 0) {
+        setInputAt(input.slice(0, cursorPos - 1) + input.slice(cursorPos), cursorPos - 1);
+      }
       return;
     }
 
-    // Ignore special keys
+    // Ignore remaining special keys
     if (key.ctrl || key.meta || key.escape || key.tab ||
-        key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) {
+        key.upArrow || key.downArrow) {
       return;
     }
 
-    // Regular character
+    // Regular character — batch for paste performance
     if (char) {
-      setInput((prev) => prev + char);
+      lastCharTime.current = Date.now();
+      const buf = pasteBuffer.current;
+      if (buf.timer === null) {
+        buf.pos = cursorPos;
+      }
+      buf.chars += char;
+      if (buf.timer) clearTimeout(buf.timer);
+      buf.timer = setTimeout(() => {
+        const batch = buf.chars;
+        const bPos = buf.pos;
+        pasteBuffer.current = { chars: "", timer: null, pos: 0 };
+        setInput((prev) => {
+          const newInput = prev.slice(0, bPos) + batch + prev.slice(bPos);
+          setCursorPos(bPos + batch.length);
+          return newInput;
+        });
+      }, 5);
     }
   });
 
@@ -559,19 +727,43 @@ function App({
         </Box>
       ) : (
         <Box paddingX={1} flexDirection="column">
-          {/* Render each line; first line gets the prompt, rest get indentation */}
-          {(input || "").split("\n").map((line, i, arr) => (
-            <Box key={i}>
-              <Text color={C.cyan} bold>{i === 0 ? "› " : "  "}</Text>
-              <Text>
-                {line}
-                {i === arr.length - 1 && <Text inverse>{" "}</Text>}
-                {i === arr.length - 1 && suggestionState.ghostHint !== "" && (
-                  <Text color={C.muted}>{suggestionState.ghostHint}</Text>
-                )}
-              </Text>
-            </Box>
-          ))}
+          {/* Render each line with cursor at correct position */}
+          {(() => {
+            const lines = (input || "").split("\n");
+            // Find which line the cursor is on and the column within that line
+            let charsSoFar = 0;
+            let cursorLine = lines.length - 1;
+            let cursorCol = 0;
+            for (let i = 0; i < lines.length; i++) {
+              const lineEnd = charsSoFar + lines[i].length;
+              if (cursorPos <= lineEnd) {
+                cursorLine = i;
+                cursorCol = cursorPos - charsSoFar;
+                break;
+              }
+              charsSoFar += lines[i].length + 1; // +1 for \n
+            }
+
+            return lines.map((line, i) => (
+              <Box key={i}>
+                <Text color={C.cyan} bold>{i === 0 ? "› " : "  "}</Text>
+                <Text>
+                  {i === cursorLine ? (
+                    <>
+                      <Text>{line.slice(0, cursorCol)}</Text>
+                      <Text inverse>{cursorCol < line.length ? line[cursorCol] : " "}</Text>
+                      <Text>{cursorCol < line.length ? line.slice(cursorCol + 1) : ""}</Text>
+                    </>
+                  ) : (
+                    line
+                  )}
+                  {i === lines.length - 1 && cursorPos === input.length && suggestionState.ghostHint !== "" && (
+                    <Text color={C.muted}>{suggestionState.ghostHint}</Text>
+                  )}
+                </Text>
+              </Box>
+            ));
+          })()}
         </Box>
       )}
       {/* Slash command suggestions — below input */}

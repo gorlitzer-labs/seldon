@@ -12,7 +12,7 @@
 import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 
 import {
   tmuxAvailable,
@@ -21,6 +21,7 @@ import {
   tmuxAttach,
   tmuxKillSession,
   tmuxSessionExists,
+  resetTerminal,
 } from "../tmux.js";
 import { CodexTmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
@@ -112,10 +113,15 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
     tmuxKillSession(tmuxSession);
   }
 
-  const cwd = process.cwd().split("/").pop() ?? process.cwd();
-  const bees = ["🐝", "🐛", "🦋", "🐞", "🪲", "🐜", "🦗", "🪳", "🦂", "🕷️"];
+  const home = homedir();
+  const cwdFull = process.cwd();
+  const cwdShort = cwdFull.startsWith(home) ? "~" + cwdFull.slice(home.length) : cwdFull;
+  const bees = [
+    "🐝", "🐛", "🦋", "🐞", "🪲", "🐜", "🦗", "🪳", "🦂", "🕷️",
+    "🪰", "🦟", "🐌", "🐙", "🦑", "🦀", "🪱", "🦠", "🧬", "🔬",
+  ];
   const bee = bees[Math.floor(Math.random() * bees.length)];
-  const tabTitle = `${bee} ${setup.agentName} · ${cwd}`;
+  const tabTitle = `${bee} ${setup.agentName} · ${cwdShort}`;
 
   console.log("Launching Codex...");
   tmuxCreateSession(tmuxSession, tabTitle);
@@ -142,6 +148,7 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
       bridge.stop();
       await setup.cleanup();
       try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
+      resetTerminal();
       return;
     }
   }
@@ -160,6 +167,7 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
   await setup.cleanup();
   tmuxKillSession(tmuxSession);
   try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
+  resetTerminal();
 
   console.log("Disconnected.");
 }

@@ -10,7 +10,15 @@ import { createInterface } from "node:readline";
 import { randomName } from "../core/names.js";
 import type { RoomEvent } from "../core/events.js";
 import type { AuthorityLevel } from "../core/types.js";
-import { formatTimestamp } from "../agent/prompts.js";
+import { formatTimestamp as formatTimestampUTC } from "../agent/prompts.js";
+
+/** Format a Date as local HH:MM:SS for TUI display. */
+function formatTimestamp(date: Date): string {
+  const h = String(date.getHours()).padStart(2, "0");
+  const m = String(date.getMinutes()).padStart(2, "0");
+  const s = String(date.getSeconds()).padStart(2, "0");
+  return `${h}:${m}:${s}`;
+}
 import { startTUI, type TUIHandle, type DisplayEvent } from "./tui.js";
 import { extractToken, buildShareUrl } from "./auth.js";
 
@@ -323,6 +331,31 @@ export async function join(options: JoinOptions): Promise<void> {
         return;
       }
 
+      // ── /ping <name> ─────────────────────────────────────────────
+      case "ping": {
+        const targetName = args[0];
+        if (!targetName) { systemEvent("Usage: /ping <name>"); return; }
+
+        try {
+          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
+          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
+          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
+          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
+          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
+
+          const pingRes = await fetch(`${serverUrl}/ping`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+            body: JSON.stringify({ participantId: target.id }),
+          });
+          if (!pingRes.ok) { systemEvent(`Failed to ping: ${await pingRes.text()}`); return; }
+          systemEvent(`Pinged ${targetName}.`);
+        } catch {
+          systemEvent("Failed to reach server.");
+        }
+        return;
+      }
+
       // ── /share [--as <tier>] ──────────────────────────────────────
       case "share": {
         if (authority === "guest") { systemEvent("Guests cannot create share links."); return; }
@@ -358,13 +391,17 @@ export async function join(options: JoinOptions): Promise<void> {
     }
   }
 
+  // Set terminal tab title
+  const hiveEmoji = ["🍯", "🐝", "🏠", "🪺", "🌸"][Math.floor(Math.random() * 5)];
+  process.stdout.write(`\x1b]0;${hiveEmoji} ${roomName} · ${name}\x07`);
+
   // Print share info before Ink renders — plain text, fully selectable.
   if (options.shareUrl) {
     console.log();
     console.log(`  \x1b[2mShare:\x1b[0m \x1b[33m${options.shareUrl}\x1b[0m`);
     console.log();
     console.log(`  \x1b[2mJoin as human:\x1b[0m  \x1b[36mapiary join\x1b[0m \x1b[2m<url>\x1b[0m`);
-    console.log(`  \x1b[2mJoin as agent:\x1b[0m  \x1b[36mapiary run claude\x1b[0m \x1b[2mor\x1b[0m \x1b[36mapiary run codex\x1b[0m \x1b[2m→ tell it to join the URL\x1b[0m`);
+    console.log(`  \x1b[2mJoin as agent:\x1b[0m  \x1b[36mapiary claude\x1b[0m \x1b[2mor\x1b[0m \x1b[36mapiary codex\x1b[0m \x1b[2m→ tell it to join the URL\x1b[0m`);
     console.log();
   }
 
@@ -587,6 +624,13 @@ function toDisplayEvent(
       }
       return { id: randomUUID(), ts, kind: "system", content: `${name} → ${event.new_authority}` };
     }
+    case "Pinged":
+      return {
+        id: randomUUID(),
+        ts,
+        kind: "system",
+        content: `\x07🔔 ${event.pinger_name} pinged you`,
+      };
     case "Activity":
       if (event.action === "mode_changed") {
         return {

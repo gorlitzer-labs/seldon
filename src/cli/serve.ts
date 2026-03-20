@@ -616,6 +616,21 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         return;
       }
 
+      // ── POST /ping ──────────────────────────────────────────────────────
+      if (url.pathname === "/ping") {
+        if (!session) return jsonError(res, 401, "Invalid session token");
+        if (session.authority === "guest") return jsonError(res, 403, "Guests cannot ping");
+        const targetId = String(body.participantId ?? "");
+        if (!targetId) return jsonError(res, 400, "Missing participantId");
+
+        const p = participants.get(sessionToken);
+        if (!p) return jsonError(res, 403, "Not a participant");
+
+        await p.channel.ping(targetId);
+        jsonOk(res);
+        return;
+      }
+
       // ── POST /kick ──────────────────────────────────────────────────────
       if (url.pathname === "/kick") {
         if (!session) return jsonError(res, 401, "Invalid session token");
@@ -818,6 +833,10 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     const adminUrlObfuscated = buildShareUrl(publicUrl, obfuscate(adminToken));
     const joinUrlObfuscated = buildShareUrl(publicUrl, obfuscate(memberToken));
 
+    // Set terminal tab title
+    const hiveEmoji = ["🍯", "🐝", "🏠", "🪺", "🌸"][Math.floor(Math.random() * 5)];
+    process.stdout.write(`\x1b]0;${hiveEmoji} apiary · ${roomName}\x07`);
+
     const Y = "\x1b[33m";
     const C = "\x1b[36m";
     const D = "\x1b[2m";
@@ -835,7 +854,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   ${D}Admin:${R}   ${Y}${adminUrlObfuscated}${R}
 
   ${D}Join as human:${R}  ${C}apiary join${R} ${D}<url>${R}
-  ${D}Join as agent:${R}  ${C}apiary run claude${R} ${D}or${R} ${C}apiary run codex${R} ${D}→ tell it to join the URL${R}
+  ${D}Join as agent:${R}  ${C}apiary claude${R} ${D}or${R} ${C}apiary codex${R} ${D}→ tell it to join the URL${R}
 `);
   }
 

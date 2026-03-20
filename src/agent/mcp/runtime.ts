@@ -67,6 +67,8 @@ export interface RuntimeMcpServerOptions {
   onLeaveRoom?: (room: string) => Promise<{ success: boolean; error?: string }>;
   /** Called when the agent changes its own mode. */
   onSetMode?: (room: string, mode: string) => Promise<{ success: boolean; error?: string }>;
+  /** Called when the agent pings a participant for a status check. */
+  onPing?: (room: string, participant: string) => Promise<{ success: boolean; error?: string }>;
   /** Called for admin set-mode-for. */
   onAdminSetModeFor?: (room: string, participant: string, mode: string) => Promise<{ success: boolean; error?: string }>;
   /** Called for admin kick. */
@@ -263,6 +265,24 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
       return result.success
         ? textResult(`Left [${room}].`)
         : textResult(result.error ?? "Failed to leave room.");
+    },
+  );
+
+  // ── apiary__ping ──────────────────────────────────────────────────────
+  server.tool(
+    "apiary__ping",
+    "Ping a participant for a status check. Non-blocking — they'll see it as context, not an interrupt.",
+    {
+      room: z.string().describe("Room name"),
+      participant: z.string().describe("Participant name to ping"),
+    },
+    { readOnlyHint: false, destructiveHint: false },
+    async ({ room, participant }: { room: string; participant: string }) => {
+      if (!opts.onPing) return textResult("Ping not supported.");
+      const result = await opts.onPing(room, participant);
+      return result.success
+        ? textResult(`Pinged ${participant} in [${room}].`)
+        : textResult(result.error ?? "Failed to ping participant.");
     },
   );
 

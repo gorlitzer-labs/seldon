@@ -1,5 +1,5 @@
 /**
- * apiary run claude — client-side agent runtime for Claude Code.
+ * apiary claude — client-side agent runtime for Claude Code.
  *
  * Uses the shared runtime setup (EventProcessor, MCP server)
  * then adds Claude-specific pieces: tmux session + TmuxBridge delivery.
@@ -20,6 +20,7 @@ import {
   tmuxAttach,
   tmuxKillSession,
   tmuxSessionExists,
+  resetTerminal,
 } from "../tmux.js";
 import { TmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
@@ -195,10 +196,15 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     tmuxKillSession(tmuxSession);
   }
 
-  const cwd = process.cwd().split("/").pop() ?? process.cwd();
-  const bees = ["🐝", "🐛", "🦋", "🐞", "🪲", "🐜", "🦗", "🪳", "🦂", "🕷️"];
+  const home = homedir();
+  const cwdFull = process.cwd();
+  const cwdShort = cwdFull.startsWith(home) ? "~" + cwdFull.slice(home.length) : cwdFull;
+  const bees = [
+    "🐝", "🐛", "🦋", "🐞", "🪲", "🐜", "🦗", "🪳", "🦂", "🕷️",
+    "🪰", "🦟", "🐌", "🐙", "🦑", "🦀", "🪱", "🦠", "🧬", "🔬",
+  ];
   const bee = bees[Math.floor(Math.random() * bees.length)];
-  const tabTitle = `${bee} ${setup.agentName} · ${cwd}`;
+  const tabTitle = `${bee} ${setup.agentName} · ${cwdShort}`;
 
   console.log("Launching Claude Code...");
   tmuxCreateSession(tmuxSession, tabTitle);
@@ -225,6 +231,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
       bridge.stop();
       await setup.cleanup();
       try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
+      resetTerminal();
       return;
     }
   }
@@ -240,7 +247,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   });
 
   console.log("Attaching to Claude Code session...");
-  console.log("(detach with Ctrl+B D — session keeps running, resume with: apiary run claude --resume)\n");
+  console.log("(detach with Ctrl+B D — session keeps running, resume with: apiary claude --resume)\n");
 
   try {
     await tmuxAttach(tmuxSession);
@@ -252,7 +259,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
 
   if (tmuxSessionExists(tmuxSession)) {
     console.log(`Session "${setup.agentName}" still running in background.`);
-    console.log(`  Resume:  npx apiary run claude --resume`);
+    console.log(`  Resume:  npx apiary claude --resume`);
     console.log(`  Stop:    npx apiary stop claude`);
 
     // Keep the process alive so the event loop, MCP server, and SSE stay up
@@ -269,6 +276,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
   try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
   clearSession(setup.agentName);
+  resetTerminal();
 
   console.log("Disconnected.");
 }
@@ -329,7 +337,7 @@ async function resumeClaude(options: AgentRuntimeOptions): Promise<void> {
 
   if (tmuxSessionExists(session.tmuxSession)) {
     console.log(`Session "${session.agentName}" still running in background.`);
-    console.log(`  Resume:  npx apiary run claude --resume`);
+    console.log(`  Resume:  npx apiary claude --resume`);
     console.log(`  Stop:    npx apiary stop claude`);
   }
 }
@@ -347,7 +355,6 @@ export async function stopClaude(name?: string, all?: boolean): Promise<void> {
     for (const s of sessions) {
       stopSession(s);
     }
-    console.log(`Stopped ${sessions.length} session${sessions.length > 1 ? "s" : ""}.`);
     return;
   }
 
@@ -368,16 +375,25 @@ export async function stopClaude(name?: string, all?: boolean): Promise<void> {
   }
 
   stopSession(session);
-  console.log("Stopped.");
 }
 
 function stopSession(session: PersistedSession): void {
+  // Kill tmux session first (prevents orphaned panes with broken state)
+  if (tmuxSessionExists(session.tmuxSession)) {
+    tmuxKillSession(session.tmuxSession);
+  }
+
+  // Then signal the background process
   try {
     process.kill(session.pid, "SIGTERM");
-    console.log(`Stopping "${session.agentName}" (pid ${session.pid})...`);
   } catch {
-    if (tmuxSessionExists(session.tmuxSession)) tmuxKillSession(session.tmuxSession);
-    try { rmSync(session.tmpDir, { recursive: true }); } catch { /* ok */ }
+    // Process already gone
   }
+
+  // Clean up temp files
+  try { rmSync(session.tmpDir, { recursive: true }); } catch { /* ok */ }
+
   clearSession(session.agentName);
+  resetTerminal();
+  console.log(`Stopped "${session.agentName}".`);
 }

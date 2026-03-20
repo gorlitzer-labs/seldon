@@ -166,6 +166,10 @@ export function formatEvent(
       if (msg.image_url) parts.push({ type: "image", url: msg.image_url });
       return parts;
     }
+    case "Pinged": {
+      const pingerName = event.pinger_name ?? "someone";
+      return [{ type: "text", text: `${ts}${r}🔔 ${pingerName} pinged you — reply with a brief status update when you get a chance` }];
+    }
     case "ToolUse":
       return null;
     case "Activity":

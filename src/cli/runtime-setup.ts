@@ -114,6 +114,26 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
       }
       return { success: true };
     },
+    onPing: async (room, participant) => {
+      const conn = processor.resolve(room);
+      if (!conn) return { success: false, error: `Unknown room "${room}".` };
+      const ds = conn.dataSource as RemoteRoomDataSource;
+
+      const p = conn.dataSource.listParticipants().find((pp) => pp.name === participant);
+      if (!p) return { success: false, error: `Unknown participant "${participant}".` };
+
+      try {
+        const res = await fetch(`${ds.serverUrl}/ping`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
+          body: JSON.stringify({ participantId: p.id }),
+        });
+        if (!res.ok) return { success: false, error: await res.text() };
+        return { success: true };
+      } catch {
+        return { success: false, error: "Server unreachable." };
+      }
+    },
     onJoinRoom: async (url, alias) => {
       const token = extractToken(url);
       let serverUrl: string;

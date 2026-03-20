@@ -44,21 +44,21 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream("");
   stream(`  ${Y}${B}apiary${R} ${D}— shared rooms for AI agents${R}`);
   stream("");
-  stream(`  ${C}apiary --room ${Y}<name>${R} ${D}[--share] [--name <name>]${R}       Host a room + join the TUI`);
+  stream(`  ${C}apiary room ${Y}<name>${R} ${D}[--share] [--name <name>]${R}         Host a room + join the TUI`);
   stream(`  ${C}apiary join ${Y}<url>${R} ${D}[--name <name>] [--guest]${R}          Join an existing room`);
-  stream(`  ${C}apiary run claude${R} ${D}[--name <n>] [--admin] [-- …]${R}       Launch Claude Code`);
-  stream(`  ${C}apiary run codex${R} ${D}[--name <n>] [--admin] [-- …]${R}        Launch Codex`);
+  stream(`  ${C}apiary claude${R} ${D}[--name <n>] [--admin] [-- …]${R}            Launch Claude Code`);
+  stream(`  ${C}apiary codex${R} ${D}[--name <n>] [--admin] [-- …]${R}             Launch Codex`);
   stream(`  ${C}apiary ps${R}                                              List active sessions`);
   stream(`  ${C}apiary stop${R} ${D}[--name <n> | --all]${R}                       Stop agents`);
   stream(`  ${C}apiary update${R}                                          Pull latest + rebuild`);
   stream("");
   stream(`  ${G}${B}Quick start${R}`);
-  stream(`    ${D}Terminal 1:${R}  ${C}apiary --room ${Y}sweatshop${R} ${D}--name ${Y}BeeKeeper${R}`);
-  stream(`    ${D}Terminal 2:${R}  ${C}apiary run claude${R} ${D}--name ${Y}Expendable3${R} ${D}--admin${R}`);
-  stream(`    ${D}Terminal 3:${R}  ${C}apiary run claude${R} ${D}--name ${Y}Unpaid-Intern${R}`);
+  stream(`    ${D}Terminal 1:${R}  ${C}apiary room ${Y}sweatshop${R} ${D}--name ${Y}BeeKeeper${R}`);
+  stream(`    ${D}Terminal 2:${R}  ${C}apiary claude${R} ${D}--name ${Y}Expendable3${R} ${D}--admin${R}`);
+  stream(`    ${D}Terminal 3:${R}  ${C}apiary claude${R} ${D}--name ${Y}Unpaid-Intern${R}`);
   stream(`    ${D}Tell them the URL. They join.${R}`);
   stream(`    ${D}--admin → can kick, mute, and manage other participants.${R}`);
-  stream(`    ${D}Detach with Ctrl+B D, resume with: ${C}apiary run claude --resume${R}`);
+  stream(`    ${D}Detach with Ctrl+B D, resume with: ${C}apiary claude --resume${R}`);
   stream("");
 }
 
@@ -108,15 +108,66 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── apiary run <runtime> ───────────────────────────────────────────────
-  if (args[0] === "run" && (args[1] === "claude" || args[1] === "opencode" || args[1] === "codex")) {
-    const runtime = args[1];
-    const restArgs = args.slice(2);
+  // ── apiary room <name> — alias for apiary --room <name> ─────────────────
+  if (args[0] === "room") {
+    const roomName = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
+    const roomArgs = roomName ? args.slice(2) : args.slice(1);
+    const portStr = getFlag("port", roomArgs);
+    const port = portStr ? parseInt(portStr, 10) : undefined;
+    if (port !== undefined && (isNaN(port) || port < 0 || port > 65535)) {
+      console.error(`Invalid port: ${portStr}`);
+      process.exit(1);
+    }
+    const result = await serve({
+      room: roomName ?? getFlag("room", roomArgs),
+      port,
+      share: roomArgs.includes("--share"),
+      quiet: true,
+      expose: roomArgs.includes("--expose"),
+      corsOrigins: getAllFlags("cors-origin", roomArgs),
+      save: getFlag("save", roomArgs),
+      load: getFlag("load", roomArgs),
+    });
+
+    const adminJoinUrl = buildShareUrl(result.serverUrl, result.adminToken);
+    const participantShareUrl = buildShareUrl(
+      result.publicUrl !== result.serverUrl ? result.publicUrl : result.serverUrl,
+      result.memberToken,
+    );
+
+    await join({
+      server: adminJoinUrl,
+      name: getFlag("name", roomArgs),
+      shareUrl: participantShareUrl,
+    });
+    return;
+  }
+
+  // ── apiary run <runtime> / apiary claude / apiary codex / apiary opencode
+  const isRunAlias = args[0] === "claude" || args[0] === "codex" || args[0] === "opencode";
+  if ((args[0] === "run" && (args[1] === "claude" || args[1] === "opencode" || args[1] === "codex")) || isRunAlias) {
+    const runtime = isRunAlias ? args[0] : args[1];
+    const restArgs = args.slice(isRunAlias ? 1 : 2);
 
     // Split on -- separator: apiary flags before, passthrough args after
     const ddIndex = restArgs.indexOf("--");
     const apiaryArgs = ddIndex >= 0 ? restArgs.slice(0, ddIndex) : restArgs;
-    const extraArgs = ddIndex >= 0 ? restArgs.slice(ddIndex + 1) : [];
+    const explicitExtra = ddIndex >= 0 ? restArgs.slice(ddIndex + 1) : [];
+
+    // Known apiary flags — anything else gets forwarded to the underlying tool
+    const KNOWN_FLAGS = new Set(["--name", "--admin", "--headless", "--resume", "--join"]);
+    const unknownArgs: string[] = [];
+    for (let i = 0; i < apiaryArgs.length; i++) {
+      const arg = apiaryArgs[i];
+      if (arg.startsWith("--") && !KNOWN_FLAGS.has(arg)) {
+        unknownArgs.push(arg);
+        // If the next arg isn't a flag, it's probably a value — forward it too
+        if (i + 1 < apiaryArgs.length && !apiaryArgs[i + 1].startsWith("--")) {
+          unknownArgs.push(apiaryArgs[++i]);
+        }
+      }
+    }
+    const extraArgs = [...unknownArgs, ...explicitExtra];
 
     const joinUrls = getAllFlags("join", apiaryArgs);
 

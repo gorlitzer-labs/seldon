@@ -42,6 +42,7 @@ import type {
   MessageSentEvent,
   ParticipantJoinedEvent,
   ParticipantLeftEvent,
+  PingedEvent,
   RoomEvent,
 } from "./events.js";
 import { InMemoryStorage, type StorageProtocol } from "./storage.js";
@@ -241,6 +242,30 @@ export class Room {
           observer._deliver(mentionEvent);
         }
       }
+    }
+  }
+
+  /**
+   * @internal
+   * Send a ping to a participant. Creates a PingedEvent delivered to the
+   * target's channel and all observers (same routing as MentionedEvent).
+   */
+  async _handlePing(senderId: string, senderName: string, targetId: string): Promise<void> {
+    const ch = this._channels.get(targetId);
+    if (!ch) return;
+
+    const event = createEvent<PingedEvent>({
+      type: "Pinged",
+      category: "MENTION",
+      room_id: this.roomId,
+      participant_id: targetId,
+      pinger_id: senderId,
+      pinger_name: senderName,
+    });
+    await this.storage.addEvent(event);
+    ch._deliver(event);
+    for (const observer of this._observers) {
+      observer._deliver(event);
     }
   }
 

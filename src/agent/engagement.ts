@@ -164,27 +164,31 @@ function classify(
   const role = EVENT_ROLE[event.type];
   if (role === "internal") return "drop";
 
-  // 2. Self-sent events — drop. Skip this check for mentions: a standby agent
-  //    should wake when @mentioned, and the mention's participant_id is the
-  //    recipient (the agent itself), not the sender.
-  if (role !== "mention" && event.participant_id === selfId) return "drop";
+  // 2. Self-sent events — drop. Skip this check for mentions and pings: a
+  //    standby agent should wake when @mentioned or pinged, and the event's
+  //    participant_id is the recipient (the agent itself), not the sender.
+  if (role !== "mention" && role !== "ping" && event.participant_id === selfId) return "drop";
 
   const isStandby = mode.startsWith("standby-");
   const filter = isStandby ? mode.slice(8) : mode; // "standby-people" → "people"
 
-  // 3. Standby: only @mentions to self from a matching sender trigger;
+  // 3. Standby: only @mentions and pings to self from a matching sender trigger;
   //    everything else is dropped entirely.
   if (isStandby) {
     if (
-      role === "mention" &&
+      (role === "mention" || role === "ping") &&
       event.participant_id === selfId &&
       senderMatches(filter, senderType, senderId, personParticipantId)
     ) return "trigger";
     return "drop";
   }
 
-  // 4. Active: @mention → drop. The MessageSent event already carries the
-  //    @mention text, so delivering a separate Mentioned event would be redundant.
+  // 4a. Active: ping → content. Pings are non-blocking status checks — they
+  //     buffer as context ("someone pinged you") rather than triggering evaluation.
+  if (role === "ping") return "content";
+
+  // 4b. Active: @mention → drop. The MessageSent event already carries the
+  //     @mention text, so delivering a separate Mentioned event would be redundant.
   if (role === "mention") return "drop";
 
   // 5–6. Active: message → trigger if sender matches filter, content otherwise.

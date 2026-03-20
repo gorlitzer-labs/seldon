@@ -94,6 +94,29 @@ function registerTools(server: any, resolver: RoomResolver, options: ToolHandler
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (args: any) => handleSendMessage(resolver, args, options) as any,
   );
+
+  server.tool(
+    "ping",
+    "Ping a participant for a status check. Non-blocking — they'll see it as context, not an interrupt.",
+    {
+      room: z.string().describe("Name of the room"),
+      participant: z.string().describe("Participant name to ping"),
+    },
+    { readOnlyHint: false, destructiveHint: false },
+    async ({ room, participant }: { room: string; participant: string }) => {
+      const conn = resolver.resolve(room);
+      if (!conn) return { content: [{ type: "text" as const, text: `Unknown room "${room}".` }] };
+      if (!conn.channel) return { content: [{ type: "text" as const, text: "Ping not available for this room." }] };
+
+      const target = conn.dataSource.listParticipants().find(
+        (p) => p.name.toLowerCase() === participant.toLowerCase(),
+      );
+      if (!target) return { content: [{ type: "text" as const, text: `Unknown participant "${participant}".` }] };
+
+      await conn.channel.ping(target.id);
+      return { content: [{ type: "text" as const, text: `Pinged ${participant} in [${room}].` }] };
+    },
+  );
 }
 
 /**

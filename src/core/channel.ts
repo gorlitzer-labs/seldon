@@ -93,6 +93,19 @@ export class Channel {
   }
 
   /**
+   * Ping another participant for a status check.
+   *
+   * Creates a `PingedEvent` delivered to the target and all observers.
+   * Unlike @mentions, pings are non-blocking for active agents.
+   */
+  async ping(targetId: string): Promise<void> {
+    if (this._disconnected) {
+      throw new Error("Channel is disconnected");
+    }
+    await this._room._handlePing(this.participantId, this.participantName, targetId);
+  }
+
+  /**
    * Emit a non-message activity event to the room.
    *
    * Use this for platform events: tool use indicators, mode changes, compaction

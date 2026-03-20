@@ -133,3 +133,19 @@ export function tmuxKillSession(session: string): void {
     // Session may already be dead
   }
 }
+
+/**
+ * Reset terminal to a sane state.
+ *
+ * Killing tmux sessions can leave the terminal with broken line discipline
+ * (no echo, raw mode, garbled input). This restores it. Call after any
+ * tmux teardown that might affect the user's terminal.
+ */
+export function resetTerminal(): void {
+  try {
+    // stty sane restores line discipline (echo, cooked mode, signals)
+    execFileSync("stty", ["sane"], { stdio: "inherit" });
+  } catch {
+    // Best effort — may fail if stdin isn't a tty (headless, piped)
+  }
+}

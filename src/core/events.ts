@@ -244,6 +244,26 @@ export interface MentionedEvent extends BaseRoomEvent {
   message: Message;
 }
 
+/**
+ * A participant was pinged for a status check.
+ *
+ * Delivered to the pinged participant's channel and all observers.
+ * Unlike @mentions, pings are non-blocking: active agents see them as
+ * buffered context ("content"), not triggers. Standby agents wake on ping.
+ */
+export interface PingedEvent extends BaseRoomEvent {
+  type: "Pinged";
+  category: "MENTION";
+  room_id: string;
+  /** The pinged participant (the recipient). */
+  participant_id: string;
+  timestamp: Date;
+  /** Participant ID of the person who sent the ping. */
+  pinger_id: string;
+  /** Display name of the person who sent the ping. */
+  pinger_name: string;
+}
+
 // ── Union ─────────────────────────────────────────────────────────────────────
 
 export type RoomEvent =
@@ -260,6 +280,7 @@ export type RoomEvent =
   | ToolUseEvent
   | ActivityEvent
   | MentionedEvent
+  | PingedEvent
   | ContextCompactedEvent;
 
 // ── Event roles ───────────────────────────────────────────────────────────────
@@ -275,12 +296,13 @@ export type RoomEvent =
  * - "internal" — platform bookkeeping (edits, deletes, status changes, agent
  *                activity) — always dropped by the engagement system
  */
-export type EventRole = "message" | "mention" | "ambient" | "internal";
+export type EventRole = "message" | "mention" | "ping" | "ambient" | "internal";
 
 /** Maps each event type to its semantic role for the engagement system. */
 export const EVENT_ROLE: Record<RoomEvent["type"], EventRole> = {
   MessageSent:       "message",
   Mentioned:         "mention",
+  Pinged:            "ping",
   ParticipantJoined: "ambient",
   ParticipantLeft:   "ambient",
   ParticipantKicked: "ambient",

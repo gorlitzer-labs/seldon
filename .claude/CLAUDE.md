@@ -41,23 +41,23 @@ npm run build     # build first
 
 **Terminal 1 — host a room:**
 ```bash
-npx apiary --room lobby            # start server + join the TUI
-npx apiary --room lobby --share    # same but with a shareable tunnel URL
-npx apiary --room lobby --save lobby.json    # save to a specific file
-npx apiary --room lobby --load lobby.json    # load previous session + continue saving
+npx apiary room lobby              # start server + join the TUI
+npx apiary room lobby --share      # same but with a shareable tunnel URL
+npx apiary room lobby --save lobby.json    # save to a specific file
+npx apiary room lobby --load lobby.json    # load previous session + continue saving
 ```
 Starts the server and opens the chat TUI in one command. With `--share`, spawns a cloudflared tunnel and prints a public URL. Room state is auto-saved to a temp file by default; use `--save`/`--load` for a specific file.
 
 **Terminal 2 — connect an agent:**
 ```bash
-npx apiary run claude                                       # Claude Code — then tell agent to join a room
-npx apiary run claude --admin                              # with admin MCP tools
-npx apiary run claude -- --model sonnet                    # passthrough args after --
-npx apiary run codex                                        # Codex — then tell agent to join a room
-npx apiary run codex -- --model gpt-4.1                    # passthrough args after --
-npx apiary run opencode                                    # OpenCode (in progress — session detection unreliable)
+npx apiary claude                                           # Claude Code — then tell agent to join a room
+npx apiary claude --admin                                  # with admin MCP tools
+npx apiary claude --model sonnet                           # flags auto-forwarded to claude CLI
+npx apiary codex                                            # Codex — then tell agent to join a room
+npx apiary codex --model gpt-4.1                           # flags auto-forwarded to codex CLI
+npx apiary opencode                                        # OpenCode (in progress — session detection unreliable)
 ```
-Launches a client-side agent runtime with MCP tools. The agent joins rooms manually by calling `join_room(url)` — tell the agent the URL and it joins, getting full onboarding (identity, mode, participants, recent activity) from the tool response. Everything after `--` is forwarded to the underlying tool as-is.
+Launches a client-side agent runtime with MCP tools. The agent joins rooms manually by calling `join_room(url)` — tell the agent the URL and it joins, getting full onboarding (identity, mode, participants, recent activity) from the tool response. Unknown flags are automatically forwarded to the underlying tool.
 
 **Remote join (from another machine):**
 ```bash
@@ -68,12 +68,12 @@ Opens the TUI connected to a remote server. Events stream via SSE; messages sent
 
 **All commands:**
 ```bash
-npx apiary [--room <name>] [--port <port>] [--share] [--save <file>] [--load <file>]  # host + join
+npx apiary room <name> [--port <port>] [--share] [--save <file>] [--load <file>]  # host + join
 npx apiary serve [--room <name>] [--port <port>] [--share] [--headless] [--save <file>] [--load <file>]  # server only
 npx apiary join <url> [--name <name>] [--guest] [--headless]                    # join an existing room
-npx apiary run claude [--name <name>] [--admin] [--headless] [-- <args>]        # connect Claude Code
-npx apiary run codex [--name <name>] [--admin] [--headless] [-- <args>]         # connect Codex
-npx apiary run opencode [--name <name>] [--admin] [-- <args>]                   # connect OpenCode (in progress)
+npx apiary claude [--name <name>] [--admin] [--headless] [-- <args>]            # connect Claude Code
+npx apiary codex [--name <name>] [--admin] [--headless] [-- <args>]             # connect Codex
+npx apiary opencode [--name <name>] [--admin] [-- <args>]                       # connect OpenCode (in progress)
 ```
 
 **Authority model:**
@@ -89,6 +89,7 @@ npx apiary run opencode [--name <name>] [--admin] [-- <args>]                   
 - `apiary__search_by_message(room, ref, direction?, count?)` — scroll around a message
 - `apiary__send_message(room, content, reply_to?)` — post a message
 - `apiary__set_mode(room, mode)` — change own engagement mode
+- `apiary__ping(room, participant)` — ping for a status check (non-blocking)
 - `apiary__join_room(url, alias?)` — join a new room mid-session
 - `apiary__leave_room(room)` — leave a room
 - `apiary__admin__set_mode_for(room, participant, mode)` — admin only
@@ -103,6 +104,7 @@ npx apiary run opencode [--name <name>] [--admin] [-- <args>]                   
 - `/mute <name>` — admin: demote to guest (read-only)
 - `/unmute <name>` — admin: restore to member
 - `/setmode <name> <mode>` — admin: set specific mode
+- `/ping <name>` — ping a participant for a status check
 - `/share [--as admin|member|guest]` — generate share links
 
 ## Dev commands
