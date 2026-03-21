@@ -68,8 +68,8 @@ export class TmuxBridge {
   private pollIntervalMs: number;
   private keystrokeDelayMs: number;
   private stopped = false;
-  private unknownCount = 0;
-  private static readonly UNKNOWN_THRESHOLD = 25; // ~5s at 200ms poll
+  private blockedCount = 0;
+  private static readonly BLOCKED_THRESHOLD = 150; // ~30s at 200ms poll — force inject if stuck
 
   constructor(session: string, opts?: TmuxBridgeOptions) {
     this.session = session;
@@ -198,13 +198,13 @@ export class TmuxBridge {
   private drainQueue(): void {
     if (this.queue.length === 0) {
       this.stopPolling();
-      this.unknownCount = 0;
+      this.blockedCount = 0;
       return;
     }
 
     const state = this.detectState();
     if (state === "idle" || state === "typing") {
-      this.unknownCount = 0;
+      this.blockedCount = 0;
       const text = this.queue.shift()!;
 
       if (state === "idle") {
@@ -217,17 +217,16 @@ export class TmuxBridge {
         this.stopPolling();
       }
       // else: keep polling to drain remaining events
-    } else if (state === "unknown") {
-      this.unknownCount++;
-      if (this.unknownCount >= TmuxBridge.UNKNOWN_THRESHOLD) {
-        // State detection stuck — force inject to unblock
-        this.unknownCount = 0;
+    } else {
+      // Any non-injectable state (streaming, dialog, permission, unknown)
+      this.blockedCount++;
+      if (this.blockedCount >= TmuxBridge.BLOCKED_THRESHOLD) {
+        // Stuck too long — force inject to unblock
+        this.blockedCount = 0;
         const text = this.queue.shift()!;
         this.injectIdle(text);
         if (this.queue.length === 0) this.stopPolling();
       }
-    } else {
-      this.unknownCount = 0;
     }
   }
 

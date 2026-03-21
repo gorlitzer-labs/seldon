@@ -4,6 +4,11 @@
 
 - **Version in help** — `apiary --help` and `make help` now show current version
 
+## v1.0.5
+
+- **Color-based agent status** — green name = idle, yellow = busy. No extra characters, wraps cleanly on narrow/mobile terminals
+- **Unified stall timeout** — force-injects after 30s in any blocking state (streaming, unknown, dialog), ensuring `/ping` always reaches stuck agents
+
 ## v1.0.4
 
 - **Agent activity spinners** — 4 random spinner styles per agent, green `✓` when idle
