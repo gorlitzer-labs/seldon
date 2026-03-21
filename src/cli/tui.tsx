@@ -117,12 +117,6 @@ const SLASH_COMMANDS: SlashCommand[] = [
 
 const CMD_DISPLAY_COL = 26; // width for command + params display column
 
-const WORKER_SPINNERS = [
-  ["◐", "◓", "◑", "◒"],
-  ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
-  ["┤", "┘", "┴", "└", "├", "┌", "┬", "┐"],
-  ["▖", "▘", "▝", "▗"],
-];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -428,19 +422,10 @@ function App({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [soundEnabled,  setSoundEnabled]  = useState(initialSound);
   const [busyAgents,    setBusyAgents]    = useState<Set<string>>(new Set());
-  const [spinnerFrame,  setSpinnerFrame]  = useState(0);
   const soundRef = useRef(initialSound);
   const busyRef  = useRef<Set<string>>(new Set());
-  const spinnerMap = useRef<Map<string, string[]>>(new Map());
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
-
-  // Spinner tick — only runs when agents are busy
-  useEffect(() => {
-    if (busyAgents.size === 0) return;
-    const timer = setInterval(() => setSpinnerFrame(f => f + 1), 300);
-    return () => clearInterval(timer);
-  }, [busyAgents.size]);
 
   // Atomic input + cursor update
   const setInputAt = useCallback((newInput: string, newPos: number) => {
@@ -772,22 +757,15 @@ function App({
         <Text color={C.yellow}>{"─"}</Text>
       </Box>
       {agentNames.length > 0 && (
-        <Box paddingX={1}>
+        <Box paddingX={1} flexWrap="wrap">
           {agentNames.map((name, i) => {
-            const { color, sigil } = identify(name);
-            let icon = "";
-            if (busyAgents.has(name)) {
-              if (!spinnerMap.current.has(name)) {
-                spinnerMap.current.set(name, WORKER_SPINNERS[Math.floor(Math.random() * WORKER_SPINNERS.length)]);
-              }
-              const frames = spinnerMap.current.get(name)!;
-              icon = frames[spinnerFrame % frames.length];
-            }
+            const { sigil } = identify(name);
+            const busy = busyAgents.has(name);
+            const nameColor = busy ? C.yellow : C.green;
             return (
               <React.Fragment key={name}>
-                {i > 0 && <Text color={C.border}>{"  ·  "}</Text>}
-                <Text color={color}>{sigil}{" "}{name}</Text>
-                <Text color={icon ? C.yellow : C.green}>{" "}{icon || "✓"}</Text>
+                {i > 0 && <Text color={C.border}>{" · "}</Text>}
+                <Text color={nameColor}>{sigil}{" "}{name}</Text>
               </React.Fragment>
             );
           })}
