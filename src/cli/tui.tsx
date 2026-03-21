@@ -787,7 +787,7 @@ function App({
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{"  ·  "}</Text>}
                 <Text color={color}>{sigil}{" "}{name}</Text>
-                <Text color={icon ? C.yellow : C.dim}>{" "}{icon || "●"}</Text>
+                <Text color={icon ? C.yellow : C.green}>{" "}{icon || "✓"}</Text>
               </React.Fragment>
             );
           })}

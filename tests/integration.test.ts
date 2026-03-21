@@ -623,4 +623,119 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
       expect(data.error).toMatch(/cloudflared/i);
     }
   }, 30_000);
+
+  // ── 16. Agent busy/idle detection from /messages ──────────────────────
+
+  test("agent busy/idle: no messages → no state to infer", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
+    await httpJoin(server.serverUrl, server.memberToken, { name: "Bot", type: "agent" });
+
+    // No messages sent — /messages returns empty
+    const res = await fetch(`${server.serverUrl}/messages?count=20`, {
+      headers: { Authorization: `Bearer ${admin.sessionToken}` },
+    });
+    const { items: messages } = (await res.json()) as { items: unknown[] };
+    expect(messages).toHaveLength(0);
+  }, 15_000);
+
+  test("agent busy/idle: human spoke, agent replied → agent idle", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const human = await httpJoin(server.serverUrl, server.adminToken, { name: "Human" });
+    const bot = await httpJoin(server.serverUrl, server.memberToken, { name: "Bot", type: "agent" });
+
+    // Human speaks, then bot replies
+    await httpSend(server.serverUrl, human.sessionToken, "hello bot");
+    await httpSend(server.serverUrl, bot.sessionToken, "hello human");
+
+    const res = await fetch(`${server.serverUrl}/messages?count=20`, {
+      headers: { Authorization: `Bearer ${human.sessionToken}` },
+    });
+    const { items: messages } = (await res.json()) as {
+      items: Array<{ sender_id: string; sender_name: string }>;
+    };
+
+    // Newest first — bot spoke last
+    expect(messages[0].sender_name).toBe("Bot");
+    expect(messages[1].sender_name).toBe("Human");
+
+    // Walk logic: Bot → idle, hit Human → break. Bot replied → idle.
+    const idleAgents = new Set<string>();
+    let foundHuman = false;
+    for (const msg of messages) {
+      const isAgent = msg.sender_id === bot.participantId;
+      const isHuman = msg.sender_id === human.participantId;
+      if (isAgent) idleAgents.add(msg.sender_name);
+      else if (isHuman) { foundHuman = true; break; }
+    }
+    expect(foundHuman).toBe(true);
+    expect(idleAgents.has("Bot")).toBe(true);
+  }, 15_000);
+
+  test("agent busy/idle: human spoke, agent did not reply → agent busy", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const human = await httpJoin(server.serverUrl, server.adminToken, { name: "Human" });
+    await httpJoin(server.serverUrl, server.memberToken, { name: "Bot", type: "agent" });
+
+    // Human speaks, bot does NOT reply
+    await httpSend(server.serverUrl, human.sessionToken, "hello bot");
+
+    const res = await fetch(`${server.serverUrl}/messages?count=20`, {
+      headers: { Authorization: `Bearer ${human.sessionToken}` },
+    });
+    const { items: messages } = (await res.json()) as {
+      items: Array<{ sender_id: string; sender_name: string }>;
+    };
+
+    // Newest first — only human message
+    expect(messages[0].sender_name).toBe("Human");
+
+    // Walk logic: hit Human immediately → break, no agents in idleAgents
+    const idleAgents = new Set<string>();
+    let foundHuman = false;
+    for (const msg of messages) {
+      const isAgent = msg.sender_id !== human.participantId;
+      if (isAgent) idleAgents.add(msg.sender_name);
+      else { foundHuman = true; break; }
+    }
+    expect(foundHuman).toBe(true);
+    expect(idleAgents.has("Bot")).toBe(false);
+  }, 15_000);
+
+  test("agent busy/idle: two agents, one replied one did not", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const human = await httpJoin(server.serverUrl, server.adminToken, { name: "Human" });
+    const botA = await httpJoin(server.serverUrl, server.memberToken, { name: "BotA", type: "agent" });
+    await httpJoin(server.serverUrl, server.memberToken, { name: "BotB", type: "agent" });
+
+    // Human speaks, only BotA replies
+    await httpSend(server.serverUrl, human.sessionToken, "hello bots");
+    await httpSend(server.serverUrl, botA.sessionToken, "hello from A");
+
+    const res = await fetch(`${server.serverUrl}/messages?count=20`, {
+      headers: { Authorization: `Bearer ${human.sessionToken}` },
+    });
+    const { items: messages } = (await res.json()) as {
+      items: Array<{ sender_id: string; sender_name: string }>;
+    };
+
+    // Walk: BotA → idle, Human → break. BotB not seen → busy.
+    const idleAgents = new Set<string>();
+    let foundHuman = false;
+    for (const msg of messages) {
+      if (msg.sender_id === human.participantId) { foundHuman = true; break; }
+      idleAgents.add(msg.sender_name);
+    }
+    expect(foundHuman).toBe(true);
+    expect(idleAgents.has("BotA")).toBe(true);
+    expect(idleAgents.has("BotB")).toBe(false);
+  }, 15_000);
 });
