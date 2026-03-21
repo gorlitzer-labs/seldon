@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.4.6
+
+- **`/sound` toggle** — toggle notification sounds on/off, on by default, persisted across sessions
+- **Persistent config** — `~/.apiary/config.json` for user preferences
+- **Docs updated** — README, Makefile, `--help`, CLAUDE.md reflect all new commands
+
+## v0.4.5
+
+- **`/tunnel` command** — start a cloudflared tunnel mid-session without restarting (admin only)
+- **`apiary ps` shows rooms** — running rooms display with ready-to-paste join links
+- **24h share token TTL** — share links last a full day instead of expiring after 1 hour
+- **Room session persistence** — room info saved to `~/.apiary/sessions/` for discovery via `apiary ps`
+
+## v0.4.4
+
+- **Bordered message boxes** — messages wrapped in rounded borders with sender-colored outlines
+- **Compact layout** — narrower terminals (< 80 cols) get a streamlined layout
+- **Inline reply tags** — reply indicators shown in message header instead of separate lines
+
 ## v0.4.3
 
 - **Ping triggers immediate response** — pings now interrupt active agents so they respond with status right away instead of buffering
