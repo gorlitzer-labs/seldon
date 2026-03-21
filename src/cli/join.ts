@@ -584,6 +584,20 @@ export async function join(options: JoinOptions): Promise<void> {
                   tui.setParticipants([...participantNames]);
                 }
               }
+              // Track agent busy/idle state
+              if (event.type === "MessageSent") {
+                const senderType = participantTypes.get(event.message.sender_id);
+                if (senderType === "agent") {
+                  tui.setIdle(event.message.sender_name);
+                } else if (senderType === "human") {
+                  for (const agent of currentAgents) tui.setBusy(agent);
+                }
+              }
+              if (event.type === "PingEvent") {
+                const targetName = (event as RoomEvent & { target_name?: string }).target_name;
+                if (targetName && currentAgents.has(targetName)) tui.setBusy(targetName);
+              }
+
               if (event.type === "ParticipantLeft" || event.type === "ParticipantKicked") {
                 if (event.participant.type === "agent") {
                   currentAgents.delete(event.participant.name);

@@ -4,6 +4,11 @@
 
 - **Version in help** — `apiary --help` and `make help` now show current version
 
+## v1.0.3
+
+- **Agent activity spinners** — busy agents show animated spinners (4 random styles per agent), idle agents show `●`
+- **Fix: tmux state detection stall** — capture window expanded from 15 to 30 lines; force-injects after ~5s of unknown state to prevent agents getting stuck
+
 ## v1.0.1
 
 - **Fix: kicked participants linger in autocomplete** — `/kick` now removes participants from suggestions and `/who` list (was only handled for `/leave`)

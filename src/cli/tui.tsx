@@ -117,6 +117,13 @@ const SLASH_COMMANDS: SlashCommand[] = [
 
 const CMD_DISPLAY_COL = 26; // width for command + params display column
 
+const WORKER_SPINNERS = [
+  ["◐", "◓", "◑", "◒"],
+  ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+  ["┤", "┘", "┴", "└", "├", "┌", "┬", "┐"],
+  ["▖", "▘", "▝", "▗"],
+];
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type DisplayEvent =
@@ -130,6 +137,8 @@ export type DisplayEvent =
 export interface TUIHandle {
   push(event: DisplayEvent): void;
   toggleSound(): boolean;
+  setBusy(name: string): void;
+  setIdle(name: string): void;
   setAgentNames(names: string[]): void;
   setParticipants(names: string[]): void;
   stop(): void;
@@ -386,6 +395,8 @@ interface AppHandle {
   setAgentNames: (names: string[]) => void;
   setParticipants: (names: string[]) => void;
   toggleSound: () => boolean;
+  setBusy: (name: string) => void;
+  setIdle: (name: string) => void;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -416,9 +427,20 @@ function App({
   const [cursorPos,     setCursorPos]     = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [soundEnabled,  setSoundEnabled]  = useState(initialSound);
+  const [busyAgents,    setBusyAgents]    = useState<Set<string>>(new Set());
+  const [spinnerFrame,  setSpinnerFrame]  = useState(0);
   const soundRef = useRef(initialSound);
+  const busyRef  = useRef<Set<string>>(new Set());
+  const spinnerMap = useRef<Map<string, string[]>>(new Map());
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
+
+  // Spinner tick — only runs when agents are busy
+  useEffect(() => {
+    if (busyAgents.size === 0) return;
+    const timer = setInterval(() => setSpinnerFrame(f => f + 1), 300);
+    return () => clearInterval(timer);
+  }, [busyAgents.size]);
 
   // Atomic input + cursor update
   const setInputAt = useCallback((newInput: string, newPos: number) => {
@@ -450,8 +472,18 @@ function App({
     return next;
   }, []);
 
+  const setBusy = useCallback((name: string) => {
+    busyRef.current.add(name);
+    setBusyAgents(new Set(busyRef.current));
+  }, []);
+
+  const setIdle = useCallback((name: string) => {
+    busyRef.current.delete(name);
+    setBusyAgents(new Set(busyRef.current));
+  }, []);
+
   useEffect(() => {
-    onReady({ push, setAgentNames, setParticipants, toggleSound });
+    onReady({ push, setAgentNames, setParticipants, toggleSound, setBusy, setIdle });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -743,10 +775,19 @@ function App({
         <Box paddingX={1}>
           {agentNames.map((name, i) => {
             const { color, sigil } = identify(name);
+            let icon = "";
+            if (busyAgents.has(name)) {
+              if (!spinnerMap.current.has(name)) {
+                spinnerMap.current.set(name, WORKER_SPINNERS[Math.floor(Math.random() * WORKER_SPINNERS.length)]);
+              }
+              const frames = spinnerMap.current.get(name)!;
+              icon = frames[spinnerFrame % frames.length];
+            }
             return (
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{"  ·  "}</Text>}
                 <Text color={color}>{sigil}{" "}{name}</Text>
+                <Text color={icon ? C.yellow : C.dim}>{" "}{icon || "●"}</Text>
               </React.Fragment>
             );
           })}
@@ -873,6 +914,12 @@ export function startTUI(opts: TUIOptions): TUIHandle {
     },
     toggleSound() {
       return handle?.toggleSound() ?? false;
+    },
+    setBusy(name) {
+      handle?.setBusy(name);
+    },
+    setIdle(name) {
+      handle?.setIdle(name);
     },
     stop() {
       unmount();
