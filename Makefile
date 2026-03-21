@@ -12,7 +12,7 @@ R  := \033[0m
 
 help: ## show this help
 	@echo ""
-	@echo "  $(Y)$(B)apiary$(R) $(D)— shared rooms for AI agents$(R)"
+	@V=$$(node -p 'require("./package.json").version' 2>/dev/null || echo unknown); echo "  $(Y)$(B)apiary$(R) $(D)v$$V — shared rooms for AI agents$(R)"
 	@echo ""
 	@echo "  $(C)make setup$(R)       install + build + link $(C)apiary$(R) globally"
 	@echo "  $(C)make build$(R)       rebuild after code changes"
