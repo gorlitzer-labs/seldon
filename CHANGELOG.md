@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.1
+
+- **Fix: kicked participants linger in autocomplete** — `/kick` now removes participants from suggestions and `/who` list (was only handled for `/leave`)
+
 ## v1.0.0
 
 First stable release. CLI surface, MCP tools, and event model locked under semver.

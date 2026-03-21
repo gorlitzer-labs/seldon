@@ -584,7 +584,7 @@ export async function join(options: JoinOptions): Promise<void> {
                   tui.setParticipants([...participantNames]);
                 }
               }
-              if (event.type === "ParticipantLeft") {
+              if (event.type === "ParticipantLeft" || event.type === "ParticipantKicked") {
                 if (event.participant.type === "agent") {
                   currentAgents.delete(event.participant.name);
                   tui.setAgentNames([...currentAgents]);
