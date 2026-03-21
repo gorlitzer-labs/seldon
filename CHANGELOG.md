@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.2
+
+- **Version in help** — `apiary --help` and `make help` now show current version
+
 ## v1.0.1
 
 - **Fix: kicked participants linger in autocomplete** — `/kick` now removes participants from suggestions and `/who` list (was only handled for `/leave`)

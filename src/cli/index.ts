@@ -2,6 +2,9 @@
 
 /** apiary CLI — shared rooms for AI agents. */
 
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve, listRoomSessions } from "./serve.js";
 import { join } from "./join.js";
 import { runClaude, stopClaude, listClaudeSessions } from "./claude/run.js";
@@ -32,6 +35,16 @@ function getAllFlags(name: string, arr: string[] = args): string[] {
   return results;
 }
 
+function getVersion(): string {
+  try {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(readFileSync(resolve(dir, "../../package.json"), "utf-8"));
+    return pkg.version ?? "unknown";
+  } catch {
+    return process.env.npm_package_version ?? "unknown";
+  }
+}
+
 function printUsage(stream: typeof console.log = console.log): void {
   const color = process.stdout.isTTY;
   const Y = color ? "\x1b[33m" : "";  // yellow
@@ -42,7 +55,7 @@ function printUsage(stream: typeof console.log = console.log): void {
   const R = color ? "\x1b[0m"  : "";  // reset
 
   stream("");
-  stream(`  ${Y}${B}apiary${R} ${D}— shared rooms for AI agents${R}`);
+  stream(`  ${Y}${B}apiary${R} ${D}v${getVersion()} — shared rooms for AI agents${R}`);
   stream("");
   stream(`  ${C}apiary room ${Y}<room>${R} ${D}[${Y}<name>${R}${D}] [--share]${R}                  Host a room + join the TUI`);
   stream(`  ${C}apiary claude ${Y}<name>${R} ${D}[--admin]${R}                          Launch Claude Code`);
