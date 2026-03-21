@@ -112,6 +112,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
     { label: "name", completions: "participants" },
   ]},
   { name: "/tunnel", description: "Start a cloudflared tunnel", adminOnly: true },
+  { name: "/sound",  description: "Toggle notification sounds" },
 ];
 
 const CMD_DISPLAY_COL = 26; // width for command + params display column
@@ -128,6 +129,7 @@ export type DisplayEvent =
 
 export interface TUIHandle {
   push(event: DisplayEvent): void;
+  toggleSound(): boolean;
   setAgentNames(names: string[]): void;
   setParticipants(names: string[]): void;
   stop(): void;
@@ -382,6 +384,7 @@ interface AppHandle {
   push: (event: DisplayEvent) => void;
   setAgentNames: (names: string[]) => void;
   setParticipants: (names: string[]) => void;
+  toggleSound: () => boolean;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -409,6 +412,8 @@ function App({
   const [input,         setInput]         = useState("");
   const [cursorPos,     setCursorPos]     = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [soundEnabled,  setSoundEnabled]  = useState(true);
+  const soundRef = useRef(true);
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
 
@@ -431,12 +436,19 @@ function App({
     const shouldBell =
       event.kind === "ping" ||
       (event.kind === "message" && !event.isSelf);
-    if (shouldBell && stdout.isTTY) stdout.write("\x07");
+    if (shouldBell && soundRef.current && stdout.isTTY) stdout.write("\x07");
     setEvents((prev) => [...prev, event]);
   }, [stdout]);
 
+  const toggleSound = useCallback((): boolean => {
+    const next = !soundRef.current;
+    soundRef.current = next;
+    setSoundEnabled(next);
+    return next;
+  }, []);
+
   useEffect(() => {
-    onReady({ push, setAgentNames, setParticipants });
+    onReady({ push, setAgentNames, setParticipants, toggleSound });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -854,6 +866,9 @@ export function startTUI(opts: TUIOptions): TUIHandle {
     },
     setParticipants(names) {
       handle?.setParticipants(names);
+    },
+    toggleSound() {
+      return handle?.toggleSound() ?? false;
     },
     stop() {
       unmount();

@@ -9,8 +9,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir, networkInterfaces } from "node:os";
+import { homedir, tmpdir, networkInterfaces } from "node:os";
 import { join as pathJoin, resolve, sep } from "node:path";
 
 import { Room } from "../core/room.js";
@@ -62,6 +63,45 @@ export interface ServeResult {
   roomName: string;
   adminToken: string;
   memberToken: string;
+}
+
+// ── Room session persistence ─────────────────────────────────────────────────
+
+const SESSION_DIR = pathJoin(homedir(), ".apiary", "sessions");
+
+export interface PersistedRoomSession {
+  roomName: string;
+  serverUrl: string;
+  publicUrl: string;
+  adminToken: string;
+  memberToken: string;
+  pid: number;
+}
+
+function roomSessionPath(name: string): string {
+  return pathJoin(SESSION_DIR, `room_${name}.json`);
+}
+
+function saveRoomSession(session: PersistedRoomSession): void {
+  if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
+  writeFileSync(roomSessionPath(session.roomName), JSON.stringify(session, null, 2));
+}
+
+function clearRoomSession(name: string): void {
+  try { rmSync(roomSessionPath(name)); } catch { /* ok */ }
+}
+
+export function listRoomSessions(): PersistedRoomSession[] {
+  if (!existsSync(SESSION_DIR)) return [];
+  const files = readdirSync(SESSION_DIR) as string[];
+  const sessions: PersistedRoomSession[] = [];
+  for (const f of files) {
+    if (!f.startsWith("room_") || !f.endsWith(".json")) continue;
+    try {
+      sessions.push(JSON.parse(readFileSync(pathJoin(SESSION_DIR, f), "utf-8")));
+    } catch { /* skip */ }
+  }
+  return sessions;
 }
 
 // ── SSE helper ───────────────────────────────────────────────────────────────
@@ -730,6 +770,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           }
           publicUrl = tunnelUrl;
           addCorsOrigin(tunnelUrl);
+          saveRoomSession({ roomName, serverUrl, publicUrl, adminToken, memberToken, pid: process.pid });
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ url: tunnelUrl, alreadyRunning: false }));
         } catch {
@@ -841,6 +882,9 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const adminToken = tokens.generateShareToken("admin", "admin")!;
   const memberToken = tokens.generateShareToken("admin", "member")!;
 
+  // Persist room session for `apiary ps`
+  saveRoomSession({ roomName, serverUrl, publicUrl, adminToken, memberToken, pid: process.pid });
+
   function obfuscate(token: string): string {
     if (token.length <= 8) return "****";
     return token.slice(0, 4) + "..." + token.slice(-4);
@@ -892,6 +936,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
   const shutdown = async () => {
     log("shutting down...");
+    clearRoomSession(roomName);
     if (tunnelProcess) { tunnelProcess.kill(); tunnelProcess = null; }
     for (const [id, sse] of sseConnections) { sse.end(); sseConnections.delete(id); }
     for (const p of participants.values()) { await p.channel.disconnect().catch(() => {}); }

@@ -206,6 +206,7 @@ export async function join(options: JoinOptions): Promise<void> {
           "/who              list participants",
           "/ping <name>      ping for a status check",
           "/share            generate share links",
+          "/sound            toggle notification sounds",
           "/leave            disconnect",
         ];
         if (authority === "admin") {
@@ -405,6 +406,13 @@ export async function join(options: JoinOptions): Promise<void> {
         } catch {
           systemEvent("Failed to reach server.");
         }
+        return;
+      }
+
+      // ── /sound — toggle notification sounds ───────────────────────
+      case "sound": {
+        const enabled = tui.toggleSound();
+        systemEvent(`Sound ${enabled ? "on" : "off"}.`);
         return;
       }
 
