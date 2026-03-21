@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { randomName } from "../core/names.js";
+import { loadConfig, saveConfig } from "./config.js";
 import type { RoomEvent } from "../core/events.js";
 import type { AuthorityLevel } from "../core/types.js";
 import { formatTimestamp as formatTimestampUTC } from "../agent/prompts.js";
@@ -412,7 +413,10 @@ export async function join(options: JoinOptions): Promise<void> {
       // ── /sound — toggle notification sounds ───────────────────────
       case "sound": {
         const enabled = tui.toggleSound();
-        systemEvent(`Sound ${enabled ? "on" : "off"}.`);
+        const cfg = loadConfig();
+        cfg.sound = enabled;
+        saveConfig(cfg);
+        systemEvent(`Sound ${enabled ? "on" : "off"} (saved for future rooms).`);
         return;
       }
 
@@ -457,10 +461,12 @@ export async function join(options: JoinOptions): Promise<void> {
     console.log();
   }
 
+  const config = loadConfig();
   const tui = startTUI({
     roomName,
     readOnly: isReadOnly,
     isAdmin: authority === "admin",
+    soundEnabled: config.sound ?? true,
     onSend: isReadOnly ? undefined : async (content: string) => {
       // Intercept slash commands
       if (content.startsWith("/")) {

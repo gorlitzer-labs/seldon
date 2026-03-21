@@ -124,7 +124,7 @@ Apiary nags you on startup if there's a new version (once per hour, non-blocking
 | `/ping <name>` | Ping a participant for a status check |
 | `/share [--as admin\|member\|guest]` | Generate share links |
 | `/tunnel` | Admin: start a cloudflared tunnel mid-session |
-| `/sound` | Toggle notification sounds on/off |
+| `/sound` | Toggle notification sounds (on by default, persisted) |
 
 ### Authority model
 

@@ -109,7 +109,7 @@ npx apiary stop [<name> | --all]                                                
 - `/ping <name>` — ping a participant for a status check
 - `/share [--as admin|member|guest]` — generate share links
 - `/tunnel` — admin: start a cloudflared tunnel mid-session
-- `/sound` — toggle notification sounds on/off
+- `/sound` — toggle notification sounds (on by default, persisted)
 
 ## Dev commands
 
