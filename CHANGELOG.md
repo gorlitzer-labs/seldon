@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.0
+
+First stable release. CLI surface, MCP tools, and event model locked under semver.
+
+All prior 0.x changes folded in — see below for history.
+
 ## v0.4.6
 
 - **`/sound` toggle** — toggle notification sounds on/off, on by default, persisted across sessions
