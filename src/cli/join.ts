@@ -503,6 +503,43 @@ export async function join(options: JoinOptions): Promise<void> {
     .map((p) => p.name);
   if (agentNames.length > 0) {
     tui.setAgentNames(agentNames);
+
+    // Determine initial busy/idle state from recent messages.
+    // Walk newest-first: agents that replied after the last human message are idle.
+    // If no human message found, leave all indicators off (unknown state).
+    try {
+      const msgRes = await fetch(`${serverUrl}/messages?count=20`, {
+        headers: { Authorization: `Bearer ${sessionToken}` },
+      });
+      if (msgRes.ok) {
+        const { items: messages } = (await msgRes.json()) as {
+          items: Array<{ sender_id: string; sender_name: string }>;
+        };
+        const idleAgents = new Set<string>();
+        const agentSet = new Set(agentNames);
+        let foundHuman = false;
+        for (const msg of messages) {
+          const sType = participants.find((p) => p.id === msg.sender_id)?.type;
+          if (sType === "agent" && agentSet.has(msg.sender_name)) {
+            idleAgents.add(msg.sender_name);
+          } else if (sType === "human") {
+            foundHuman = true;
+            break;
+          }
+        }
+        if (foundHuman) {
+          // Human spoke — agents that replied since are idle, rest are busy
+          for (const agent of agentSet) {
+            if (idleAgents.has(agent)) {
+              tui.setIdle(agent);
+            } else {
+              tui.setBusy(agent);
+            }
+          }
+        }
+        // No human message in recent history → leave indicators off
+      }
+    } catch { /* non-critical — default to no indicator */ }
   }
   const participantNames = new Set(
     participants.filter((p) => p.id !== participantId).map((p) => p.name),
@@ -593,9 +630,17 @@ export async function join(options: JoinOptions): Promise<void> {
                   for (const agent of currentAgents) tui.setBusy(agent);
                 }
               }
-              if (event.type === "PingEvent") {
-                const targetName = (event as RoomEvent & { target_name?: string }).target_name;
-                if (targetName && currentAgents.has(targetName)) tui.setBusy(targetName);
+              if (event.type === "Pinged") {
+                // Look up target name from participant_id
+                const pinged = event as RoomEvent & { participant_id?: string };
+                if (pinged.participant_id) {
+                  for (const p of participants) {
+                    if (p.id === pinged.participant_id && currentAgents.has(p.name)) {
+                      tui.setBusy(p.name);
+                      break;
+                    }
+                  }
+                }
               }
 
               if (event.type === "ParticipantLeft" || event.type === "ParticipantKicked") {

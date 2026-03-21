@@ -4,6 +4,13 @@
 
 - **Version in help** — `apiary --help` and `make help` now show current version
 
+## v1.0.4
+
+- **Agent activity spinners** — 4 random spinner styles per agent, green `✓` when idle
+- **Smart busy/idle on join** — checks recent messages to determine if agents are working or idle
+- **Fix: PingEvent type** — was using wrong event name, pings now correctly mark agents busy
+- **Fix: tmux stall** — capture window 15→30 lines, force-inject after ~5s of unknown state
+
 ## v1.0.3
 
 - **Agent activity spinners** — busy agents show animated spinners (4 random styles per agent), idle agents show `●`
