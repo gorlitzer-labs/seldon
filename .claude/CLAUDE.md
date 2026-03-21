@@ -74,7 +74,7 @@ npx apiary join <url> [<name>] [--guest] [--headless]                           
 npx apiary claude [<name>] [--admin] [--headless]                               # connect Claude Code
 npx apiary codex [<name>] [--admin] [--headless]                                # connect Codex
 npx apiary opencode [<name>] [--admin]                                          # connect OpenCode (in progress)
-npx apiary ps                                                                   # list active sessions
+npx apiary ps                                                                   # list rooms + agents (with join links)
 npx apiary stop [<name> | --all]                                                # stop agents
 ```
 
@@ -108,6 +108,8 @@ npx apiary stop [<name> | --all]                                                
 - `/setmode <name> <mode>` — admin: set specific mode
 - `/ping <name>` — ping a participant for a status check
 - `/share [--as admin|member|guest]` — generate share links
+- `/tunnel` — admin: start a cloudflared tunnel mid-session
+- `/sound` — toggle notification sounds (on by default, persisted)
 
 ## Dev commands
 

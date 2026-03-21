@@ -141,6 +141,7 @@ export interface TUIOptions {
   onCtrlC?(): void;
   readOnly?: boolean;
   isAdmin?: boolean;
+  soundEnabled?: boolean;
 }
 
 // ── Identity (seed → color + sigil) ──────────────────────────────────────────
@@ -398,6 +399,7 @@ function App({
   onReady,
   readOnly,
   isAdmin,
+  initialSound = true,
 }: {
   roomName: string;
   onSend?: (content: string) => void;
@@ -405,6 +407,7 @@ function App({
   onReady: (handle: AppHandle) => void;
   readOnly?: boolean;
   isAdmin?: boolean;
+  initialSound?: boolean;
 }) {
   const [events,        setEvents]        = useState<DisplayEvent[]>([]);
   const [agentNames,    setAgentNames]    = useState<string[]>([]);
@@ -412,8 +415,8 @@ function App({
   const [input,         setInput]         = useState("");
   const [cursorPos,     setCursorPos]     = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [soundEnabled,  setSoundEnabled]  = useState(true);
-  const soundRef = useRef(true);
+  const [soundEnabled,  setSoundEnabled]  = useState(initialSound);
+  const soundRef = useRef(initialSound);
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
 
@@ -852,6 +855,7 @@ export function startTUI(opts: TUIOptions): TUIHandle {
       onReady={onReady}
       readOnly={opts.readOnly}
       isAdmin={opts.isAdmin}
+      initialSound={opts.soundEnabled ?? true}
     />,
     { exitOnCtrlC: false },
   );
