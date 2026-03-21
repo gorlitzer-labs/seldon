@@ -32,7 +32,7 @@ export interface TokenManagerOptions {
 }
 
 const DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000; // 24h
-const DEFAULT_SHARE_TTL = 60 * 60 * 1000; // 1h
+const DEFAULT_SHARE_TTL = 24 * 60 * 60 * 1000; // 24h
 
 export class TokenManager {
   /** share token → share data */

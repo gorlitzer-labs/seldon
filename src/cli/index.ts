@@ -2,7 +2,7 @@
 
 /** apiary CLI — shared rooms for AI agents. */
 
-import { serve } from "./serve.js";
+import { serve, listRoomSessions } from "./serve.js";
 import { join } from "./join.js";
 import { runClaude, stopClaude, listClaudeSessions } from "./claude/run.js";
 import { runOpencode } from "./opencode/run.js";
@@ -106,17 +106,30 @@ async function main(): Promise<void> {
 
   // ── apiary ps ────────────────────────────────────────────────────────────
   if (args[0] === "ps") {
-    const sessions = listClaudeSessions();
-    if (sessions.length === 0) {
+    const rooms = listRoomSessions();
+    const agents = listClaudeSessions();
+    if (rooms.length === 0 && agents.length === 0) {
       console.log("No active sessions.");
-    } else {
-      console.log("Active sessions:");
-      for (const s of sessions) {
-        let alive = false;
-        try { process.kill(s.pid, 0); alive = true; } catch { /* dead */ }
-        const status = alive ? "running" : "stale";
-        console.log(`  ${s.agentName}  (pid ${s.pid}, ${status})`);
-      }
+      return;
+    }
+
+    for (const r of rooms) {
+      let alive = false;
+      try { process.kill(r.pid, 0); alive = true; } catch { /* dead */ }
+      if (!alive) continue;
+      const joinUrl = buildShareUrl(
+        r.publicUrl !== r.serverUrl ? r.publicUrl : r.serverUrl,
+        r.memberToken,
+      );
+      console.log(`  \x1b[1m${r.roomName}\x1b[0m  \x1b[2m(room, pid ${r.pid})\x1b[0m`);
+      console.log(`    \x1b[2mJoin:\x1b[0m  \x1b[36mapiary join\x1b[0m ${joinUrl}`);
+    }
+
+    for (const s of agents) {
+      let alive = false;
+      try { process.kill(s.pid, 0); alive = true; } catch { /* dead */ }
+      const status = alive ? "running" : "stale";
+      console.log(`  ${s.agentName}  (pid ${s.pid}, ${status})`);
     }
     return;
   }
