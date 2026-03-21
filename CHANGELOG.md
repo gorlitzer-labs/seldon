@@ -4,6 +4,10 @@
 
 - **Version in help** — `apiary --help` and `make help` now show current version
 
+## v1.0.6
+
+- **Stale agent indicator** — agents that don't respond within 5 minutes show `zzz` in dim, hinting to `/ping` them
+
 ## v1.0.5
 
 - **Color-based agent status** — green name = idle, yellow = busy. No extra characters, wraps cleanly on narrow/mobile terminals

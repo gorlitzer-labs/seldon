@@ -133,6 +133,7 @@ export interface TUIHandle {
   toggleSound(): boolean;
   setBusy(name: string): void;
   setIdle(name: string): void;
+  setStale(name: string): void;
   setAgentNames(names: string[]): void;
   setParticipants(names: string[]): void;
   stop(): void;
@@ -391,6 +392,7 @@ interface AppHandle {
   toggleSound: () => boolean;
   setBusy: (name: string) => void;
   setIdle: (name: string) => void;
+  setStale: (name: string) => void;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -422,8 +424,11 @@ function App({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [soundEnabled,  setSoundEnabled]  = useState(initialSound);
   const [busyAgents,    setBusyAgents]    = useState<Set<string>>(new Set());
+  const [staleAgents,   setStaleAgents]   = useState<Set<string>>(new Set());
   const soundRef = useRef(initialSound);
   const busyRef  = useRef<Set<string>>(new Set());
+  const staleRef = useRef<Set<string>>(new Set());
+  const busyTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
 
@@ -457,18 +462,40 @@ function App({
     return next;
   }, []);
 
+  const STALE_TIMEOUT = 5 * 60_000; // 5min before busy → stale
+
   const setBusy = useCallback((name: string) => {
     busyRef.current.add(name);
+    staleRef.current.delete(name);
     setBusyAgents(new Set(busyRef.current));
+    setStaleAgents(new Set(staleRef.current));
+    // Clear existing timer and start a new one
+    const existing = busyTimers.current.get(name);
+    if (existing) clearTimeout(existing);
+    busyTimers.current.set(name, setTimeout(() => {
+      if (busyRef.current.has(name)) {
+        staleRef.current.add(name);
+        setStaleAgents(new Set(staleRef.current));
+      }
+    }, STALE_TIMEOUT));
   }, []);
 
   const setIdle = useCallback((name: string) => {
     busyRef.current.delete(name);
+    staleRef.current.delete(name);
     setBusyAgents(new Set(busyRef.current));
+    setStaleAgents(new Set(staleRef.current));
+    const timer = busyTimers.current.get(name);
+    if (timer) { clearTimeout(timer); busyTimers.current.delete(name); }
+  }, []);
+
+  const setStale = useCallback((name: string) => {
+    staleRef.current.add(name);
+    setStaleAgents(new Set(staleRef.current));
   }, []);
 
   useEffect(() => {
-    onReady({ push, setAgentNames, setParticipants, toggleSound, setBusy, setIdle });
+    onReady({ push, setAgentNames, setParticipants, toggleSound, setBusy, setIdle, setStale });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -760,12 +787,14 @@ function App({
         <Box paddingX={1} flexWrap="wrap">
           {agentNames.map((name, i) => {
             const { sigil } = identify(name);
+            const stale = staleAgents.has(name);
             const busy = busyAgents.has(name);
-            const nameColor = busy ? C.yellow : C.green;
+            const nameColor = stale ? C.muted : busy ? C.yellow : C.green;
             return (
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{" · "}</Text>}
                 <Text color={nameColor}>{sigil}{" "}{name}</Text>
+                {stale && <Text color={C.muted}>{" zzz"}</Text>}
               </React.Fragment>
             );
           })}
@@ -898,6 +927,9 @@ export function startTUI(opts: TUIOptions): TUIHandle {
     },
     setIdle(name) {
       handle?.setIdle(name);
+    },
+    setStale(name) {
+      handle?.setStale(name);
     },
     stop() {
       unmount();
