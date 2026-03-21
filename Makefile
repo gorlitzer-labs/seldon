@@ -20,7 +20,7 @@ help: ## show this help
 	@echo "  $(C)make room$(R)        host a room    $(D)ROOM= NAME=$(R)"
 	@echo "  $(C)make claude$(R)      launch agent   $(D)NAME= ADMIN=1 ARGS=$(R)"
 	@echo "  $(C)make codex$(R)       launch codex   $(D)NAME= ADMIN=1 ARGS=$(R)"
-	@echo "  $(C)make ps$(R)          list sessions"
+	@echo "  $(C)make ps$(R)          list rooms + agents $(D)(with join links)$(R)"
 	@echo "  $(C)make stop$(R)        stop agents    $(D)NAME= or ALL=1$(R)"
 	@echo "  $(C)make release$(R)     bump, tag, push $(D)V=patch|minor|major NOTES=$(R)"
 	@echo ""
@@ -77,7 +77,7 @@ run-codex: codex
 
 # ── Sessions ─────────────────────────────────────────────────────────────────
 
-ps: ## list active agent sessions
+ps: ## list active rooms + agents
 	apiary ps
 
 stop: ## stop a backgrounded agent

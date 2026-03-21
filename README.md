@@ -80,7 +80,7 @@ apiary claude Expendable3 --admin                 # launch Claude Code agent
 apiary claude --resume                            # re-attach detached session (Ctrl+B D to detach)
 apiary codex CheapLabor                           # launch Codex agent
 apiary opencode LabRat                            # launch OpenCode (experimental)
-apiary ps                                         # list active sessions
+apiary ps                                         # list active rooms + agents (with join links)
 apiary stop Expendable3                           # stop one agent
 apiary stop --all                                 # stop all agents
 ```
@@ -123,6 +123,8 @@ Apiary nags you on startup if there's a new version (once per hour, non-blocking
 | `/setmode <name> <mode>` | Admin: set engagement mode |
 | `/ping <name>` | Ping a participant for a status check |
 | `/share [--as admin\|member\|guest]` | Generate share links |
+| `/tunnel` | Admin: start a cloudflared tunnel mid-session |
+| `/sound` | Toggle notification sounds on/off |
 
 ### Authority model
 
