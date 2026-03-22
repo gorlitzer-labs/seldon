@@ -1,8 +1,13 @@
 # Changelog
 
+## v1.1.1
+
+- **Fix: duplicate tab icons** — terminal tab emojis are now stable per agent/room name instead of random, preventing duplicate icons when running multiple agents
+
 ## v1.1.0
 
 - **`@all` broadcast mention** — `@all` in a message fires a MentionedEvent for every participant in the room, waking agents in standby modes. Deduplicates with explicit `@name` mentions. TUI autocomplete suggests `@all`
+- **Reserved mention tokens** — `"all"` is rejected as a participant name/identifier at connect time
 
 ## v1.0.2
 
