@@ -55,6 +55,9 @@ const ALL_CATEGORIES = new Set<EventCategory>([
   EventCategory.MENTION,
 ]);
 
+/** Mention tokens reserved for broadcast — cannot be used as participant name/identifier. */
+const RESERVED_MENTION_TOKENS = new Set(["all"]);
+
 export class Room {
   readonly roomId: string;
   /** Direct access to the underlying storage. Useful for bulk reads. */
@@ -92,6 +95,10 @@ export class Room {
     const subscribe = options?.subscribe;
     const silent = options?.silent ?? false;
     const authority = options?.authority;
+    if (RESERVED_MENTION_TOKENS.has(name.toLowerCase()) ||
+        (identifier && RESERVED_MENTION_TOKENS.has(identifier.toLowerCase()))) {
+      throw new Error(`Name or identifier cannot be a reserved mention token: ${RESERVED_MENTION_TOKENS}`);
+    }
     const participant: Participant = {
       id: participantId, name, status: "online", type,
       ...(identifier ? { identifier } : {}),
@@ -323,15 +330,26 @@ export class Room {
    * Case-insensitive. Deduplicates — each participant appears at most once.
    */
   private _detectMentions(content: string): string[] {
+    const seen = new Set<string>();
     const mentionedIds: string[] = [];
     const pattern = /@([a-zA-Z0-9_-]+)/g;
     let match;
     while ((match = pattern.exec(content)) !== null) {
       const token = match[1].toLowerCase();
+      if (token === "all") {
+        for (const [pid] of this._participants) {
+          if (!seen.has(pid)) {
+            seen.add(pid);
+            mentionedIds.push(pid);
+          }
+        }
+        continue;
+      }
       for (const [pid, participant] of this._participants) {
         const matchesId = participant.identifier?.toLowerCase() === token;
         const matchesName = participant.name.toLowerCase() === token;
-        if ((matchesId || matchesName) && !mentionedIds.includes(pid)) {
+        if ((matchesId || matchesName) && !seen.has(pid)) {
+          seen.add(pid);
           mentionedIds.push(pid);
         }
       }

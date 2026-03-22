@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.0
+
+- **`@all` broadcast mention** — `@all` in a message fires a MentionedEvent for every participant in the room, waking agents in standby modes. Deduplicates with explicit `@name` mentions. TUI autocomplete suggests `@all`
+
 ## v1.0.2
 
 - **Version in help** — `apiary --help` and `make help` now show current version

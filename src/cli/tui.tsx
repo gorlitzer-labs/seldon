@@ -517,7 +517,8 @@ function App({
     const mentionMatch = textBeforeCursor.match(/@([a-zA-Z0-9_-]*)$/);
     if (mentionMatch && participants.length > 0) {
       const prefix = mentionMatch[1].toLowerCase();
-      const filtered = participants.filter((p) => p.toLowerCase().startsWith(prefix));
+      const candidates = ["all", ...participants.filter((p) => p.toLowerCase() !== "all")];
+      const filtered = candidates.filter((p) => p.toLowerCase().startsWith(prefix));
       if (filtered.length > 0) {
         const before = input.slice(0, mentionMatch.index!);
         const after = input.slice(cursorPos);

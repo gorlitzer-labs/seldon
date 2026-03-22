@@ -415,6 +415,65 @@ describe("mention detection", () => {
     expect(mentionEvents).toHaveLength(1);
   });
 
+  test("@all mentions every participant", async () => {
+    const room = new Room("test");
+    const chA = await room.connect("alice", "Alice", { type: "human", identifier: "alice" });
+    const chB = await room.connect("bob", "Bob", { type: "agent", identifier: "bob" });
+    const chC = await room.connect("carol", "Carol", { type: "agent", identifier: "carol" });
+    await drain(chA);
+    await drain(chB);
+    await drain(chC);
+
+    await chA.sendMessage("@all wake up");
+
+    const bobEvents = await drain(chB);
+    const carolEvents = await drain(chC);
+    const aliceEvents = await drain(chA);
+
+    // Bob and Carol each get a MentionedEvent
+    expect(bobEvents.filter((e) => e.type === "Mentioned")).toHaveLength(1);
+    expect(carolEvents.filter((e) => e.type === "Mentioned")).toHaveLength(1);
+    // Sender also gets a MentionedEvent (engagement layer handles self-filtering)
+    expect(aliceEvents.filter((e) => e.type === "Mentioned")).toHaveLength(1);
+  });
+
+  test("@all is case insensitive", async () => {
+    const room = new Room("test");
+    const chA = await room.connect("alice", "Alice", { type: "human" });
+    const chB = await room.connect("bob", "Bob", { type: "agent" });
+    await drain(chA);
+    await drain(chB);
+
+    await chA.sendMessage("@ALL heads up");
+
+    const events = await drain(chB);
+    expect(events.filter((e) => e.type === "Mentioned")).toHaveLength(1);
+  });
+
+  test("@all does not duplicate with explicit @name mention", async () => {
+    const room = new Room("test");
+    const chA = await room.connect("alice", "Alice", { type: "human" });
+    const chB = await room.connect("bob", "Bob", { type: "agent" });
+    await drain(chA);
+    await drain(chB);
+
+    await chA.sendMessage("@Bob @all check this");
+
+    const events = await drain(chB);
+    // Bob should only get ONE MentionedEvent, not two
+    expect(events.filter((e) => e.type === "Mentioned")).toHaveLength(1);
+  });
+
+  test("rejects reserved name 'all' for participant name", async () => {
+    const room = new Room("test");
+    await expect(room.connect("x", "All")).rejects.toThrow(/reserved mention token/);
+  });
+
+  test("rejects reserved identifier 'all'", async () => {
+    const room = new Room("test");
+    await expect(room.connect("x", "Fine", { identifier: "all" })).rejects.toThrow(/reserved mention token/);
+  });
+
   test("@identifier supports hyphenated handles", async () => {
     const room = new Room("test");
     const chA = await room.connect("alice", "Alice", { type: "human", identifier: "alice" });
