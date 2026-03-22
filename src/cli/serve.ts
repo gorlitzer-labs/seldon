@@ -22,6 +22,7 @@ import type { AuthorityLevel } from "../core/types.js";
 import type { Channel } from "../core/channel.js";
 import { formatTimestamp } from "../agent/prompts.js";
 import { TokenManager, buildShareUrl } from "./auth.js";
+import { stableIndex } from "./config.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -908,7 +909,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     const joinUrlObfuscated = buildShareUrl(publicUrl, obfuscate(memberToken));
 
     // Set terminal tab title
-    const hiveEmoji = ["🍯", "🐝", "🏠", "🪺", "🌸"][Math.floor(Math.random() * 5)];
+    const hivePool = ["🍯", "🐝", "🏠", "🪺", "🌸"];
+    const hiveEmoji = hivePool[stableIndex(roomName, hivePool.length)];
     process.stdout.write(`\x1b]0;${hiveEmoji} apiary · ${roomName}\x07`);
 
     const Y = "\x1b[33m";

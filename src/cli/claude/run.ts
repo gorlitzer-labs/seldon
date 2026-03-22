@@ -25,6 +25,7 @@ import {
 import { TmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
 import { contentPartsToString } from "../../agent/prompts.js";
+import { stableIndex } from "../config.js";
 
 export { type AgentRuntimeOptions as RunClaudeOptions };
 
@@ -203,7 +204,8 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     "🐝", "🐛", "🦋", "🐞", "🪲", "🐜", "🦗", "🪳", "🦂", "🕷️",
     "🪰", "🦟", "🐌", "🐙", "🦑", "🦀", "🪱", "🦠", "🧬", "🔬",
   ];
-  const bee = bees[Math.floor(Math.random() * bees.length)];
+  // Stable per agent name — reduces duplicates but collisions are possible
+  const bee = bees[stableIndex(setup.agentName, bees.length)];
   const tabTitle = `${bee} ${setup.agentName} · ${cwdShort}`;
 
   console.log("Launching Claude Code...");

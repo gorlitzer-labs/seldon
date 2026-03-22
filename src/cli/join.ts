@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { randomName } from "../core/names.js";
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig, saveConfig, stableIndex } from "./config.js";
 import type { RoomEvent } from "../core/events.js";
 import type { AuthorityLevel } from "../core/types.js";
 import { formatTimestamp as formatTimestampUTC } from "../agent/prompts.js";
@@ -448,7 +448,8 @@ export async function join(options: JoinOptions): Promise<void> {
   }
 
   // Set terminal tab title
-  const hiveEmoji = ["🍯", "🐝", "🏠", "🪺", "🌸"][Math.floor(Math.random() * 5)];
+  const hivePool = ["🍯", "🐝", "🏠", "🪺", "🌸"];
+  const hiveEmoji = hivePool[stableIndex(`${roomName}·${name}`, hivePool.length)];
   process.stdout.write(`\x1b]0;${hiveEmoji} ${roomName} · ${name}\x07`);
 
   // Print share info before Ink renders — plain text, fully selectable.

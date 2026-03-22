@@ -26,3 +26,14 @@ export function saveConfig(config: ApiaryConfig): void {
   if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
 }
+
+/**
+ * Pick a stable index into a pool based on a string seed.
+ * Same seed always returns the same index. Different seeds tend to spread
+ * across the pool, but collisions are possible with a finite pool.
+ */
+export function stableIndex(seed: string, poolSize: number): number {
+  let hash = 0;
+  for (const c of seed) hash = ((hash << 5) - hash + c.charCodeAt(0)) | 0;
+  return ((hash % poolSize) + poolSize) % poolSize;
+}
