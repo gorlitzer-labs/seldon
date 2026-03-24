@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.2
+
+- **Fix: TUI input corruption** — incoming room events are now batched (80ms flush) so messages no longer float/merge with your typing mid-keystroke
+- **Idle agent tracking** — agent status bar shows green (idle), yellow (busy), dim+zzz (stale), or grey (unknown)
+- **Scrollable input** — multi-line input viewport caps at 6 lines with scroll indicators, keeps cursor in view
+
 ## v1.1.1
 
 - **Fix: duplicate tab icons** — terminal tab emojis are now stable per agent/room name instead of random, preventing duplicate icons when running multiple agents
