@@ -425,9 +425,11 @@ function App({
   const [soundEnabled,  setSoundEnabled]  = useState(initialSound);
   const [busyAgents,    setBusyAgents]    = useState<Set<string>>(new Set());
   const [staleAgents,   setStaleAgents]   = useState<Set<string>>(new Set());
+  const [idleAgents,    setIdleAgents]    = useState<Set<string>>(new Set());
   const soundRef = useRef(initialSound);
   const busyRef  = useRef<Set<string>>(new Set());
   const staleRef = useRef<Set<string>>(new Set());
+  const idleRef  = useRef<Set<string>>(new Set());
   const busyTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
@@ -446,13 +448,28 @@ function App({
   // Track last char time for paste-vs-submit heuristic
   const lastCharTime = useRef(0);
 
+  // Event batching — buffer incoming events and flush as a single state update
+  // to prevent render thrashing that corrupts the input area mid-keystroke.
+  const eventBuffer = useRef<DisplayEvent[]>([]);
+  const eventFlushTimer = useRef<NodeJS.Timeout | null>(null);
+
   const push = useCallback((event: DisplayEvent) => {
     // Bell for incoming messages (not self) and pings
     const shouldBell =
       event.kind === "ping" ||
       (event.kind === "message" && !event.isSelf);
     if (shouldBell && soundRef.current && stdout.isTTY) stdout.write("\x07");
-    setEvents((prev) => [...prev, event]);
+
+    eventBuffer.current.push(event);
+    if (!eventFlushTimer.current) {
+      eventFlushTimer.current = setTimeout(() => {
+        eventFlushTimer.current = null;
+        const batch = eventBuffer.current.splice(0);
+        if (batch.length > 0) {
+          setEvents((prev) => [...prev, ...batch]);
+        }
+      }, 80);
+    }
   }, [stdout]);
 
   const toggleSound = useCallback((): boolean => {
@@ -467,8 +484,10 @@ function App({
   const setBusy = useCallback((name: string) => {
     busyRef.current.add(name);
     staleRef.current.delete(name);
+    idleRef.current.delete(name);
     setBusyAgents(new Set(busyRef.current));
     setStaleAgents(new Set(staleRef.current));
+    setIdleAgents(new Set(idleRef.current));
     // Clear existing timer and start a new one
     const existing = busyTimers.current.get(name);
     if (existing) clearTimeout(existing);
@@ -483,8 +502,10 @@ function App({
   const setIdle = useCallback((name: string) => {
     busyRef.current.delete(name);
     staleRef.current.delete(name);
+    idleRef.current.add(name);
     setBusyAgents(new Set(busyRef.current));
     setStaleAgents(new Set(staleRef.current));
+    setIdleAgents(new Set(idleRef.current));
     const timer = busyTimers.current.get(name);
     if (timer) { clearTimeout(timer); busyTimers.current.delete(name); }
   }, []);
@@ -496,6 +517,9 @@ function App({
 
   useEffect(() => {
     onReady({ push, setAgentNames, setParticipants, toggleSound, setBusy, setIdle, setStale });
+    return () => {
+      if (eventFlushTimer.current) clearTimeout(eventFlushTimer.current);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -790,7 +814,8 @@ function App({
             const { sigil } = identify(name);
             const stale = staleAgents.has(name);
             const busy = busyAgents.has(name);
-            const nameColor = stale ? C.muted : busy ? C.yellow : C.green;
+            const known = busy || stale || idleAgents.has(name);
+            const nameColor = stale ? C.muted : busy ? C.yellow : known ? C.green : C.secondary;
             return (
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{" · "}</Text>}
@@ -807,8 +832,9 @@ function App({
         </Box>
       ) : (
         <Box paddingX={1} flexDirection="column">
-          {/* Render each line with cursor at correct position */}
+          {/* Render visible lines with cursor — scroll to keep cursor in view */}
           {(() => {
+            const MAX_INPUT_LINES = 6;
             const lines = (input || "").split("\n");
             // Find which line the cursor is on and the column within that line
             let charsSoFar = 0;
@@ -824,25 +850,54 @@ function App({
               charsSoFar += lines[i].length + 1; // +1 for \n
             }
 
-            return lines.map((line, i) => (
-              <Box key={i} width={Math.max(0, cols - 2)}>
-                <Text color={C.cyan} bold>{i === 0 ? "› " : "  "}</Text>
-                <Text wrap="wrap">
-                  {i === cursorLine ? (
-                    <>
-                      <Text>{line.slice(0, cursorCol)}</Text>
-                      <Text inverse>{cursorCol < line.length ? line[cursorCol] : " "}</Text>
-                      <Text>{cursorCol < line.length ? line.slice(cursorCol + 1) : ""}</Text>
-                    </>
-                  ) : (
-                    line
-                  )}
-                  {i === lines.length - 1 && cursorPos === input.length && suggestionState.ghostHint !== "" && (
-                    <Text color={C.muted}>{suggestionState.ghostHint}</Text>
-                  )}
-                </Text>
-              </Box>
-            ));
+            // Compute visible window that keeps cursorLine in view
+            let scrollTop = 0;
+            if (lines.length > MAX_INPUT_LINES) {
+              // Centre cursor in window, clamped to bounds
+              scrollTop = Math.min(
+                Math.max(0, cursorLine - Math.floor(MAX_INPUT_LINES / 2)),
+                lines.length - MAX_INPUT_LINES,
+              );
+            }
+            const visibleLines = lines.slice(scrollTop, scrollTop + MAX_INPUT_LINES);
+            const hasMore = lines.length > MAX_INPUT_LINES;
+
+            return (
+              <>
+                {hasMore && scrollTop > 0 && (
+                  <Box width={Math.max(0, cols - 2)}>
+                    <Text color={C.dim}>{"  ↑ "}{scrollTop}{" more line"}{scrollTop > 1 ? "s" : ""}</Text>
+                  </Box>
+                )}
+                {visibleLines.map((line, vi) => {
+                  const i = scrollTop + vi;
+                  return (
+                    <Box key={i} width={Math.max(0, cols - 2)}>
+                      <Text color={C.cyan} bold>{i === 0 ? "› " : "  "}</Text>
+                      <Text wrap="wrap">
+                        {i === cursorLine ? (
+                          <>
+                            <Text>{line.slice(0, cursorCol)}</Text>
+                            <Text inverse>{cursorCol < line.length ? line[cursorCol] : " "}</Text>
+                            <Text>{cursorCol < line.length ? line.slice(cursorCol + 1) : ""}</Text>
+                          </>
+                        ) : (
+                          line
+                        )}
+                        {i === lines.length - 1 && cursorPos === input.length && suggestionState.ghostHint !== "" && (
+                          <Text color={C.muted}>{suggestionState.ghostHint}</Text>
+                        )}
+                      </Text>
+                    </Box>
+                  );
+                })}
+                {hasMore && scrollTop + MAX_INPUT_LINES < lines.length && (
+                  <Box width={Math.max(0, cols - 2)}>
+                    <Text color={C.dim}>{"  ↓ "}{lines.length - scrollTop - MAX_INPUT_LINES}{" more line"}{lines.length - scrollTop - MAX_INPUT_LINES > 1 ? "s" : ""}</Text>
+                  </Box>
+                )}
+              </>
+            );
           })()}
         </Box>
       )}
