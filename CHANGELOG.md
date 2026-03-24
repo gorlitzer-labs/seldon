@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.1
+
+- **`apiary examples` command** — quick-reference showing common workflows: room setup, agents, persistence, clearing, remote sharing, TUI commands, session management
+
 ## v1.2.0
 
 - **`/clear` command** — admin-only slash command that wipes all room messages and events. Agents get fresh context without restarting the room. All connected TUIs clear simultaneously
