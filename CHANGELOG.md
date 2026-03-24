@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.2.0
+
+- **`/clear` command** — admin-only slash command that wipes all room messages and events. Agents get fresh context without restarting the room. All connected TUIs clear simultaneously
+- **Auto-persist rooms** — rooms now save to `~/.apiary/rooms/<name>.json` by default. Restarting the same room auto-resumes — no `--save`/`--load` flags needed
+- **`RoomClearedEvent`** — new event type broadcast to all SSE clients on clear
+
 ## v1.1.2
 
 - **Fix: TUI input corruption** — incoming room events are now batched (80ms flush) so messages no longer float/merge with your typing mid-keystroke
