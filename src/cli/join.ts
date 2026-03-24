@@ -217,6 +217,7 @@ export async function join(options: JoinOptions): Promise<void> {
             "/mute <name>      demote to guest",
             "/unmute <name>    restore to member",
             "/setmode <n> <m>  set engagement mode",
+            "/clear            wipe room history",
             "/tunnel           start cloudflared tunnel",
           );
         }
@@ -420,6 +421,23 @@ export async function join(options: JoinOptions): Promise<void> {
         return;
       }
 
+      // ── /clear — wipe room history (admin only) ─────────────────
+      case "clear": {
+        if (authority !== "admin") { systemEvent("Only admins can clear."); return; }
+
+        try {
+          const res = await fetch(`${serverUrl}/clear`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+          });
+          if (!res.ok) { systemEvent(`Failed to clear: ${await res.text()}`); return; }
+          // Server broadcasts RoomCleared — TUI clear happens in SSE handler
+        } catch {
+          systemEvent("Failed to reach server.");
+        }
+        return;
+      }
+
       // ── /tunnel — start cloudflared tunnel mid-session ────────────
       case "tunnel": {
         if (authority !== "admin") { systemEvent("Only admins can start tunnels."); return; }
@@ -602,6 +620,13 @@ export async function join(options: JoinOptions): Promise<void> {
 
             try {
               const event = JSON.parse(dataLine.slice(6)) as RoomEvent & { _replyToName?: string };
+
+              // Handle room clear — wipe TUI and show system message
+              if (event.type === "RoomCleared") {
+                tui.clear();
+                systemEvent(`Room cleared by ${(event as any).cleared_by ?? "admin"}.`);
+                continue;
+              }
 
               if (event.type === "ParticipantJoined") {
                 participantTypes.set(event.participant.id, event.participant.type);

@@ -17,6 +17,7 @@ export {
   type ActivityEvent,
   type MentionedEvent,
   type ContextCompactedEvent,
+  type RoomClearedEvent,
   createEvent,
   EVENT_ROLE,
   type EventRole,

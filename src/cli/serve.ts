@@ -17,7 +17,7 @@ import { join as pathJoin, resolve, sep } from "node:path";
 import { Room } from "../core/room.js";
 import { InMemoryStorage, FileBackedStorage } from "../core/storage.js";
 import { randomRoomName, randomName } from "../core/names.js";
-import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomEvent } from "../core/events.js";
+import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomClearedEvent, type RoomEvent } from "../core/events.js";
 import type { AuthorityLevel } from "../core/types.js";
 import type { Channel } from "../core/channel.js";
 import { formatTimestamp } from "../agent/prompts.js";
@@ -122,13 +122,16 @@ async function enrichAndSend(res: ServerResponse, event: RoomEvent, room: Room):
 
 // ── Main serve command ───────────────────────────────────────────────────────
 
+const ROOMS_DIR = pathJoin(homedir(), ".apiary", "rooms");
+
 function validateSavePath(p: string): string {
   const resolved = resolve(p);
   if (!resolved.endsWith(".json")) throw new Error("Save/load path must end with .json");
   const cwd = process.cwd();
   const tmp = tmpdir();
-  if (!resolved.startsWith(cwd + sep) && !resolved.startsWith(tmp + sep))
-    throw new Error(`Path must be under ${cwd} or ${tmp}`);
+  const apiaryDir = pathJoin(homedir(), ".apiary");
+  if (!resolved.startsWith(cwd + sep) && !resolved.startsWith(tmp + sep) && !resolved.startsWith(apiaryDir + sep))
+    throw new Error(`Path must be under ${cwd}, ${tmp}, or ${apiaryDir}`);
   return resolved;
 }
 
@@ -155,18 +158,23 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   if (options.save) options.save = validateSavePath(options.save);
   if (options.load) options.load = validateSavePath(options.load);
 
-  // Create room with persistence (default: tmp folder)
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19); // YYYY-MM-DDTHH-MM-SS
-  const savePath = options.save ?? options.load ?? pathJoin(tmpdir(), `apiary-${roomName}-${timestamp}.json`);
+  // Create room with persistence
+  // Default: ~/.apiary/rooms/<room>.json — auto-resumes previous session.
+  // Explicit --save/--load overrides the default.
+  mkdirSync(ROOMS_DIR, { recursive: true });
+  const defaultPath = pathJoin(ROOMS_DIR, `${roomName}.json`);
+  const savePath = options.save ?? options.load ?? defaultPath;
+  const shouldAutoLoad = !options.save && !options.load && existsSync(defaultPath);
   let storage;
-  if (options.load) {
+  if (options.load || shouldAutoLoad) {
+    const loadPath = options.load ?? defaultPath;
     try {
-      storage = await FileBackedStorage.load(options.load);
-      log(`loaded room state from ${options.load}`);
+      storage = await FileBackedStorage.load(loadPath);
+      log(`loaded room state from ${loadPath}`);
     } catch (err: any) {
       if (err.code === "ENOENT") {
-        storage = new FileBackedStorage(options.load);
-        log(`no existing file at ${options.load}, starting fresh`);
+        storage = new FileBackedStorage(loadPath);
+        log(`no existing file at ${loadPath}, starting fresh`);
       } else {
         throw err;
       }
@@ -713,6 +721,32 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           }
         }
 
+        jsonOk(res);
+        return;
+      }
+
+      // ── POST /clear ──────────────────────────────────────────────────────
+      if (url.pathname === "/clear") {
+        if (!session) return jsonError(res, 401, "Invalid session token");
+        if (session.authority !== "admin") return jsonError(res, 403, "Only admins can clear");
+
+        // Wipe storage
+        await storage.clearRoom(room.roomId);
+
+        // Broadcast RoomCleared to all connected clients via SSE
+        const adminP = participants.get(sessionToken);
+        const clearEvent = createEvent<RoomClearedEvent>({
+          type: "RoomCleared",
+          category: "ACTIVITY",
+          room_id: room.roomId,
+          participant_id: session.participantId,
+          cleared_by: adminP?.name ?? "admin",
+        });
+        for (const [, sseRes] of sseConnections) {
+          sseRes.write(`data: ${JSON.stringify(clearEvent)}\n\n`);
+        }
+
+        log(`room cleared by ${adminP?.name ?? session.participantId}`);
         jsonOk(res);
         return;
       }

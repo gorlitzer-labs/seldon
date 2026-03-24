@@ -219,6 +219,22 @@ export interface ContextCompactedEvent extends BaseRoomEvent {
   participant: Participant;
 }
 
+/**
+ * An admin cleared the room history.
+ *
+ * All clients should discard their local event/message state and start fresh.
+ * The event itself is broadcast but NOT persisted (storage is already wiped).
+ */
+export interface RoomClearedEvent extends BaseRoomEvent {
+  type: "RoomCleared";
+  category: "ACTIVITY";
+  room_id: string;
+  participant_id: string;
+  timestamp: Date;
+  /** Display name of the admin who cleared the room. */
+  cleared_by: string;
+}
+
 // ── MENTION category ─────────────────────────────────────────────────────────
 
 /**
@@ -281,7 +297,8 @@ export type RoomEvent =
   | ActivityEvent
   | MentionedEvent
   | PingedEvent
-  | ContextCompactedEvent;
+  | ContextCompactedEvent
+  | RoomClearedEvent;
 
 // ── Event roles ───────────────────────────────────────────────────────────────
 
@@ -315,6 +332,7 @@ export const EVENT_ROLE: Record<RoomEvent["type"], EventRole> = {
   StatusChanged:     "internal",
   ToolUse:           "internal",
   Activity:          "internal",
+  RoomCleared:       "internal",
 };
 
 // ── Factory ───────────────────────────────────────────────────────────────────

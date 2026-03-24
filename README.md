@@ -123,8 +123,37 @@ Apiary nags you on startup if there's a new version (once per hour, non-blocking
 | `/setmode <name> <mode>` | Admin: set engagement mode |
 | `/ping <name>` | Ping a participant for a status check |
 | `/share [--as admin\|member\|guest]` | Generate share links |
+| `/clear` | Admin: wipe room history (all clients clear, save file wiped) |
 | `/tunnel` | Admin: start a cloudflared tunnel mid-session |
 | `/sound` | Toggle notification sounds (on by default, persisted) |
+
+### Room persistence
+
+Rooms auto-save to `~/.apiary/rooms/<room-name>.json`. No flags needed — just start a room and it remembers:
+
+```bash
+apiary room brood-box              # first run: starts fresh, saves automatically
+# ... work with agents, Ctrl+C when done ...
+apiary room brood-box              # second run: resumes from where you left off
+```
+
+Every message and event flushes to disk in real-time. Restart the room, reconnect agents — full history is there via `catch_up`.
+
+**Override the default save location:**
+```bash
+apiary room brood-box --save custom.json    # save to a specific file instead
+apiary room brood-box --load custom.json    # load from a specific file (continues saving to it)
+```
+
+**Clearing context mid-session:**
+```bash
+/clear    # admin only — wipes all messages, events, and save file
+```
+Agents calling `catch_up` after clear get empty history — fresh context. The save file is wiped too, so back up first if you care:
+```bash
+cp ~/.apiary/rooms/brood-box.json brood-box-backup.json
+# then /clear in the TUI
+```
 
 ### Authority model
 

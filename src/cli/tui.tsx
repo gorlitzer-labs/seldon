@@ -111,6 +111,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/ping",   description: "Ping a participant", params: [
     { label: "name", completions: "participants" },
   ]},
+  { name: "/clear",  description: "Wipe room history", adminOnly: true },
   { name: "/tunnel", description: "Start a cloudflared tunnel", adminOnly: true },
   { name: "/sound",  description: "Toggle notification sounds" },
 ];
@@ -130,6 +131,7 @@ export type DisplayEvent =
 
 export interface TUIHandle {
   push(event: DisplayEvent): void;
+  clear(): void;
   toggleSound(): boolean;
   setBusy(name: string): void;
   setIdle(name: string): void;
@@ -387,6 +389,7 @@ function EventLine({
 
 interface AppHandle {
   push: (event: DisplayEvent) => void;
+  clear: () => void;
   setAgentNames: (names: string[]) => void;
   setParticipants: (names: string[]) => void;
   toggleSound: () => boolean;
@@ -472,6 +475,19 @@ function App({
     }
   }, [stdout]);
 
+  const clear = useCallback(() => {
+    // Flush any pending events first, then wipe
+    if (eventFlushTimer.current) {
+      clearTimeout(eventFlushTimer.current);
+      eventFlushTimer.current = null;
+    }
+    eventBuffer.current.length = 0;
+    setEvents([]);
+    // Ink's <Static> items are already committed to the terminal buffer.
+    // Clear the terminal so old messages disappear visually.
+    if (stdout.isTTY) stdout.write("\x1b[2J\x1b[H");
+  }, [stdout]);
+
   const toggleSound = useCallback((): boolean => {
     const next = !soundRef.current;
     soundRef.current = next;
@@ -516,7 +532,7 @@ function App({
   }, []);
 
   useEffect(() => {
-    onReady({ push, setAgentNames, setParticipants, toggleSound, setBusy, setIdle, setStale });
+    onReady({ push, clear, setAgentNames, setParticipants, toggleSound, setBusy, setIdle, setStale });
     return () => {
       if (eventFlushTimer.current) clearTimeout(eventFlushTimer.current);
     };
@@ -968,6 +984,9 @@ export function startTUI(opts: TUIOptions): TUIHandle {
     push(event) {
       if (handle) handle.push(event);
       else queue.push(event);
+    },
+    clear() {
+      handle?.clear();
     },
     setAgentNames(names) {
       handle?.setAgentNames(names);

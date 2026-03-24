@@ -42,7 +42,7 @@
 
 import { writeFile, readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 import type { RoomEvent } from "./events.js";
 import type { EventCategory, Message, PaginatedResult } from "./types.js";
@@ -114,6 +114,12 @@ export interface StorageProtocol {
     limit?: number,
     cursor?: string | null,
   ): Promise<PaginatedResult<RoomEvent>>;
+
+  /**
+   * Delete all messages and events for a room.
+   * Used by the `/clear` command to wipe room history.
+   */
+  clearRoom(room_id: string): Promise<void>;
 }
 
 // ── Pagination helpers (used by InMemoryStorage) ──────────────────────────────
@@ -239,6 +245,11 @@ export class InMemoryStorage implements StorageProtocol {
     }
     return paginateByIndex(events, limit, cursor);
   }
+
+  async clearRoom(room_id: string): Promise<void> {
+    this._messages.delete(room_id);
+    this._events.delete(room_id);
+  }
 }
 
 // ── FileBackedStorage ─────────────────────────────────────────────────────────
@@ -255,11 +266,12 @@ export class FileBackedStorage extends InMemoryStorage {
   constructor(filePath: string) {
     super();
     this._filePath = resolve(filePath);
-    // Defense-in-depth: ensure path is under cwd or tmp
+    // Defense-in-depth: ensure path is under cwd, tmp, or ~/.apiary
     const cwd = process.cwd();
     const tmp = tmpdir();
-    if (!this._filePath.startsWith(cwd + sep) && !this._filePath.startsWith(tmp + sep)) {
-      throw new Error(`FileBackedStorage path must be under ${cwd} or ${tmp}`);
+    const apiaryDir = resolve(homedir(), ".apiary");
+    if (!this._filePath.startsWith(cwd + sep) && !this._filePath.startsWith(tmp + sep) && !this._filePath.startsWith(apiaryDir + sep)) {
+      throw new Error(`FileBackedStorage path must be under ${cwd}, ${tmp}, or ${apiaryDir}`);
     }
   }
 
@@ -271,6 +283,11 @@ export class FileBackedStorage extends InMemoryStorage {
 
   async addEvent(event: RoomEvent): Promise<void> {
     await super.addEvent(event);
+    await this._flush();
+  }
+
+  async clearRoom(room_id: string): Promise<void> {
+    await super.clearRoom(room_id);
     await this._flush();
   }
 
