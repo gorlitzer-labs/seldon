@@ -64,6 +64,7 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(`  ${C}apiary ps${R}                                                  List rooms + agents ${D}(with join links)${R}`);
   stream(`  ${C}apiary stop${R} ${D}[${Y}<name>${R}${D} | --all]${R}                              Stop agents`);
   stream(`  ${C}apiary update${R} ${D}[${Y}<version>${R}${D}]${R}                                Pull + rebuild`);
+  stream(`  ${C}apiary examples${R}                                            Use cases + workflows`);
   stream("");
   stream(`  ${D}Extra flags are forwarded to the agent CLI:${R}`);
   stream(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--dangerously-skip-permissions${R}`);
@@ -76,7 +77,87 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream("");
 }
 
+function printExamples(): void {
+  const color = process.stdout.isTTY;
+  const Y = color ? "\x1b[33m" : "";
+  const C = color ? "\x1b[36m" : "";
+  const G = color ? "\x1b[32m" : "";
+  const D = color ? "\x1b[2m"  : "";
+  const B = color ? "\x1b[1m"  : "";
+  const R = color ? "\x1b[0m"  : "";
+
+  console.log("");
+  console.log(`  ${Y}${B}apiary examples${R}`);
+  console.log("");
+
+  // ── Local room
+  console.log(`  ${G}${B}Start a room locally${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box${R}                  ${D}# host + join the TUI${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box Overlord${R}         ${D}# with a display name${R}`);
+  console.log("");
+
+  // ── Connect agents
+  console.log(`  ${G}${B}Connect agents${R}`);
+  console.log(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}       ${D}# launch Claude Code (admin)${R}`);
+  console.log(`    ${C}apiary codex ${Y}CheapLabor${R}                ${D}# launch Codex${R}`);
+  console.log(`    ${D}Tell the agent the room URL — it joins via apiary__join_room.${R}`);
+  console.log("");
+
+  // ── Persistence
+  console.log(`  ${G}${B}Room persistence${R}  ${D}(auto — no flags needed)${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box${R}                  ${D}# saves to ~/.apiary/rooms/brood-box.json${R}`);
+  console.log(`    ${D}# ... work, Ctrl+C ...${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box${R}                  ${D}# resumes where you left off${R}`);
+  console.log("");
+  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--save ${Y}my.json${R}   ${D}# override save location${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--load ${Y}my.json${R}   ${D}# load from a specific file${R}`);
+  console.log("");
+
+  // ── Clear + backup
+  console.log(`  ${G}${B}Fresh start${R}`);
+  console.log(`    ${D}In the TUI:${R}  ${C}/clear${R}                   ${D}# wipe all history (admin only)${R}`);
+  console.log(`    ${D}Backup first:${R} ${C}cp ~/.apiary/rooms/brood-box.json brood-box.bak${R}`);
+  console.log("");
+
+  // ── Remote sharing
+  console.log(`  ${G}${B}Share remotely${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--share${R}           ${D}# starts a cloudflared tunnel${R}`);
+  console.log(`    ${D}# prints a public URL — share it with anyone${R}`);
+  console.log("");
+  console.log(`    ${D}From another machine:${R}`);
+  console.log(`    ${C}apiary join ${Y}<url>${R}                       ${D}# join the room${R}`);
+  console.log(`    ${C}apiary join ${Y}<url>${R} ${D}--guest${R}              ${D}# watch read-only${R}`);
+  console.log(`    ${C}apiary claude ${Y}Drone42${R}                   ${D}# agent joins after you give it the URL${R}`);
+  console.log("");
+
+  // ── TUI commands
+  console.log(`  ${G}${B}TUI commands${R}  ${D}(type these in the chat)${R}`);
+  console.log(`    ${C}/who${R}              ${D}list participants${R}`);
+  console.log(`    ${C}/ping ${Y}<name>${R}      ${D}ping for a status check${R}`);
+  console.log(`    ${C}/clear${R}            ${D}wipe room history (admin)${R}`);
+  console.log(`    ${C}/kick ${Y}<name>${R}      ${D}remove a participant (admin)${R}`);
+  console.log(`    ${C}/mute ${Y}<name>${R}      ${D}demote to read-only (admin)${R}`);
+  console.log(`    ${C}/share${R}            ${D}generate share links${R}`);
+  console.log(`    ${C}/tunnel${R}           ${D}start a tunnel mid-session (admin)${R}`);
+  console.log(`    ${C}/sound${R}            ${D}toggle notification sounds${R}`);
+  console.log(`    ${C}/leave${R}            ${D}disconnect${R}`);
+  console.log("");
+
+  // ── Management
+  console.log(`  ${G}${B}Manage sessions${R}`);
+  console.log(`    ${C}apiary ps${R}                            ${D}# list rooms + agents (with join links)${R}`);
+  console.log(`    ${C}apiary stop ${Y}Expendable3${R}               ${D}# stop one agent${R}`);
+  console.log(`    ${C}apiary stop ${D}--all${R}                     ${D}# stop everything${R}`);
+  console.log("");
+}
+
 async function main(): Promise<void> {
+  // ── apiary examples ──────────────────────────────────────────────────
+  if (args[0] === "examples") {
+    printExamples();
+    return;
+  }
+
   // ── --help anywhere ────────────────────────────────────────────────────
   if (args.includes("--help") || args.includes("-h")) {
     printUsage();
