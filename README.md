@@ -146,22 +146,22 @@ bifrost help                # command reference
 Running a MacBook as a headless home node? Set it up once, forget about it:
 
 ```bash
-# Prevent sleep — even with lid closed
-sudo pmset disablesleep 1
+# Prevent idle sleep (runs in background, survives logout)
+tmux new-session -d -s caffeinate 'caffeinate -s'  # bury it and forget
+
+# Lid closed? Plug in an HDMI dummy plug (~$5) for clamshell mode.
+# Apple Silicon ignores pmset disablesleep — the lid magnet is hardware-level.
+# Dummy plug + power adapter = Mac stays awake with lid closed.
 
 # Cap battery at 80% — lithium lives longer below 100%
 brew install battery        # actuallymentor/battery (free, open source)
 battery maintain 80         # runs as daemon, survives reboots
-
-# Optional: belt and suspenders (caffeinate as fallback if pmset resets after OS update)
-tmux new-session -d -s caffeinate 'caffeinate -s'
 ```
 
-Keep it plugged in, close the lid, walk away. SSH in from anywhere via Tailscale.
+Keep it plugged in. HDMI dummy plug in. Close the lid, walk away. SSH in from anywhere via Tailscale.
 
 To undo:
 ```bash
-sudo pmset disablesleep 0   # re-enable sleep
 battery maintain stop       # remove charge limit
 ```
 
