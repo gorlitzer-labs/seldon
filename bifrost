@@ -216,6 +216,258 @@ mode_doctor() {
   fi
 }
 
+# ── Device management ────────────────────────────────────────────
+BIFROST_DEVICES_DIR="${HOME}/.config/bifrost/devices"
+
+# Background tint colors per device (r/g/b hex for iTerm)
+DEVICE_COLORS=(
+  "28/0a/0a"   # dark red
+  "0a/0a/28"   # dark blue
+  "0a/28/0a"   # dark green
+  "28/1e/0a"   # dark amber
+  "1e/0a/28"   # dark purple
+  "0a/28/28"   # dark teal
+)
+
+get_device_color() {
+  local idx=$1
+  echo "${DEVICE_COLORS[$((idx % ${#DEVICE_COLORS[@]}))]}"
+}
+
+list_devices() {
+  # Returns device names (filenames in devices dir)
+  if [[ -d "$BIFROST_DEVICES_DIR" ]]; then
+    ls "$BIFROST_DEVICES_DIR" 2>/dev/null
+  fi
+}
+
+load_device() {
+  # Load a device config by name. Sets DEVICE_HOST and DEVICE_USER.
+  local name="$1"
+  local file="$BIFROST_DEVICES_DIR/$name"
+  if [[ ! -f "$file" ]]; then
+    echo "Error: device '$name' not found. Run 'bifrost device list'."
+    exit 1
+  fi
+  # shellcheck source=/dev/null
+  source "$file"
+}
+
+mode_device() {
+  local subcmd="${1:-}"
+  case "$subcmd" in
+    add)
+      shift
+      device_add "$@"
+      ;;
+    remove|rm)
+      shift
+      device_remove "$@"
+      ;;
+    list|ls)
+      device_list
+      ;;
+    scan)
+      device_scan
+      ;;
+    *)
+      echo "Usage: bifrost device <add|remove|list|scan>"
+      echo ""
+      echo "  add <name>     — add a device (interactive or from Tailscale)"
+      echo "  remove <name>  — remove a device"
+      echo "  list           — show configured devices"
+      echo "  scan           — discover devices on your Tailscale network"
+      exit 1
+      ;;
+  esac
+}
+
+device_scan() {
+  echo "Scanning Tailscale network..."
+  echo ""
+
+  if ! command -v tailscale &>/dev/null; then
+    echo "Error: tailscale CLI not found."
+    exit 1
+  fi
+
+  local this_host
+  this_host=$(tailscale status --json 2>/dev/null | grep -o '"Self":{"ID":"[^"]*","HostName":"[^"]*"' | grep -o '"HostName":"[^"]*"' | cut -d'"' -f4 || hostname -s)
+
+  local existing
+  existing=$(list_devices)
+
+  echo "  Devices on your tailnet:"
+  echo ""
+
+  tailscale status 2>/dev/null | while read -r line; do
+    # Skip header and empty lines
+    [[ "$line" == *"#"* ]] && continue
+    [[ -z "$line" ]] && continue
+
+    local ip host user os
+    ip=$(echo "$line" | awk '{print $1}')
+    host=$(echo "$line" | awk '{print $2}')
+    os=$(echo "$line" | awk '{print $NF}')
+
+    # Skip this machine
+    if [[ "$host" == "$this_host" ]]; then
+      echo "    $host ($os) ← this machine"
+      continue
+    fi
+
+    # Check if already added
+    if echo "$existing" | grep -qx "$host" 2>/dev/null; then
+      echo "    ✓ $host ($os) — already added"
+    else
+      echo "    ○ $host ($os) — not added (bifrost device add $host)"
+    fi
+  done
+}
+
+device_add() {
+  local name="${1:-}"
+  mkdir -p "$BIFROST_DEVICES_DIR"
+
+  if [[ -z "$name" ]]; then
+    echo "Usage: bifrost device add <name>"
+    echo ""
+    echo "Tip: run 'bifrost device scan' to see available Tailscale devices."
+    exit 1
+  fi
+
+  # Check if already exists
+  if [[ -f "$BIFROST_DEVICES_DIR/$name" ]]; then
+    echo "Device '$name' already configured. Remove first: bifrost device remove $name"
+    exit 1
+  fi
+
+  # Try to detect from Tailscale
+  local ts_host=""
+  if command -v tailscale &>/dev/null; then
+    ts_host=$(tailscale status 2>/dev/null | awk -v h="$name" '$2 == h {print $2}')
+  fi
+
+  local host user
+  if [[ -n "$ts_host" ]]; then
+    echo "Found '$name' on Tailscale."
+    host="$name"
+  else
+    read -rp "Hostname or IP for '$name': " host
+    if [[ -z "$host" ]]; then
+      echo "Error: hostname is required."
+      exit 1
+    fi
+  fi
+
+  local default_user
+  default_user=$(whoami)
+  read -rp "SSH user [$default_user]: " user
+  user="${user:-$default_user}"
+
+  # Test connection
+  echo ""
+  echo "Testing SSH to $user@$host..."
+  if ssh -o ConnectTimeout=5 "$user@$host" "echo 'OK — \$(uname -m)'" 2>/dev/null; then
+    echo "Connected."
+
+    # Check if key-based auth works (needed for non-interactive commands)
+    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$user@$host" "true" 2>/dev/null; then
+      echo ""
+      echo "⚠ Password auth works, but key-based auth is not set up."
+      echo "  Bifrost needs key auth for non-interactive commands (status, run, etc)."
+      echo ""
+      read -rp "Copy SSH key to $host now? [Y/n]: " copy_key
+      if [[ "${copy_key:-Y}" =~ ^[Yy]$ ]]; then
+        # Ensure key exists
+        if [[ ! -f "$HOME/.ssh/id_ed25519.pub" && ! -f "$HOME/.ssh/id_rsa.pub" ]]; then
+          echo "  No SSH key found. Generating one..."
+          ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -q
+          echo "  Key generated: ~/.ssh/id_ed25519"
+        fi
+        ssh-copy-id "$user@$host" 2>/dev/null
+        echo "  Key copied. Testing..."
+        if ssh -o ConnectTimeout=5 -o BatchMode=yes "$user@$host" "true" 2>/dev/null; then
+          echo "  ✓ Key auth working."
+        else
+          echo "  ✗ Key auth still failing — check ~/.ssh/authorized_keys on $host"
+        fi
+      fi
+    else
+      echo "  ✓ Key auth working."
+    fi
+  else
+    echo "Warning: could not connect — saved anyway."
+    echo "  Make sure the device is online and SSH is enabled."
+  fi
+
+  cat > "$BIFROST_DEVICES_DIR/$name" <<CFG
+DEVICE_HOST="$host"
+DEVICE_USER="$user"
+CFG
+
+  echo "Device '$name' added."
+  echo ""
+  device_list
+}
+
+device_remove() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    echo "Usage: bifrost device remove <name>"
+    exit 1
+  fi
+  if [[ -f "$BIFROST_DEVICES_DIR/$name" ]]; then
+    rm "$BIFROST_DEVICES_DIR/$name"
+    echo "Device '$name' removed."
+  else
+    echo "Device '$name' not found."
+  fi
+}
+
+device_list() {
+  echo "Configured devices:"
+  echo ""
+  local devices
+  devices=$(list_devices)
+  if [[ -z "$devices" ]]; then
+    echo "  (none) — run 'bifrost device add <name>' or 'bifrost device scan'"
+    return
+  fi
+  local idx=0
+  for name in $devices; do
+    source "$BIFROST_DEVICES_DIR/$name"
+    local color
+    color=$(get_device_color $idx)
+    local status="?"
+    if ssh -o ConnectTimeout=2 -o BatchMode=yes "$DEVICE_USER@$DEVICE_HOST" "true" &>/dev/null; then
+      status="✓ online"
+    elif ssh -o ConnectTimeout=2 "$DEVICE_USER@$DEVICE_HOST" "true" &>/dev/null; then
+      status="⚠ online (needs key auth)"
+    else
+      status="✗ offline"
+    fi
+    echo "  $status $name → $DEVICE_USER@$DEVICE_HOST (bg: $color)"
+    idx=$((idx + 1))
+  done
+}
+
+# Migrate old single-remote config to device if needed
+migrate_legacy_config() {
+  if [[ -f "$BIFROST_CONFIG" && ! -d "$BIFROST_DEVICES_DIR" ]]; then
+    source "$BIFROST_CONFIG"
+    if [[ -n "${BIFROST_REMOTE_HOST:-}" ]]; then
+      mkdir -p "$BIFROST_DEVICES_DIR"
+      cat > "$BIFROST_DEVICES_DIR/$BIFROST_REMOTE_HOST" <<CFG
+DEVICE_HOST="$BIFROST_REMOTE_HOST"
+DEVICE_USER="${BIFROST_REMOTE_USER:-$(whoami)}"
+CFG
+      echo "Migrated legacy config → device '$BIFROST_REMOTE_HOST'"
+    fi
+  fi
+}
+migrate_legacy_config
+
 # Colors — ANSI 24-bit escape sequences for iTerm2
 # Local:  dark background (default)
 # Remote: dark red tint so you never forget where you are
@@ -261,27 +513,22 @@ ssh_reconnect_cmd() {
 
 mode_mobile() {
   require_iterm "mobile"
-  require_remote
   echo "Setting up mobile-ready tmux bifrost..."
 
-  # Ensure tmux sessions exist
+  # Ensure local tmux session exists
   ensure_tmux_session "local" "$LOCAL_SESSION"
-  ensure_tmux_session "$REMOTE_HOST" "$REMOTE_SESSION"
 
-  # Launch iTerm2 with two tabs via AppleScript
-  osascript <<APPLESCRIPT
+  if [[ -n "$REMOTE_HOST" ]]; then
+    ensure_tmux_session "$REMOTE_HOST" "$REMOTE_SESSION"
+
+    osascript <<APPLESCRIPT
 tell application "iTerm2"
   activate
-
-  -- Create new window with local tmux tab
   set newWindow to (create window with default profile)
-
   tell current session of current tab of newWindow
     set name to "LOCAL [$LOCAL_SESSION]"
     write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t $LOCAL_SESSION"
   end tell
-
-  -- Create second tab with remote tmux
   tell newWindow
     set remoteTab to (create tab with default profile)
     tell current session of remoteTab
@@ -292,14 +539,28 @@ tell application "iTerm2"
 end tell
 APPLESCRIPT
 
-  echo ""
-  echo "Workbench ready (mobile mode)"
-  echo "  Tab 1: LOCAL  → tmux session '$LOCAL_SESSION'"
-  echo "  Tab 2: REMOTE → tmux session '$REMOTE_SESSION' @ $REMOTE_HOST"
-  echo ""
-  echo "From your phone (Blink Shell):"
-  echo "  Local:  ssh legendary → tmux attach -t $LOCAL_SESSION"
-  echo "  Remote: ssh $REMOTE_HOST → tmux attach -t $REMOTE_SESSION"
+    echo ""
+    echo "Bifrost ready (mobile mode)"
+    echo "  Tab 1: LOCAL  → tmux session '$LOCAL_SESSION'"
+    echo "  Tab 2: REMOTE → tmux session '$REMOTE_SESSION' @ $REMOTE_HOST"
+  else
+    osascript <<APPLESCRIPT
+tell application "iTerm2"
+  activate
+  set newWindow to (create window with default profile)
+  tell current session of current tab of newWindow
+    set name to "LOCAL [$LOCAL_SESSION]"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t $LOCAL_SESSION"
+  end tell
+end tell
+APPLESCRIPT
+
+    echo ""
+    echo "Bifrost ready (mobile mode — local only)"
+    echo "  Tab 1: LOCAL → tmux session '$LOCAL_SESSION'"
+    echo ""
+    echo "Add a remote: bifrost setup"
+  fi
 }
 
 # ── Mode: direct (split panes) ───────────────────────────────────
@@ -381,57 +642,35 @@ create_pane_session() {
   fi
 }
 
-mode_workspace() {
-  require_iterm "workspace"
-  require_remote
-  echo "Setting up workspace (2x2 grid on both machines)..."
+build_grid_applescript() {
+  # Generates AppleScript for a 2x2 grid window
+  # Args: bg_color e1 e2 e3 e4 cmd1 cmd2 cmd3 cmd4 label1 label2 label3 label4
+  local bg="$1" e1="$2" e2="$3" e3="$4" e4="$5"
+  local cmd1="$6" cmd2="$7" cmd3="$8" cmd4="$9"
+  local l1="${10}" l2="${11}" l3="${12}" l4="${13}"
 
-  # Pick 8 unique-ish emojis (4 local + 4 remote)
-  local e1 e2 e3 e4 e5 e6 e7 e8
-  e1=$(pick_emoji) e2=$(pick_emoji) e3=$(pick_emoji) e4=$(pick_emoji)
-  e5=$(pick_emoji) e6=$(pick_emoji) e7=$(pick_emoji) e8=$(pick_emoji)
+  cat <<APPLESCRIPT_GRID
 
-  # Create 4 tmux sessions per machine
-  echo "  Creating local sessions..."
-  create_pane_session "local" "${LOCAL_SESSION}-1" "$e1"
-  create_pane_session "local" "${LOCAL_SESSION}-2" "$e2"
-  create_pane_session "local" "${LOCAL_SESSION}-3" "$e3"
-  create_pane_session "local" "${LOCAL_SESSION}-4" "$e4"
+  set gridWindow to (create window with default profile)
 
-  echo "  Creating remote sessions on $REMOTE_HOST..."
-  create_pane_session "$REMOTE_HOST" "${REMOTE_SESSION}-1" "$e5"
-  create_pane_session "$REMOTE_HOST" "${REMOTE_SESSION}-2" "$e6"
-  create_pane_session "$REMOTE_HOST" "${REMOTE_SESSION}-3" "$e7"
-  create_pane_session "$REMOTE_HOST" "${REMOTE_SESSION}-4" "$e8"
-
-  osascript <<APPLESCRIPT
-tell application "iTerm2"
-  activate
-
-  -- ═══ Window 1: LOCAL ═══
-  set localWindow to (create window with default profile)
-
-  tell current session of current tab of localWindow
-    set name to "$e1 ${LOCAL_SESSION}-1"
-    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t ${LOCAL_SESSION}-1"
-
-    -- Split right (pane 2)
+  tell current session of current tab of gridWindow
+    set name to "$e1 $l1"
+    write text "printf '\\\\033]1337;SetColors=bg=$bg\\\\007'; $cmd1"
     set p2 to (split horizontally with default profile)
   end tell
 
   tell p2
-    set name to "$e2 ${LOCAL_SESSION}-2"
-    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t ${LOCAL_SESSION}-2"
+    set name to "$e2 $l2"
+    write text "printf '\\\\033]1337;SetColors=bg=$bg\\\\007'; $cmd2"
   end tell
 
-  -- Now split each column vertically
-  tell current session of current tab of localWindow
+  tell current session of current tab of gridWindow
     set p3 to (split vertically with default profile)
   end tell
 
   tell p3
-    set name to "$e3 ${LOCAL_SESSION}-3"
-    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t ${LOCAL_SESSION}-3"
+    set name to "$e3 $l3"
+    write text "printf '\\\\033]1337;SetColors=bg=$bg\\\\007'; $cmd3"
   end tell
 
   tell p2
@@ -439,60 +678,95 @@ tell application "iTerm2"
   end tell
 
   tell p4
-    set name to "$e4 ${LOCAL_SESSION}-4"
-    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t ${LOCAL_SESSION}-4"
+    set name to "$e4 $l4"
+    write text "printf '\\\\033]1337;SetColors=bg=$bg\\\\007'; $cmd4"
   end tell
+APPLESCRIPT_GRID
+}
 
-  -- ═══ Window 2: REMOTE (zanpakuto) ═══
-  set remoteWindow to (create window with default profile)
+mode_workspace() {
+  require_iterm "workspace"
 
-  tell current session of current tab of remoteWindow
-    set name to "$e5 ${REMOTE_SESSION}-1 @ $REMOTE_HOST"
-    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; $(ssh_reconnect_cmd "$REMOTE_USER" "$REMOTE_HOST" "${REMOTE_SESSION}-1")"
+  local devices
+  devices=$(list_devices)
 
-    set r2 to (split horizontally with default profile)
-  end tell
+  echo "Setting up workspace..."
 
-  tell r2
-    set name to "$e6 ${REMOTE_SESSION}-2 @ $REMOTE_HOST"
-    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; $(ssh_reconnect_cmd "$REMOTE_USER" "$REMOTE_HOST" "${REMOTE_SESSION}-2")"
-  end tell
+  # Pick emojis for local
+  local e1 e2 e3 e4
+  e1=$(pick_emoji) e2=$(pick_emoji) e3=$(pick_emoji) e4=$(pick_emoji)
 
-  tell current session of current tab of remoteWindow
-    set r3 to (split vertically with default profile)
-  end tell
+  # Create local tmux sessions
+  echo "  Creating local sessions..."
+  create_pane_session "local" "${LOCAL_SESSION}-1" "$e1"
+  create_pane_session "local" "${LOCAL_SESSION}-2" "$e2"
+  create_pane_session "local" "${LOCAL_SESSION}-3" "$e3"
+  create_pane_session "local" "${LOCAL_SESSION}-4" "$e4"
 
-  tell r3
-    set name to "$e7 ${REMOTE_SESSION}-3 @ $REMOTE_HOST"
-    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; $(ssh_reconnect_cmd "$REMOTE_USER" "$REMOTE_HOST" "${REMOTE_SESSION}-3")"
-  end tell
+  # Start building AppleScript
+  local applescript='tell application "iTerm2"
+  activate
+'
+  # Local window
+  applescript+=$(build_grid_applescript "00/00/00" \
+    "$e1" "$e2" "$e3" "$e4" \
+    "tmux attach -t ${LOCAL_SESSION}-1" \
+    "tmux attach -t ${LOCAL_SESSION}-2" \
+    "tmux attach -t ${LOCAL_SESSION}-3" \
+    "tmux attach -t ${LOCAL_SESSION}-4" \
+    "${LOCAL_SESSION}-1" "${LOCAL_SESSION}-2" "${LOCAL_SESSION}-3" "${LOCAL_SESSION}-4")
 
-  tell r2
-    set r4 to (split vertically with default profile)
-  end tell
-
-  tell r4
-    set name to "$e8 ${REMOTE_SESSION}-4 @ $REMOTE_HOST"
-    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; $(ssh_reconnect_cmd "$REMOTE_USER" "$REMOTE_HOST" "${REMOTE_SESSION}-4")"
-  end tell
-
-end tell
-APPLESCRIPT
-
-  echo ""
-  echo "Workspace ready"
   echo ""
   echo "  LOCAL:"
   echo "    $e1 ${LOCAL_SESSION}-1    $e2 ${LOCAL_SESSION}-2"
   echo "    $e3 ${LOCAL_SESSION}-3    $e4 ${LOCAL_SESSION}-4"
+
+  # One window per device
+  local dev_idx=0
+  for dev_name in $devices; do
+    load_device "$dev_name"
+    local bg
+    bg=$(get_device_color $dev_idx)
+
+    local de1 de2 de3 de4
+    de1=$(pick_emoji) de2=$(pick_emoji) de3=$(pick_emoji) de4=$(pick_emoji)
+
+    echo ""
+    echo "  Creating sessions on $dev_name..."
+    create_pane_session "$DEVICE_HOST" "${dev_name}-1" "$de1"
+    create_pane_session "$DEVICE_HOST" "${dev_name}-2" "$de2"
+    create_pane_session "$DEVICE_HOST" "${dev_name}-3" "$de3"
+    create_pane_session "$DEVICE_HOST" "${dev_name}-4" "$de4"
+
+    local rc1 rc2 rc3 rc4
+    rc1=$(ssh_reconnect_cmd "$DEVICE_USER" "$DEVICE_HOST" "${dev_name}-1")
+    rc2=$(ssh_reconnect_cmd "$DEVICE_USER" "$DEVICE_HOST" "${dev_name}-2")
+    rc3=$(ssh_reconnect_cmd "$DEVICE_USER" "$DEVICE_HOST" "${dev_name}-3")
+    rc4=$(ssh_reconnect_cmd "$DEVICE_USER" "$DEVICE_HOST" "${dev_name}-4")
+
+    applescript+=$(build_grid_applescript "$bg" \
+      "$de1" "$de2" "$de3" "$de4" \
+      "$rc1" "$rc2" "$rc3" "$rc4" \
+      "${dev_name}-1 @ $DEVICE_HOST" "${dev_name}-2 @ $DEVICE_HOST" \
+      "${dev_name}-3 @ $DEVICE_HOST" "${dev_name}-4 @ $DEVICE_HOST")
+
+    echo "  $dev_name @ $DEVICE_HOST (bg: $bg):"
+    echo "    $de1 ${dev_name}-1    $de2 ${dev_name}-2"
+    echo "    $de3 ${dev_name}-3    $de4 ${dev_name}-4"
+
+    dev_idx=$((dev_idx + 1))
+  done
+
+  applescript+='
+end tell'
+
+  osascript -e "$applescript"
+
   echo ""
-  echo "  REMOTE @ $REMOTE_HOST:"
-  echo "    $e5 ${REMOTE_SESSION}-1    $e6 ${REMOTE_SESSION}-2"
-  echo "    $e7 ${REMOTE_SESSION}-3    $e8 ${REMOTE_SESSION}-4"
-  echo ""
-  echo "From phone:"
-  echo "  ssh legendary → tmux attach -t ${LOCAL_SESSION}-1"
-  echo "  ssh $REMOTE_HOST → tmux attach -t ${REMOTE_SESSION}-1"
+  if [[ -z "$devices" ]]; then
+    echo "  Local only. Add devices: bifrost device add <name>"
+  fi
+  echo "Workspace ready."
 }
 
 # ── Mode: kill ────────────────────────────────────────────────────
@@ -500,21 +774,23 @@ APPLESCRIPT
 mode_kill() {
   echo "Killing tmux sessions..."
 
-  # Kill single sessions (mobile mode)
+  # Kill local sessions
   tmux kill-session -t "$LOCAL_SESSION" 2>/dev/null && echo "  Killed local '$LOCAL_SESSION'" || true
-
-  # Kill workspace sessions (local-1..4)
   for i in 1 2 3 4; do
     tmux kill-session -t "${LOCAL_SESSION}-$i" 2>/dev/null && echo "  Killed local '${LOCAL_SESSION}-$i'" || true
   done
 
-  # Kill remote sessions
-  ssh -o ConnectTimeout=5 "$REMOTE_USER@$REMOTE_HOST" "
-    tmux kill-session -t '$REMOTE_SESSION' 2>/dev/null && echo '  Killed remote $REMOTE_SESSION' || true
-    for i in 1 2 3 4; do
-      tmux kill-session -t '${REMOTE_SESSION}-'\$i 2>/dev/null && echo '  Killed remote ${REMOTE_SESSION}-'\$i || true
-    done
-  " || echo "  Could not reach $REMOTE_HOST"
+  # Kill sessions on all configured devices
+  local devices
+  devices=$(list_devices)
+  for dev_name in $devices; do
+    load_device "$dev_name"
+    ssh -o ConnectTimeout=5 -o BatchMode=yes "$DEVICE_USER@$DEVICE_HOST" "
+      for i in 1 2 3 4; do
+        tmux kill-session -t '${dev_name}-'\$i 2>/dev/null && echo '  Killed ${dev_name}-'\$i || true
+      done
+    " 2>/dev/null || echo "  Could not reach $dev_name ($DEVICE_HOST)"
+  done
 
   echo "Done."
 }
@@ -533,7 +809,6 @@ mode_status() {
     if tmux has-session -t "$session" 2>/dev/null; then
       local_count=$((local_count + 1))
       local_list+="    ✓ $session"
-      # Get what's running in the session
       local cmd
       cmd=$(tmux list-panes -t "$session" -F '#{pane_current_command}' 2>/dev/null | head -1)
       [[ -n "$cmd" ]] && local_list+=" ($cmd)"
@@ -547,33 +822,38 @@ mode_status() {
     echo "    No active sessions"
   fi
 
-  echo ""
-
-  # Remote
-  echo "  REMOTE ($REMOTE_HOST):"
-  if [[ -z "$REMOTE_HOST" ]]; then
-    echo "    Not configured — run 'bifrost setup'"
-  elif ssh -o ConnectTimeout=3 "$REMOTE_USER@$REMOTE_HOST" "echo ok" &>/dev/null; then
-    echo "    ✓ Reachable"
-    local remote_info
-    remote_info=$(ssh -o ConnectTimeout=3 "$REMOTE_USER@$REMOTE_HOST" "
-      for s in $REMOTE_SESSION ${REMOTE_SESSION}-1 ${REMOTE_SESSION}-2 ${REMOTE_SESSION}-3 ${REMOTE_SESSION}-4; do
-        if tmux has-session -t \"\$s\" 2>/dev/null; then
-          cmd=\$(tmux list-panes -t \"\$s\" -F '#{pane_current_command}' 2>/dev/null | head -1)
-          echo \"    ✓ \$s (\$cmd)\"
-        fi
-      done
-    " 2>/dev/null)
-    if [[ -n "$remote_info" ]]; then
-      local remote_count
-      remote_count=$(echo "$remote_info" | wc -l | tr -d ' ')
-      echo "    $remote_count session(s) active"
-      echo "$remote_info"
+  # Device sessions
+  local devices
+  devices=$(list_devices)
+  for dev_name in $devices; do
+    echo ""
+    load_device "$dev_name"
+    echo "  $dev_name ($DEVICE_HOST):"
+    if ssh -o ConnectTimeout=3 -o BatchMode=yes "$DEVICE_USER@$DEVICE_HOST" "echo ok" &>/dev/null; then
+      echo "    ✓ Reachable"
+      local remote_info
+      remote_info=$(ssh -o ConnectTimeout=3 "$DEVICE_USER@$DEVICE_HOST" "
+        for i in 1 2 3 4; do
+          s='${dev_name}-'\$i
+          if tmux has-session -t \"\$s\" 2>/dev/null; then
+            cmd=\$(tmux list-panes -t \"\$s\" -F '#{pane_current_command}' 2>/dev/null | head -1)
+            echo \"    ✓ \$s (\$cmd)\"
+          fi
+        done
+      " 2>/dev/null)
+      if [[ -n "$remote_info" ]]; then
+        echo "$remote_info"
+      else
+        echo "    No active sessions"
+      fi
     else
-      echo "    No active sessions"
+      echo "    ✗ Unreachable"
     fi
-  else
-    echo "    ✗ Unreachable"
+  done
+
+  if [[ -z "$devices" ]]; then
+    echo ""
+    echo "  No devices configured. Run 'bifrost device add <name>'."
   fi
 }
 
@@ -586,109 +866,143 @@ mode_attach() {
     echo ""
     echo "Examples:"
     echo "  bifrost attach local-1"
-    echo "  bifrost attach remote-2"
+    echo "  bifrost attach mydevice-2"
     echo ""
-    # List available sessions
     echo "Local sessions:"
     tmux list-sessions -F "  #{session_name}" 2>/dev/null || echo "  (none)"
-    if [[ -n "$REMOTE_HOST" ]]; then
+    local devices
+    devices=$(list_devices)
+    for dev_name in $devices; do
+      load_device "$dev_name"
       echo ""
-      echo "Remote sessions ($REMOTE_HOST):"
-      ssh -o ConnectTimeout=3 "$REMOTE_USER@$REMOTE_HOST" \
+      echo "$dev_name ($DEVICE_HOST):"
+      ssh -o ConnectTimeout=3 -o BatchMode=yes "$DEVICE_USER@$DEVICE_HOST" \
         "tmux list-sessions -F '  #{session_name}' 2>/dev/null || echo '  (none)'" 2>/dev/null \
         || echo "  (unreachable)"
-    fi
+    done
     exit 1
   fi
 
-  # Check if it's a remote session
-  if [[ "$session" == remote* ]]; then
-    require_remote
-    echo "Attaching to $session @ $REMOTE_HOST..."
-    ssh -t "$REMOTE_USER@$REMOTE_HOST" "tmux attach -t '$session' || echo 'Session $session not found'"
-  else
+  # Extract device name from session (e.g. "mydevice-2" → "mydevice")
+  local dev_name="${session%-[0-9]*}"
+
+  # Check if it's a local session
+  if [[ "$dev_name" == "$LOCAL_SESSION" || "$dev_name" == "$session" ]]; then
     echo "Attaching to $session..."
     tmux attach -t "$session" || echo "Session $session not found"
+    return
+  fi
+
+  # Check if it matches a device
+  if [[ -f "$BIFROST_DEVICES_DIR/$dev_name" ]]; then
+    load_device "$dev_name"
+    echo "Attaching to $session @ $DEVICE_HOST..."
+    ssh -t "$DEVICE_USER@$DEVICE_HOST" "tmux attach -t '$session' || echo 'Session $session not found'"
+  else
+    # Try local first, then fail
+    echo "Attaching to $session..."
+    tmux attach -t "$session" || echo "Session '$session' not found. Run 'bifrost device list' to see devices."
   fi
 }
 
 # ── Mode: run ────────────────────────────────────────────────────
 
 mode_run() {
-  local cmd="${*}"
-  if [[ -z "$cmd" ]]; then
-    echo "Usage: bifrost run <command>"
+  if [[ $# -lt 1 ]]; then
+    echo "Usage: bifrost run <device> <command>"
     echo ""
-    echo "Runs a command on the remote machine via SSH."
+    echo "Runs a command on a device via SSH."
     echo ""
     echo "Examples:"
-    echo "  bifrost run df -h"
-    echo "  bifrost run docker ps"
-    echo "  bifrost run uptime"
+    echo "  bifrost run mydevice uptime"
+    echo "  bifrost run mydevice df -h"
+    echo "  bifrost run mydevice docker ps"
     exit 1
   fi
 
-  require_remote
-  ssh -o ConnectTimeout=5 "$REMOTE_USER@$REMOTE_HOST" "$cmd"
+  local dev_name="$1"
+  shift
+
+  if [[ $# -lt 1 ]]; then
+    echo "Usage: bifrost run $dev_name <command>"
+    exit 1
+  fi
+
+  if [[ ! -f "$BIFROST_DEVICES_DIR/$dev_name" ]]; then
+    echo "Device '$dev_name' not found. Run 'bifrost device list'."
+    exit 1
+  fi
+
+  load_device "$dev_name"
+  ssh -o ConnectTimeout=5 "$DEVICE_USER@$DEVICE_HOST" "$*"
 }
 
 # ── Help ─────────────────────────────────────────────────────────
 
 mode_help() {
-  cat <<'HELP'
-Bifrost — bridge between realms
+  # Colors
+  local C='\033[36m'    # cyan
+  local R='\033[31m'    # red
+  local Y='\033[33m'    # yellow
+  local G='\033[32m'    # green
+  local M='\033[35m'    # magenta
+  local D='\033[2m'     # dim
+  local B='\033[1m'     # bold
+  local N='\033[0m'     # reset
 
-  Dual-machine terminal workspace over Tailscale SSH.
-  Each pane is its own tmux session — work on desktop, pick up from phone.
+  echo -e "
+${C}  ┌──────────────────────────────────────────┐${N}
+${C}  │${B}  ╔╗ ╦╔═╗╦═╗╔═╗╔═╗╔╦╗                    ${C}│${N}
+${C}  │${B}  ╠╩╗║╠═ ╠╦╝║ ║╚═╗ ║                     ${C}│${N}
+${C}  │${B}  ╚═╝╩╚  ╩╚═╚═╝╚═╝ ╩                     ${C}│${N}
+${C}  │${D}  bridge between realms                    ${C}│${N}
+${C}  └──────────────────────────────────────────┘${N}
 
-COMMANDS
+${B}DEVICES${N}
 
-  bifrost setup                 Configure remote hostname and SSH user
-                                Saves to ~/.config/bifrost/config
+  ${G}bifrost device scan${N}           Discover machines on your Tailscale network
+  ${G}bifrost device add${N} <name>     Add a device (auto-detects from Tailscale)
+  ${G}bifrost device remove${N} <name>  Remove a device
+  ${G}bifrost device list${N}           Show configured devices and status
 
-  bifrost doctor                Check prerequisites on local and remote
-                                Suggests install commands for anything missing
+${B}WORKSPACE${N}  ${D}(macOS + iTerm2)${N}
 
-  bifrost status                Show active sessions and remote connectivity
+  ${G}bifrost workspace${N}             2x2 grid per device — local always, plus
+                                one window per configured device
+                                Auto-reconnects on reboot/network drops
+  ${G}bifrost mobile${N}                Tmux tabs (reattach from phone)
+  ${G}bifrost direct${N}                Side-by-side split panes (no tmux)
 
-  bifrost attach <session>      Attach to a tmux session by name
-                                e.g. bifrost attach remote-2
+${B}CONNECT${N}  ${D}(works everywhere)${N}
 
-  bifrost run <command>         Run a command on the remote machine
-                                e.g. bifrost run uptime
+  ${G}bifrost attach${N} <session>      Attach to a session (e.g. ${C}bifrost attach x64-2${N})
+  ${G}bifrost run${N} <device> <cmd>    Run a command on a device
+  ${G}bifrost status${N}                Sessions and connectivity across all devices
 
-  bifrost workspace             2x2 grid on both machines (macOS + iTerm2)
-                                Two windows, 8 tmux sessions, emoji labels
-                                Auto-reconnects on remote reboot
+${B}SETUP${N}
 
-  bifrost mobile                Two iTerm tabs with tmux sessions (macOS)
-                                Reattach from phone via Blink Shell / Termux
+  ${G}bifrost setup${N}                 Legacy single-remote config (still works)
+  ${G}bifrost doctor${N}                Check prerequisites — suggests what to install
+  ${G}bifrost kill${N}                  Tear down all tmux sessions
 
-  bifrost direct                Side-by-side iTerm split panes (macOS)
-                                No tmux — direct SSH
+${B}QUICK START${N}
 
-  bifrost kill                  Tear down all bifrost tmux sessions
+  ${D}# 1. Check your system${N}
+  ${Y}\$ bifrost doctor${N}
 
-PLATFORMS
+  ${D}# 2. See what's on your tailnet${N}
+  ${Y}\$ bifrost device scan${N}
 
-  macOS + iTerm2                All commands available
-  Termux / Linux                setup, status, attach, run, kill
-                                (no workspace/mobile/direct — no iTerm)
+  ${D}# 3. Add your remote machine${N}
+  ${Y}\$ bifrost device add x64${N}
 
-INSTALL (Termux)
+  ${D}# 4. Launch${N}
+  ${Y}\$ bifrost workspace${N}
 
-  pkg install openssh tmux
-  curl -sL <repo-raw>/bifrost -o ~/bin/bifrost
-  chmod +x ~/bin/bifrost
-  bifrost setup
-
-FROM PHONE
-
-  bifrost attach remote-2       Jump into a specific session
-  bifrost status                Check what's running
-  bifrost run "docker ps"       Quick remote command
-
-HELP
+  ${D}# 5. From your phone${N}
+  ${Y}\$ ssh x64 && tmux attach -t x64-1${N}
+  ${D}  or: ${Y}bifrost attach x64-1${N}
+"
 }
 
 # ── Main ──────────────────────────────────────────────────────────
@@ -696,6 +1010,7 @@ HELP
 case "${1:-}" in
   setup)       mode_setup ;;
   doctor)      mode_doctor ;;
+  device)      shift; mode_device "$@" ;;
   status)      mode_status ;;
   attach)      shift; mode_attach "$@" ;;
   run)         shift; mode_run "$@" ;;
@@ -705,18 +1020,7 @@ case "${1:-}" in
   kill)        mode_kill ;;
   help|--help) mode_help ;;
   *)
-    echo "Usage: bifrost <command> — run 'bifrost help' for details"
-    echo ""
-    echo "  setup      — configure remote hostname and SSH user"
-    echo "  doctor     — check prerequisites (tmux, iTerm2, Tailscale, SSH)"
-    echo "  status     — show active sessions and remote connectivity"
-    echo "  attach     — attach to a session (e.g. bifrost attach remote-2)"
-    echo "  run        — run a command on the remote (e.g. bifrost run uptime)"
-    echo ""
-    echo "  workspace  — 2x2 grid on both machines (macOS + iTerm2)"
-    echo "  mobile     — tmux sessions (reattach from phone)"
-    echo "  direct     — iTerm split panes with direct SSH"
-    echo "  kill       — tear down all tmux sessions"
+    mode_help
     exit 1
     ;;
 esac
