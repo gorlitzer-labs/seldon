@@ -1,12 +1,10 @@
-<p align="center">
-  <img src="hero.png" alt="Bifrost" width="100%" />
-</p>
-
-<h1 align="center">Bifrost</h1>
+# Bifrost
 
 <p align="center">
-  <strong>Bridge between realms. Multi-machine terminal workspace over Tailscale.</strong>
+  <img src="hero.png" alt="Bifrost" width="600" />
 </p>
+
+> *Bridge between realms. Multi-machine terminal workspace over Tailscale.*
 
 ---
 
