@@ -9,6 +9,11 @@
 
 set -euo pipefail
 
+# ── Version ──────────────────────────────────────────────────────
+BIFROST_VERSION="1.0.0"
+BIFROST_REPO="gorlitzer-labs/bifrost"
+BIFROST_VERSION_CACHE="${HOME}/.config/bifrost/version-check.json"
+
 # ── Platform detection ───────────────────────────────────────────
 # macOS + iTerm2: full workspace/split support
 # Termux/Linux:   attach, status, run, kill (no iTerm)
@@ -80,6 +85,130 @@ REMOTE_HOST="${WORKBENCH_REMOTE:-${BIFROST_REMOTE_HOST:-}}"
 REMOTE_USER="${WORKBENCH_USER:-${BIFROST_REMOTE_USER:-$(whoami)}}"
 LOCAL_SESSION="${WORKBENCH_LOCAL_SESSION:-local}"
 REMOTE_SESSION="${WORKBENCH_REMOTE_SESSION:-remote}"
+
+# ── Version check & upgrade ───────────────────────────────────────
+
+# Background version check — non-blocking, fire-and-forget
+# Caches result for 1 hour to avoid hammering GitHub
+check_version_bg() {
+  (
+    # Only check if gh is available and cache is stale (>1 hour)
+    if ! command -v gh &>/dev/null; then
+      return
+    fi
+
+    local cache_dir
+    cache_dir="$(dirname "$BIFROST_VERSION_CACHE")"
+    mkdir -p "$cache_dir"
+
+    # Check cache age
+    if [[ -f "$BIFROST_VERSION_CACHE" ]]; then
+      local cache_age
+      if [[ "$(uname)" == "Darwin" ]]; then
+        cache_age=$(( $(date +%s) - $(stat -f %m "$BIFROST_VERSION_CACHE") ))
+      else
+        cache_age=$(( $(date +%s) - $(stat -c %Y "$BIFROST_VERSION_CACHE") ))
+      fi
+      # Skip if checked within the last hour
+      [[ $cache_age -lt 3600 ]] && return
+    fi
+
+    # Fetch latest version from repo
+    local latest
+    latest=$(gh api "repos/$BIFROST_REPO/contents/bifrost" --jq '.content' 2>/dev/null \
+      | base64 -d 2>/dev/null \
+      | grep -m1 '^BIFROST_VERSION=' \
+      | cut -d'"' -f2 || echo "")
+
+    if [[ -n "$latest" ]]; then
+      cat > "$BIFROST_VERSION_CACHE" <<JSON
+{"local":"$BIFROST_VERSION","remote":"$latest","checked":$(date +%s)}
+JSON
+    fi
+  ) &>/dev/null &
+  disown 2>/dev/null || true
+}
+
+# Print update notice if a newer version is available
+print_update_notice() {
+  if [[ ! -f "$BIFROST_VERSION_CACHE" ]]; then
+    return
+  fi
+
+  local remote_version
+  remote_version=$(grep -o '"remote":"[^"]*"' "$BIFROST_VERSION_CACHE" 2>/dev/null | cut -d'"' -f4)
+
+  if [[ -n "$remote_version" && "$remote_version" != "$BIFROST_VERSION" ]]; then
+    local Y='\033[33m' D='\033[2m' B='\033[1m' N='\033[0m'
+    echo -e ""
+    echo -e "  ${Y}${B}Update available!${N} ${D}${BIFROST_VERSION} → ${remote_version}${N}"
+    echo -e "  ${D}Run:${N} ${Y}bifrost upgrade${N}"
+    echo ""
+  fi
+}
+
+# Self-upgrade from GitHub
+mode_upgrade() {
+  if ! command -v gh &>/dev/null; then
+    echo "Error: gh (GitHub CLI) required for upgrades."
+    echo "  → brew install gh"
+    exit 1
+  fi
+
+  echo "Checking for updates..."
+
+  local latest
+  latest=$(gh api "repos/$BIFROST_REPO/contents/bifrost" --jq '.content' 2>/dev/null \
+    | base64 -d 2>/dev/null \
+    | grep -m1 '^BIFROST_VERSION=' \
+    | cut -d'"' -f2 || echo "")
+
+  if [[ -z "$latest" ]]; then
+    echo "Error: could not fetch latest version from GitHub."
+    exit 1
+  fi
+
+  if [[ "$latest" == "$BIFROST_VERSION" ]]; then
+    echo "Already on latest version ($BIFROST_VERSION)."
+    exit 0
+  fi
+
+  echo "Upgrading: $BIFROST_VERSION → $latest"
+  echo ""
+
+  # Download the new script
+  local tmpfile
+  tmpfile=$(mktemp)
+  gh api "repos/$BIFROST_REPO/contents/bifrost" --jq '.content' 2>/dev/null \
+    | base64 -d > "$tmpfile"
+
+  if [[ ! -s "$tmpfile" ]]; then
+    echo "Error: download failed."
+    rm -f "$tmpfile"
+    exit 1
+  fi
+
+  # Find where bifrost is installed
+  local install_path
+  install_path=$(which bifrost 2>/dev/null || echo "$HOME/bin/bifrost")
+
+  # Replace
+  chmod +x "$tmpfile"
+  mv "$tmpfile" "$install_path"
+
+  # Clear version cache
+  rm -f "$BIFROST_VERSION_CACHE"
+
+  echo "Upgraded to $latest."
+  echo "Installed at: $install_path"
+}
+
+mode_version() {
+  echo "bifrost $BIFROST_VERSION"
+}
+
+# Fire background version check on every run
+check_version_bg
 
 # Require REMOTE_HOST for modes that need it
 require_remote() {
@@ -1151,7 +1280,7 @@ ${C}  ┌───────────────────────�
 ${C}  │${B}  ╔╗ ╦╔═╗╦═╗╔═╗╔═╗╔╦╗                    ${C}│${N}
 ${C}  │${B}  ╠╩╗║╠═ ╠╦╝║ ║╚═╗ ║                     ${C}│${N}
 ${C}  │${B}  ╚═╝╩╚  ╩╚═╚═╝╚═╝ ╩                     ${C}│${N}
-${C}  │${D}  bridge between realms                    ${C}│${N}
+${C}  │${D}  bridge between realms            v${BIFROST_VERSION}  ${C}│${N}
 ${C}  └──────────────────────────────────────────┘${N}
 
 ${B}DEVICES${N}
@@ -1204,24 +1333,28 @@ ${B}QUICK START${N}
   ${D}  Pick a session from the menu — bifrost hops you there${N}
   ${D}  Or directly: ${Y}bifrost attach x64-2${N}
 "
+  # Show update notice if available
+  print_update_notice
 }
 
 # ── Main ──────────────────────────────────────────────────────────
 
 case "${1:-}" in
-  setup)       mode_setup ;;
-  doctor)      mode_doctor ;;
-  device)      shift; mode_device "$@" ;;
-  sessions)    mode_sessions ;;
-  gateway)     mode_gateway ;;
-  status)      mode_status ;;
-  attach)      shift; mode_attach "$@" ;;
-  run)         shift; mode_run "$@" ;;
-  mobile)      mode_mobile ;;
-  direct)      mode_direct ;;
-  workspace)   mode_workspace ;;
-  kill)        mode_kill ;;
-  help|--help) mode_help ;;
+  setup)             mode_setup ;;
+  doctor)            mode_doctor ;;
+  device)            shift; mode_device "$@" ;;
+  sessions)          mode_sessions ;;
+  gateway)           mode_gateway ;;
+  status)            mode_status ;;
+  attach)            shift; mode_attach "$@" ;;
+  run)               shift; mode_run "$@" ;;
+  mobile)            mode_mobile ;;
+  direct)            mode_direct ;;
+  workspace)         mode_workspace ;;
+  kill)              mode_kill ;;
+  upgrade|update)    mode_upgrade ;;
+  version|--version) mode_version ;;
+  help|--help)       mode_help ;;
   *)
     mode_help
     exit 1
