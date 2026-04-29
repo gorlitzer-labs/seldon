@@ -8,6 +8,12 @@
 
 ---
 
+You have a Mac at home running `caffeinate`. Another Mac in your backpack. Your phone in your pocket. All on Tailscale.
+
+Bifrost gives you a 2x2 terminal grid on each machine — open Claude Code in one pane, vim in another, logs in a third. Walk out the door, pull out your phone, SSH in, and you're right where you left off. Every pane is a tmux session. Nothing is lost. The home Mac never sleeps.
+
+That's it. That's the tool.
+
 ```
   CONTROLLER (your Mac)
   ┌──────────────────────────────────────────────────────┐
