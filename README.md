@@ -193,3 +193,29 @@ iTerm tabs with persistent tmux sessions. Designed for reattaching from phone.
 ### direct
 
 Single iTerm window, side-by-side splits. No tmux — direct SSH.
+
+## Releasing
+
+Releases are automatic. Just bump the version and push:
+
+```bash
+# In the bifrost script, change:
+BIFROST_VERSION="1.2.1"  →  BIFROST_VERSION="1.3.0"
+
+# Commit and push to main
+git add bifrost && git commit -m "your message" && git push
+```
+
+A GitHub Action detects the version change and creates a release with auto-generated notes.
+
+**Semver rules:**
+- **Patch** (1.2.0 → 1.2.1) — bug fixes, cleanup
+- **Minor** (1.2.0 → 1.3.0) — new features, backward compatible
+- **Major** (1.0.0 → 2.0.0) — breaking changes
+
+Users see the update via `bifrost help`:
+
+```
+  Update available! 1.2.1 → 1.3.0
+  Run: bifrost upgrade
+```
