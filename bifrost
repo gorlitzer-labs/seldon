@@ -1,0 +1,341 @@
+#!/usr/bin/env bash
+# bifrost — dual-machine iTerm2 workspace launcher
+#
+# Usage:
+#   bifrost mobile     — tmux sessions (persistent, reattach from phone)
+#   bifrost direct     — iTerm splits with direct SSH (mac-to-mac)
+#   bifrost workspace  — 2x2 grid on both machines (two windows)
+#   bifrost kill       — kill tmux sessions on both machines
+#
+# Config: edit the vars below or set them as env vars before running.
+
+set -euo pipefail
+
+# ── Config ────────────────────────────────────────────────────────
+REMOTE_HOST="${WORKBENCH_REMOTE:-}"                     # tailscale hostname (required)
+REMOTE_USER="${WORKBENCH_USER:-$(whoami)}"              # SSH user on remote
+LOCAL_SESSION="${WORKBENCH_LOCAL_SESSION:-local}"        # tmux session name (local)
+REMOTE_SESSION="${WORKBENCH_REMOTE_SESSION:-remote}"    # tmux session name (remote)
+
+# Require REMOTE_HOST for modes that need it
+require_remote() {
+  if [[ -z "$REMOTE_HOST" ]]; then
+    echo "Error: WORKBENCH_REMOTE not set. Export it or pass it:"
+    echo "  export WORKBENCH_REMOTE=your-hostname"
+    exit 1
+  fi
+}
+
+# Colors — ANSI 24-bit escape sequences for iTerm2
+# Local:  dark background (default)
+# Remote: dark red tint so you never forget where you are
+LOCAL_BG="0;0;0"          # black
+REMOTE_BG="40;10;10"      # dark red tint
+
+# ── Helpers ───────────────────────────────────────────────────────
+
+set_iterm_bg() {
+  # Set iTerm2 background color via proprietary escape
+  local r=$1 g=$2 b=$3
+  printf "\033]1337;SetColors=bg=%02x/%02x/%02x\007" "$r" "$g" "$b"
+}
+
+iterm_set_tab_title() {
+  printf "\033]1;%s\007" "$1"
+}
+
+ensure_tmux_session() {
+  local host="$1" session="$2"
+  if [[ "$host" == "local" ]]; then
+    tmux has-session -t "$session" 2>/dev/null || tmux new-session -d -s "$session"
+  else
+    ssh -o ConnectTimeout=5 "$REMOTE_USER@$host" \
+      "tmux has-session -t '$session' 2>/dev/null || tmux new-session -d -s '$session'"
+  fi
+}
+
+# ── Mode: mobile (tmux) ──────────────────────────────────────────
+#
+# Creates persistent tmux sessions on both machines.
+# You can reattach from Blink Shell on your phone:
+#   local:  ssh legendary → tmux attach -t local
+#   remote: ssh zanpakuto → tmux attach -t remote
+
+mode_mobile() {
+  require_remote
+  echo "Setting up mobile-ready tmux bifrost..."
+
+  # Ensure tmux sessions exist
+  ensure_tmux_session "local" "$LOCAL_SESSION"
+  ensure_tmux_session "$REMOTE_HOST" "$REMOTE_SESSION"
+
+  # Launch iTerm2 with two tabs via AppleScript
+  osascript <<APPLESCRIPT
+tell application "iTerm2"
+  activate
+
+  -- Create new window with local tmux tab
+  set newWindow to (create window with default profile)
+
+  tell current session of current tab of newWindow
+    set name to "LOCAL [$LOCAL_SESSION]"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t $LOCAL_SESSION"
+  end tell
+
+  -- Create second tab with remote tmux
+  tell newWindow
+    set remoteTab to (create tab with default profile)
+    tell current session of remoteTab
+      set name to "REMOTE [$REMOTE_SESSION] @ $REMOTE_HOST"
+      write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; ssh -t $REMOTE_USER@$REMOTE_HOST 'tmux attach -t $REMOTE_SESSION || tmux new-session -s $REMOTE_SESSION'"
+    end tell
+  end tell
+end tell
+APPLESCRIPT
+
+  echo ""
+  echo "Workbench ready (mobile mode)"
+  echo "  Tab 1: LOCAL  → tmux session '$LOCAL_SESSION'"
+  echo "  Tab 2: REMOTE → tmux session '$REMOTE_SESSION' @ $REMOTE_HOST"
+  echo ""
+  echo "From your phone (Blink Shell):"
+  echo "  Local:  ssh legendary → tmux attach -t $LOCAL_SESSION"
+  echo "  Remote: ssh $REMOTE_HOST → tmux attach -t $REMOTE_SESSION"
+}
+
+# ── Mode: direct (split panes) ───────────────────────────────────
+#
+# Single iTerm window with side-by-side splits.
+# Left = local, Right = SSH into zanpakuto.
+# No tmux — direct connection, visual color distinction.
+
+mode_direct() {
+  require_remote
+  echo "Setting up direct mac-to-mac bifrost..."
+
+  osascript <<APPLESCRIPT
+tell application "iTerm2"
+  activate
+
+  set newWindow to (create window with default profile)
+
+  tell current session of current tab of newWindow
+    -- Left pane: local (default dark bg)
+    set name to "LOCAL"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; clear"
+    write text "echo '── LOCAL ($(hostname)) ──'"
+
+    -- Split right for remote
+    set remoteSession to (split horizontally with default profile)
+  end tell
+
+  tell remoteSession
+    set name to "REMOTE @ $REMOTE_HOST"
+    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; ssh $REMOTE_USER@$REMOTE_HOST"
+  end tell
+end tell
+APPLESCRIPT
+
+  echo ""
+  echo "Workbench ready (direct mode)"
+  echo "  Left:  LOCAL (default bg)"
+  echo "  Right: REMOTE @ $REMOTE_HOST (red tint bg)"
+}
+
+# ── Emoji pool ───────────────────────────────────────────────────
+
+EMOJIS=(
+  "🐝" "🐛" "🦋" "🐞" "🪲" "🐜" "🦗" "🐌" "🐙" "🦑"
+  "🦀" "🪱" "🦠" "🔬" "⚡" "🔥" "🌀" "💎" "🎯" "🚀"
+  "🌊" "🍄" "🌵" "🎲" "🧊" "🪐" "🌙" "☄️" "🗡️" "🛡️"
+)
+
+pick_emoji() {
+  # Random emoji from pool, avoiding recently used ones
+  echo "${EMOJIS[$((RANDOM % ${#EMOJIS[@]}))]}"
+}
+
+# ── Mode: workspace (2x2 grid on both machines) ─────────────────
+#
+# Creates two iTerm windows, each with 4 panes (iTerm splits).
+# Each pane runs its own tmux session: <prefix>-<n>
+# Session title: <emoji> <folder_name>
+# From phone: tmux attach -t local-1 (or remote-1, etc.)
+
+create_pane_session() {
+  # Create a single tmux session on a host
+  # Args: host session_name emoji
+  local host="$1" session="$2" emoji="$3"
+
+  # tmux options: set pane title, enable title display
+  local cmd="tmux kill-session -t '$session' 2>/dev/null; true; "
+  cmd+="tmux new-session -d -s '$session'; "
+  cmd+="tmux set-option -t '$session' set-titles on; "
+  cmd+="tmux set-option -t '$session' pane-border-format ' $emoji $session '; "
+  cmd+="tmux set-option -t '$session' status-left ' $emoji $session  '"
+
+  if [[ "$host" == "local" ]]; then
+    eval "$cmd"
+  else
+    ssh -o ConnectTimeout=5 "$REMOTE_USER@$host" "$cmd"
+  fi
+}
+
+mode_workspace() {
+  require_remote
+  echo "Setting up workspace (2x2 grid on both machines)..."
+
+  # Pick 8 unique-ish emojis (4 local + 4 remote)
+  local e1 e2 e3 e4 e5 e6 e7 e8
+  e1=$(pick_emoji) e2=$(pick_emoji) e3=$(pick_emoji) e4=$(pick_emoji)
+  e5=$(pick_emoji) e6=$(pick_emoji) e7=$(pick_emoji) e8=$(pick_emoji)
+
+  # Create 4 tmux sessions per machine
+  echo "  Creating local sessions..."
+  create_pane_session "local" "${LOCAL_SESSION}-1" "$e1"
+  create_pane_session "local" "${LOCAL_SESSION}-2" "$e2"
+  create_pane_session "local" "${LOCAL_SESSION}-3" "$e3"
+  create_pane_session "local" "${LOCAL_SESSION}-4" "$e4"
+
+  echo "  Creating remote sessions on $REMOTE_HOST..."
+  create_pane_session "$REMOTE_HOST" "${REMOTE_SESSION}-1" "$e5"
+  create_pane_session "$REMOTE_HOST" "${REMOTE_SESSION}-2" "$e6"
+  create_pane_session "$REMOTE_HOST" "${REMOTE_SESSION}-3" "$e7"
+  create_pane_session "$REMOTE_HOST" "${REMOTE_SESSION}-4" "$e8"
+
+  osascript <<APPLESCRIPT
+tell application "iTerm2"
+  activate
+
+  -- ═══ Window 1: LOCAL ═══
+  set localWindow to (create window with default profile)
+
+  tell current session of current tab of localWindow
+    set name to "$e1 ${LOCAL_SESSION}-1"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t ${LOCAL_SESSION}-1"
+
+    -- Split right (pane 2)
+    set p2 to (split horizontally with default profile)
+  end tell
+
+  tell p2
+    set name to "$e2 ${LOCAL_SESSION}-2"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t ${LOCAL_SESSION}-2"
+  end tell
+
+  -- Now split each column vertically
+  tell current session of current tab of localWindow
+    set p3 to (split vertically with default profile)
+  end tell
+
+  tell p3
+    set name to "$e3 ${LOCAL_SESSION}-3"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t ${LOCAL_SESSION}-3"
+  end tell
+
+  tell p2
+    set p4 to (split vertically with default profile)
+  end tell
+
+  tell p4
+    set name to "$e4 ${LOCAL_SESSION}-4"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t ${LOCAL_SESSION}-4"
+  end tell
+
+  -- ═══ Window 2: REMOTE (zanpakuto) ═══
+  set remoteWindow to (create window with default profile)
+
+  tell current session of current tab of remoteWindow
+    set name to "$e5 ${REMOTE_SESSION}-1 @ $REMOTE_HOST"
+    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; ssh -t $REMOTE_USER@$REMOTE_HOST 'tmux attach -t ${REMOTE_SESSION}-1'"
+
+    set r2 to (split horizontally with default profile)
+  end tell
+
+  tell r2
+    set name to "$e6 ${REMOTE_SESSION}-2 @ $REMOTE_HOST"
+    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; ssh -t $REMOTE_USER@$REMOTE_HOST 'tmux attach -t ${REMOTE_SESSION}-2'"
+  end tell
+
+  tell current session of current tab of remoteWindow
+    set r3 to (split vertically with default profile)
+  end tell
+
+  tell r3
+    set name to "$e7 ${REMOTE_SESSION}-3 @ $REMOTE_HOST"
+    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; ssh -t $REMOTE_USER@$REMOTE_HOST 'tmux attach -t ${REMOTE_SESSION}-3'"
+  end tell
+
+  tell r2
+    set r4 to (split vertically with default profile)
+  end tell
+
+  tell r4
+    set name to "$e8 ${REMOTE_SESSION}-4 @ $REMOTE_HOST"
+    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; ssh -t $REMOTE_USER@$REMOTE_HOST 'tmux attach -t ${REMOTE_SESSION}-4'"
+  end tell
+
+end tell
+APPLESCRIPT
+
+  echo ""
+  echo "Workspace ready"
+  echo ""
+  echo "  LOCAL:"
+  echo "    $e1 ${LOCAL_SESSION}-1    $e2 ${LOCAL_SESSION}-2"
+  echo "    $e3 ${LOCAL_SESSION}-3    $e4 ${LOCAL_SESSION}-4"
+  echo ""
+  echo "  REMOTE @ $REMOTE_HOST:"
+  echo "    $e5 ${REMOTE_SESSION}-1    $e6 ${REMOTE_SESSION}-2"
+  echo "    $e7 ${REMOTE_SESSION}-3    $e8 ${REMOTE_SESSION}-4"
+  echo ""
+  echo "From phone:"
+  echo "  ssh legendary → tmux attach -t ${LOCAL_SESSION}-1"
+  echo "  ssh $REMOTE_HOST → tmux attach -t ${REMOTE_SESSION}-1"
+}
+
+# ── Mode: kill ────────────────────────────────────────────────────
+
+mode_kill() {
+  echo "Killing tmux sessions..."
+
+  # Kill single sessions (mobile mode)
+  tmux kill-session -t "$LOCAL_SESSION" 2>/dev/null && echo "  Killed local '$LOCAL_SESSION'" || true
+
+  # Kill workspace sessions (local-1..4)
+  for i in 1 2 3 4; do
+    tmux kill-session -t "${LOCAL_SESSION}-$i" 2>/dev/null && echo "  Killed local '${LOCAL_SESSION}-$i'" || true
+  done
+
+  # Kill remote sessions
+  ssh -o ConnectTimeout=5 "$REMOTE_USER@$REMOTE_HOST" "
+    tmux kill-session -t '$REMOTE_SESSION' 2>/dev/null && echo '  Killed remote $REMOTE_SESSION' || true
+    for i in 1 2 3 4; do
+      tmux kill-session -t '${REMOTE_SESSION}-'\$i 2>/dev/null && echo '  Killed remote ${REMOTE_SESSION}-'\$i || true
+    done
+  " || echo "  Could not reach $REMOTE_HOST"
+
+  echo "Done."
+}
+
+# ── Main ──────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  mobile)    mode_mobile ;;
+  direct)    mode_direct ;;
+  workspace) mode_workspace ;;
+  kill)      mode_kill ;;
+  *)
+    echo "Usage: bifrost <mobile|direct|workspace|kill>"
+    echo ""
+    echo "  mobile     — tmux sessions (reattach from phone via Blink Shell)"
+    echo "  direct     — iTerm split panes with direct SSH (mac-to-mac)"
+    echo "  workspace  — 2x2 grid on both machines (two windows)"
+    echo "  kill       — tear down tmux sessions on both machines"
+    echo ""
+    echo "Config (env vars or edit script):"
+    echo "  WORKBENCH_REMOTE=$REMOTE_HOST"
+    echo "  WORKBENCH_USER=$REMOTE_USER"
+    exit 1
+    ;;
+esac
