@@ -21,24 +21,44 @@ Bifrost launches a multi-pane iTerm2 workspace across two machines over Tailscal
 
 ## Install
 
-Bifrost only needs to be installed on your **primary machine** — the one you launch workspaces from. It SSHs into the remote to create tmux sessions there.
+Bifrost only needs to be installed on your **primary Mac** — it SSHs into remotes to create tmux sessions. Other devices just need SSH + tmux to connect.
+
+| Device | What to install | Why |
+|---|---|---|
+| **Primary Mac** | bifrost + tmux + iTerm2 + Tailscale | Launches and manages everything |
+| **Remote Mac** | tmux only | Bifrost SSHs in and creates sessions — no install needed |
+| **Phone / other** | ssh + tmux only | Just attach to existing sessions |
 
 ```bash
 # On your primary Mac
 cp bifrost ~/bin/
 chmod +x ~/bin/bifrost
+bifrost doctor    # checks everything on local + remote
 ```
 
-The remote machine just needs **tmux** installed — bifrost creates and manages sessions over SSH.
-
 ```bash
-# On your remote Mac (if tmux isn't installed)
+# On your remote Mac — only tmux needed
 brew install tmux
 ```
 
-### Termux (Android)
+### Do I need bifrost on every device?
 
-Install bifrost on your phone to attach to sessions created by your Mac:
+**No.** Bifrost is only needed on the machine that *launches* workspaces. Everything else connects with plain SSH + tmux:
+
+```bash
+# From any device without bifrost installed:
+ssh your-remote
+tmux attach -t remote-2
+
+# With bifrost installed (optional shorthand):
+bifrost attach remote-2
+```
+
+The tmux sessions exist on the machines regardless — bifrost just creates and manages them.
+
+### Termux (Android — optional)
+
+Installing bifrost on your phone gives you the `attach`/`status`/`run` shortcuts. But you can always just SSH + tmux attach manually.
 
 ```bash
 # On Termux
