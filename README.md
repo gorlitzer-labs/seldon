@@ -5,158 +5,199 @@
 <h1 align="center">Bifrost</h1>
 
 <p align="center">
-  <strong>Bridge between realms. Dual-machine terminal workspace.</strong>
+  <strong>Bridge between realms. Multi-machine terminal workspace over Tailscale.</strong>
 </p>
 
 ---
 
-Bifrost launches a multi-pane iTerm2 workspace across two machines over Tailscale SSH. Each pane runs its own tmux session — work on desktop, pick up from your phone. Remote connections auto-reconnect on reboot or network drops.
+Bifrost turns your Tailscale network into a unified terminal workspace. Add devices, launch multi-pane grids, and hop between sessions from any machine or your phone. Each pane is its own tmux session with auto-reconnect — work on desktop, pick up from your phone.
 
-## Requirements
+## Architecture
 
-- Two machines on the same [Tailscale](https://tailscale.com) network
-- **tmux** on both machines
-- **iTerm2** on the machine you launch from (macOS)
-- SSH access between machines (Tailscale handles this)
+Bifrost has three roles:
+
+```
+  CONTROLLER                        The machine running bifrost.
+  (your primary Mac)                Orchestrates everything.
+  ┌─────────────────────────────────────────────────────────────┐
+  │                                                             │
+  │  bifrost workspace                                          │
+  │       │                                                     │
+  │       ├── local-1..4     (tmux sessions on this machine)    │
+  │       │                                                     │
+  │       ├── SSH ──→ zanpakuto-1..4   (created over SSH)       │
+  │       ├── SSH ──→ x64-1..4         (created over SSH)       │
+  │       └── SSH ──→ ...              (any device you add)     │
+  │                                                             │
+  │  One iTerm window per device, each a 2x2 grid:              │
+  │                                                             │
+  │  LOCAL (black)    ZANPAKUTO (red)   X64 (blue)              │
+  │  ┌──────┬──────┐  ┌──────┬──────┐  ┌──────┬──────┐         │
+  │  │🐝 1  │🦋 2  │  │🔥 1  │🌀 2  │  │💎 1  │🚀 2  │         │
+  │  ├──────┼──────┤  ├──────┼──────┤  ├──────┼──────┤         │
+  │  │🐞 3  │🪲 4  │  │⚡ 3  │🎯 4  │  │🌊 3  │🍄 4  │         │
+  │  └──────┴──────┘  └──────┴──────┘  └──────┴──────┘         │
+  └─────────────────────────────────────────────────────────────┘
+                          │                  │
+                    Tailscale SSH       Tailscale SSH
+                          │                  │
+  DEVICE                  ▼                  ▼          DEVICE
+  ┌─────────────────────────┐  ┌─────────────────────────┐
+  │  zanpakuto (ARM Mac)    │  │  x64 (Intel Mac/Linux)  │
+  │                         │  │                         │
+  │  Just needs: tmux       │  │  Just needs: tmux       │
+  │  Sessions created by    │  │  Sessions created by    │
+  │  controller over SSH    │  │  controller over SSH    │
+  └─────────────────────────┘  └─────────────────────────┘
+                ▲                          ▲
+                │          SSH             │
+                └────────┬─────────────────┘
+                         │
+  CLIENT                 │
+  ┌─────────────────────────┐
+  │  📱 Phone / iPad / etc  │
+  │                         │
+  │  Option A (easy):       │
+  │    ssh controller       │
+  │    bifrost gateway      │
+  │    → pick a session     │
+  │    → auto-hops there    │
+  │                         │
+  │  Option B (direct):     │
+  │    ssh zanpakuto        │
+  │    tmux attach -t       │
+  │      zanpakuto-2        │
+  └─────────────────────────┘
+```
+
+| Role | What it does | What to install |
+|---|---|---|
+| **Controller** | Runs bifrost, manages all devices and sessions | bifrost + tmux + iTerm2 + Tailscale |
+| **Device** | Hosts tmux sessions created by the controller | tmux only (nothing else) |
+| **Client** | Connects to existing sessions from anywhere | SSH only (bifrost optional) |
 
 ## Install
 
-Bifrost only needs to be installed on your **primary Mac** — it SSHs into remotes to create tmux sessions. Other devices just need SSH + tmux to connect.
-
-| Device | What to install | Why |
-|---|---|---|
-| **Primary Mac** | bifrost + tmux + iTerm2 + Tailscale | Launches and manages everything |
-| **Remote Mac** | tmux only | Bifrost SSHs in and creates sessions — no install needed |
-| **Phone / other** | ssh + tmux only | Just attach to existing sessions |
-
 ```bash
-# On your primary Mac
+# On the controller (your primary Mac)
 cp bifrost ~/bin/
 chmod +x ~/bin/bifrost
-bifrost doctor    # checks everything on local + remote
+bifrost doctor    # checks prerequisites
 ```
 
 ```bash
-# On your remote Mac — only tmux needed
-brew install tmux
+# On devices — just tmux
+brew install tmux    # macOS
+sudo apt install tmux  # Linux
 ```
 
-### Do I need bifrost on every device?
-
-**No.** Bifrost is only needed on the machine that *launches* workspaces. Everything else connects with plain SSH + tmux:
+## Quick start
 
 ```bash
-# From any device without bifrost installed:
-ssh your-remote
-tmux attach -t remote-2
+# 1. Check your system
+bifrost doctor
 
-# With bifrost installed (optional shorthand):
-bifrost attach remote-2
+# 2. See what's on your Tailscale network
+bifrost device scan
+
+# 3. Add devices
+bifrost device add zanpakuto
+bifrost device add x64
+
+# 4. Launch workspaces
+bifrost workspace
+
+# 5. From your phone — SSH into the controller
+ssh my-mac
+bifrost gateway       # interactive session picker
+bifrost sessions      # visual map of everything
+bifrost attach x64-2  # jump directly to a session
 ```
 
-The tmux sessions exist on the machines regardless — bifrost just creates and manages them.
+## Session naming
 
-### Termux (Android — optional)
-
-Installing bifrost on your phone gives you the `attach`/`status`/`run` shortcuts. But you can always just SSH + tmux attach manually.
-
-```bash
-# On Termux
-pkg install openssh tmux
-mkdir -p ~/bin
-
-# Copy from your Mac (over Tailscale), or clone the repo
-scp your-mac:~/bin/bifrost ~/bin/bifrost
-chmod +x ~/bin/bifrost
-bifrost setup
-```
-
-## Setup
-
-First run — configure your remote machine:
-
-```bash
-bifrost setup
-# Remote hostname (Tailscale): your-machine
-# SSH user on remote [you]:
-# Testing SSH... Connected.
-# Config saved to ~/.config/bifrost/config
-```
-
-## How it works
+Session names are `<device-name>-<1..4>`. The device name is what you give it when you add it — typically the Tailscale hostname:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    YOUR PRIMARY MAC                      │
-│                                                          │
-│  bifrost workspace                                       │
-│       │                                                  │
-│       ├── creates 4 local tmux sessions (local-1..4)     │
-│       ├── SSHs into remote, creates 4 tmux sessions      │
-│       └── opens 2 iTerm windows with 2x2 grids           │
-│                                                          │
-│  Window 1: LOCAL          Window 2: REMOTE (red tint)    │
-│  ┌────────┬────────┐      ┌────────┬────────┐            │
-│  │local-1 │local-2 │      │remote-1│remote-2│ ← SSH      │
-│  ├────────┼────────┤      ├────────┼────────┤   tunnels   │
-│  │local-3 │local-4 │      │remote-3│remote-4│             │
-│  └────────┴────────┘      └────────┴────────┘             │
-└──────────────────────────────┼────────────────────────────┘
-                               │ Tailscale SSH
-┌──────────────────────────────┼────────────────────────────┐
-│                    YOUR REMOTE MAC                        │
-│                                                           │
-│  tmux sessions: remote-1, remote-2, remote-3, remote-4   │
-│  (created by bifrost over SSH — nothing to install)       │
-└───────────────────────────────────────────────────────────┘
-```
-
-**From your phone** — attach to any session directly:
-
-```
-┌─────────────┐
-│   PHONE     │
-│  (Termux /  │──── ssh <remote> ──→ tmux attach -t remote-2
-│  Blink)     │──── ssh <local>  ──→ tmux attach -t local-1
-└─────────────┘
-   or: bifrost attach remote-2
+bifrost device add zanpakuto    →  zanpakuto-1, zanpakuto-2, zanpakuto-3, zanpakuto-4
+bifrost device add x64          →  x64-1, x64-2, x64-3, x64-4
+local sessions                  →  local-1, local-2, local-3, local-4
 ```
 
 ## Commands
 
+### Setup & diagnostics
+
 ```bash
-# Setup
-bifrost setup                 # configure remote hostname interactively
-bifrost help                  # full usage reference
+bifrost device scan             # discover Tailscale devices
+bifrost device add <name>       # add a device (with SSH key setup)
+bifrost device remove <name>    # remove a device
+bifrost device list             # show all devices and status
+bifrost doctor                  # check prerequisites everywhere
+```
 
-# Inspect
-bifrost status                # show active sessions + remote connectivity
-bifrost run <cmd>             # run a command on remote (e.g. bifrost run uptime)
+### Launch (macOS + iTerm2)
 
-# Launch (macOS + iTerm2)
-bifrost workspace             # 2x2 grid on both machines
-bifrost mobile                # two tabs with tmux sessions
-bifrost direct                # side-by-side split panes (no tmux)
+```bash
+bifrost workspace               # 2x2 grid — one window per device
+bifrost mobile                  # tmux tabs (reattach from phone)
+bifrost direct                  # side-by-side split panes (no tmux)
+```
 
-# Connect (works everywhere — Mac, Termux, Linux)
-bifrost attach <session>      # attach to a session (e.g. bifrost attach remote-2)
+### Connect (works everywhere)
 
-# Cleanup
-bifrost kill                  # tear down all bifrost tmux sessions
+```bash
+bifrost gateway                 # interactive session picker (great for phone)
+bifrost sessions                # visual map of all sessions
+bifrost attach <session>        # jump to a session (e.g. bifrost attach x64-2)
+bifrost run <device> <cmd>      # run a command on a device
+bifrost status                  # connectivity + session overview
+```
+
+### Cleanup
+
+```bash
+bifrost kill                    # tear down all tmux sessions everywhere
+```
+
+## From your phone
+
+You have two options:
+
+**Option A — Gateway (recommended):** SSH into the controller, then use bifrost's interactive picker:
+
+```bash
+ssh my-mac
+bifrost gateway
+#   1  local-1          controller  ~ (zsh)
+#   2  local-2          controller  project (nvim)
+#   3  zanpakuto-1      zanpakuto   ~ (zsh)
+#   4  zanpakuto-2      zanpakuto   api (claude)
+#   5  x64-1            x64         ~ (zsh)
+#
+#  Select [1-5]: 4
+#  Attaching to zanpakuto-2 @ zanpakuto...
+```
+
+Bifrost handles the SSH hop — you only need to know the controller's address.
+
+**Option B — Direct:** SSH into the device and attach manually:
+
+```bash
+ssh zanpakuto
+tmux attach -t zanpakuto-2
 ```
 
 ## Modes
 
 ### workspace
 
-Two iTerm windows — local (black bg) and remote (red-tinted bg) — each with a 2x2 grid of panes. Every pane is its own tmux session with a random emoji label for easy identification.
-
-Remote panes auto-reconnect if the connection drops (reboot, network blip).
+One iTerm window per device — local always gets black bg, each device gets a distinct color (red, blue, green, amber, purple, teal). Every pane is its own tmux session with a random emoji. Remote panes auto-reconnect on reboot or network drops.
 
 ### mobile
 
-Two iTerm tabs with persistent tmux sessions. Designed for reattaching from your phone.
+iTerm tabs with persistent tmux sessions. Designed for reattaching from phone.
 
 ### direct
 
-Single iTerm window, side-by-side splits. Left = local, right = remote (red tint). No tmux — direct SSH connection.
+Single iTerm window, side-by-side splits. No tmux — direct SSH. Requires exactly one device configured.
