@@ -14,6 +14,8 @@ You're training a model on the home Mac. Four terminal panes open — GPU monito
 
 3pm, you're on the bus. Phone buzzes — the training finished. Pull out your phone, `bifrost gateway`, hop into the home Mac's pane, check the results, kick off the next run. Put the phone away.
 
+At work, both machines are yours. Home Mac compiling, work Mac serving — two clusters, one workspace. You're orchestrating double the compute from a single screen. Need to check the home build? Glance at the red-tinted window. Deploy from work? It's the blue one. Your phone is the remote control that can reach either at any time through the gateway.
+
 Every pane is a tmux session. Nothing is lost. No machine ever sleeps. You're always one SSH away from any session on any machine.
 
 That's it. That's the tool.
