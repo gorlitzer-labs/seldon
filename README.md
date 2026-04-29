@@ -141,6 +141,32 @@ bifrost help                # command reference
 
 ---
 
+## Home server tips
+
+Running a MacBook as a headless home node? Set it up once, forget about it:
+
+```bash
+# Prevent sleep — even with lid closed
+sudo pmset disablesleep 1
+
+# Cap battery at 80% — lithium lives longer below 100%
+brew install battery        # actuallymentor/battery (free, open source)
+battery maintain 80         # runs as daemon, survives reboots
+
+# Optional: belt and suspenders (caffeinate as fallback if pmset resets after OS update)
+tmux new-session -d -s caffeinate 'caffeinate -s'
+```
+
+Keep it plugged in, close the lid, walk away. SSH in from anywhere via Tailscale.
+
+To undo:
+```bash
+sudo pmset disablesleep 0   # re-enable sleep
+battery maintain stop       # remove charge limit
+```
+
+---
+
 ## Releasing
 
 Bump `BIFROST_VERSION` in the script, push to main. GitHub Action auto-creates a release.
