@@ -1317,8 +1317,8 @@ ${B}THREE ROLES${N}
   ${R}Device${N}      ${D}─${N}  Any remote machine. Just needs tmux. Nothing to install.
   ${Y}Client${N}      ${D}─${N}  Phone, iPad, laptop. Connects to existing sessions.
 
-  ${D}┌──────────────────────────────────────────
-  │${N}
+  ${D}┌──────────────────────────────────────────┐${N}
+  ${D}│${N}
   ${D}│${N}   ${C}CONTROLLER${N} ${D}(this Mac)${N}
   ${D}│${N}       │
   ${D}│${N}       ├── local-1..4  ${D}(local sessions)${N}
@@ -1330,7 +1330,7 @@ ${B}THREE ROLES${N}
   ${D}│${N}                    ${Y}📱 phone${N}
   ${D}│${N}                    ssh → bifrost gateway
   ${D}│${N}
-  ${D}└──────────────────────────────────────────${N}
+  ${D}└──────────────────────────────────────────┘${N}
 
 ${B}STEP 1 — CHECK PREREQUISITES${N}
 
