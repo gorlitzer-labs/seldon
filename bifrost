@@ -101,6 +101,121 @@ require_iterm() {
   fi
 }
 
+# ── Doctor (prereq check) ───────────────────────────────────────
+
+mode_doctor() {
+  echo "Bifrost doctor"
+  echo ""
+  local ok=true
+
+  # ── Local checks ──
+  echo "  LOCAL ($BIFROST_PLATFORM):"
+
+  # tmux
+  if command -v tmux &>/dev/null; then
+    echo "    ✓ tmux $(tmux -V 2>/dev/null | awk '{print $2}')"
+  else
+    echo "    ✗ tmux — not installed"
+    case "$BIFROST_PLATFORM" in
+      macos)  echo "      → brew install tmux" ;;
+      termux) echo "      → pkg install tmux" ;;
+      linux)  echo "      → sudo apt install tmux  (or your package manager)" ;;
+    esac
+    ok=false
+  fi
+
+  # SSH
+  if command -v ssh &>/dev/null; then
+    echo "    ✓ ssh"
+  else
+    echo "    ✗ ssh — not installed"
+    case "$BIFROST_PLATFORM" in
+      termux) echo "      → pkg install openssh" ;;
+      *)      echo "      → should be pre-installed — check your system" ;;
+    esac
+    ok=false
+  fi
+
+  # iTerm2 (macOS only)
+  if [[ "$BIFROST_PLATFORM" == "macos" ]]; then
+    if [[ -d "/Applications/iTerm.app" ]]; then
+      echo "    ✓ iTerm2"
+    else
+      echo "    ✗ iTerm2 — not installed"
+      echo "      → brew install --cask iterm2"
+      echo "      → or download from https://iterm2.com"
+      ok=false
+    fi
+  fi
+
+  # Tailscale
+  if command -v tailscale &>/dev/null; then
+    local ts_status
+    ts_status=$(tailscale status --json 2>/dev/null | grep -o '"BackendState":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+    if [[ "$ts_status" == "Running" ]]; then
+      echo "    ✓ Tailscale (running)"
+    else
+      echo "    ⚠ Tailscale (installed but status: $ts_status)"
+      echo "      → tailscale up"
+      ok=false
+    fi
+  elif [[ "$BIFROST_PLATFORM" == "macos" && -d "/Applications/Tailscale.app" ]]; then
+    echo "    ⚠ Tailscale (app installed, CLI not in PATH)"
+    echo "      → open Tailscale from Applications"
+  else
+    echo "    ✗ Tailscale — not installed"
+    case "$BIFROST_PLATFORM" in
+      macos)  echo "      → brew install --cask tailscale" ;;
+      termux) echo "      → see https://tailscale.com/kb/1169/android" ;;
+      linux)  echo "      → curl -fsSL https://tailscale.com/install.sh | sh" ;;
+    esac
+    ok=false
+  fi
+
+  # Config
+  if [[ -f "$BIFROST_CONFIG" ]]; then
+    echo "    ✓ Config ($BIFROST_CONFIG)"
+  else
+    echo "    ⚠ No config — run 'bifrost setup'"
+  fi
+
+  echo ""
+
+  # ── Remote checks ──
+  if [[ -n "$REMOTE_HOST" ]]; then
+    echo "  REMOTE ($REMOTE_HOST):"
+
+    if ssh -o ConnectTimeout=3 -o BatchMode=yes "$REMOTE_USER@$REMOTE_HOST" "echo ok" &>/dev/null; then
+      echo "    ✓ SSH connection"
+
+      # Check remote tmux
+      local remote_tmux
+      remote_tmux=$(ssh -o ConnectTimeout=3 "$REMOTE_USER@$REMOTE_HOST" "tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
+      if [[ "$remote_tmux" == "missing" ]]; then
+        echo "    ✗ tmux — not installed on remote"
+        echo "      → ssh $REMOTE_USER@$REMOTE_HOST 'brew install tmux'"
+        ok=false
+      else
+        echo "    ✓ $remote_tmux"
+      fi
+    else
+      echo "    ✗ SSH connection failed"
+      echo "      → check Tailscale is running on both machines"
+      echo "      → verify: ssh $REMOTE_USER@$REMOTE_HOST"
+      ok=false
+    fi
+  else
+    echo "  REMOTE: not configured — run 'bifrost setup'"
+  fi
+
+  echo ""
+  if [[ "$ok" == true ]]; then
+    echo "  All good. Ready to bifrost."
+  else
+    echo "  Some issues found. Fix them and run 'bifrost doctor' again."
+  fi
+}
+
 # Colors — ANSI 24-bit escape sequences for iTerm2
 # Local:  dark background (default)
 # Remote: dark red tint so you never forget where you are
@@ -531,6 +646,9 @@ COMMANDS
   bifrost setup                 Configure remote hostname and SSH user
                                 Saves to ~/.config/bifrost/config
 
+  bifrost doctor                Check prerequisites on local and remote
+                                Suggests install commands for anything missing
+
   bifrost status                Show active sessions and remote connectivity
 
   bifrost attach <session>      Attach to a tmux session by name
@@ -577,6 +695,7 @@ HELP
 
 case "${1:-}" in
   setup)       mode_setup ;;
+  doctor)      mode_doctor ;;
   status)      mode_status ;;
   attach)      shift; mode_attach "$@" ;;
   run)         shift; mode_run "$@" ;;
@@ -589,6 +708,7 @@ case "${1:-}" in
     echo "Usage: bifrost <command> — run 'bifrost help' for details"
     echo ""
     echo "  setup      — configure remote hostname and SSH user"
+    echo "  doctor     — check prerequisites (tmux, iTerm2, Tailscale, SSH)"
     echo "  status     — show active sessions and remote connectivity"
     echo "  attach     — attach to a session (e.g. bifrost attach remote-2)"
     echo "  run        — run a command on the remote (e.g. bifrost run uptime)"
