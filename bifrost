@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # ── Version ──────────────────────────────────────────────────────
-BIFROST_VERSION="1.1.0"
+BIFROST_VERSION="1.2.0"
 BIFROST_REPO="gorlitzer-labs/bifrost"
 BIFROST_VERSION_CACHE="${HOME}/.config/bifrost/version-check.json"
 
