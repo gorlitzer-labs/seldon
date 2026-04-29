@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
 # bifrost — dual-machine iTerm2 workspace launcher
 #
-# Usage:
-#   bifrost setup      — configure remote hostname interactively
-#   bifrost workspace  — 2x2 grid on both machines (two windows)
-#   bifrost mobile     — tmux sessions (persistent, reattach from phone)
-#   bifrost direct     — iTerm splits with direct SSH (mac-to-mac)
-#   bifrost kill       — kill tmux sessions on both machines
+# Usage: bifrost <command>  — run 'bifrost help' for details
 #
-# Config: edit the vars below or set them as env vars before running.
+# Commands: setup, status, attach, run, workspace, mobile, direct, kill
+#
+# Config: ~/.config/bifrost/config (created by 'bifrost setup')
 
 set -euo pipefail
+
+# ── Platform detection ───────────────────────────────────────────
+# macOS + iTerm2: full workspace/split support
+# Termux/Linux:   attach, status, run, kill (no iTerm)
+if [[ -d "/data/data/com.termux" ]]; then
+  BIFROST_PLATFORM="termux"
+elif [[ "$(uname)" == "Darwin" ]]; then
+  BIFROST_PLATFORM="macos"
+else
+  BIFROST_PLATFORM="linux"
+fi
 
 # ── Config ────────────────────────────────────────────────────────
 BIFROST_CONFIG="${HOME}/.config/bifrost/config"
@@ -81,6 +89,18 @@ require_remote() {
   fi
 }
 
+require_iterm() {
+  if [[ "$BIFROST_PLATFORM" != "macos" ]]; then
+    echo "Error: '$1' mode requires macOS + iTerm2."
+    echo ""
+    echo "On Termux/Linux, use:"
+    echo "  bifrost attach <session>   — attach to a tmux session"
+    echo "  bifrost status             — check sessions and connectivity"
+    echo "  bifrost run <cmd>          — run a command on remote"
+    exit 1
+  fi
+}
+
 # Colors — ANSI 24-bit escape sequences for iTerm2
 # Local:  dark background (default)
 # Remote: dark red tint so you never forget where you are
@@ -125,6 +145,7 @@ ssh_reconnect_cmd() {
 #   remote: ssh zanpakuto → tmux attach -t remote
 
 mode_mobile() {
+  require_iterm "mobile"
   require_remote
   echo "Setting up mobile-ready tmux bifrost..."
 
@@ -173,6 +194,7 @@ APPLESCRIPT
 # No tmux — direct connection, visual color distinction.
 
 mode_direct() {
+  require_iterm "direct"
   require_remote
   echo "Setting up direct mac-to-mac bifrost..."
 
@@ -245,6 +267,7 @@ create_pane_session() {
 }
 
 mode_workspace() {
+  require_iterm "workspace"
   require_remote
   echo "Setting up workspace (2x2 grid on both machines)..."
 
@@ -381,21 +404,198 @@ mode_kill() {
   echo "Done."
 }
 
+# ── Mode: status ─────────────────────────────────────────────────
+
+mode_status() {
+  echo "Bifrost status"
+  echo ""
+
+  # Local sessions
+  echo "  LOCAL:"
+  local local_count=0
+  local local_list=""
+  for session in "$LOCAL_SESSION" "${LOCAL_SESSION}-1" "${LOCAL_SESSION}-2" "${LOCAL_SESSION}-3" "${LOCAL_SESSION}-4"; do
+    if tmux has-session -t "$session" 2>/dev/null; then
+      local_count=$((local_count + 1))
+      local_list+="    ✓ $session"
+      # Get what's running in the session
+      local cmd
+      cmd=$(tmux list-panes -t "$session" -F '#{pane_current_command}' 2>/dev/null | head -1)
+      [[ -n "$cmd" ]] && local_list+=" ($cmd)"
+      local_list+=$'\n'
+    fi
+  done
+  if [[ $local_count -gt 0 ]]; then
+    echo "    $local_count session(s) active"
+    printf "%s" "$local_list"
+  else
+    echo "    No active sessions"
+  fi
+
+  echo ""
+
+  # Remote
+  echo "  REMOTE ($REMOTE_HOST):"
+  if [[ -z "$REMOTE_HOST" ]]; then
+    echo "    Not configured — run 'bifrost setup'"
+  elif ssh -o ConnectTimeout=3 "$REMOTE_USER@$REMOTE_HOST" "echo ok" &>/dev/null; then
+    echo "    ✓ Reachable"
+    local remote_info
+    remote_info=$(ssh -o ConnectTimeout=3 "$REMOTE_USER@$REMOTE_HOST" "
+      for s in $REMOTE_SESSION ${REMOTE_SESSION}-1 ${REMOTE_SESSION}-2 ${REMOTE_SESSION}-3 ${REMOTE_SESSION}-4; do
+        if tmux has-session -t \"\$s\" 2>/dev/null; then
+          cmd=\$(tmux list-panes -t \"\$s\" -F '#{pane_current_command}' 2>/dev/null | head -1)
+          echo \"    ✓ \$s (\$cmd)\"
+        fi
+      done
+    " 2>/dev/null)
+    if [[ -n "$remote_info" ]]; then
+      local remote_count
+      remote_count=$(echo "$remote_info" | wc -l | tr -d ' ')
+      echo "    $remote_count session(s) active"
+      echo "$remote_info"
+    else
+      echo "    No active sessions"
+    fi
+  else
+    echo "    ✗ Unreachable"
+  fi
+}
+
+# ── Mode: attach ─────────────────────────────────────────────────
+
+mode_attach() {
+  local session="${1:-}"
+  if [[ -z "$session" ]]; then
+    echo "Usage: bifrost attach <session-name>"
+    echo ""
+    echo "Examples:"
+    echo "  bifrost attach local-1"
+    echo "  bifrost attach remote-2"
+    echo ""
+    # List available sessions
+    echo "Local sessions:"
+    tmux list-sessions -F "  #{session_name}" 2>/dev/null || echo "  (none)"
+    if [[ -n "$REMOTE_HOST" ]]; then
+      echo ""
+      echo "Remote sessions ($REMOTE_HOST):"
+      ssh -o ConnectTimeout=3 "$REMOTE_USER@$REMOTE_HOST" \
+        "tmux list-sessions -F '  #{session_name}' 2>/dev/null || echo '  (none)'" 2>/dev/null \
+        || echo "  (unreachable)"
+    fi
+    exit 1
+  fi
+
+  # Check if it's a remote session
+  if [[ "$session" == remote* ]]; then
+    require_remote
+    echo "Attaching to $session @ $REMOTE_HOST..."
+    ssh -t "$REMOTE_USER@$REMOTE_HOST" "tmux attach -t '$session' || echo 'Session $session not found'"
+  else
+    echo "Attaching to $session..."
+    tmux attach -t "$session" || echo "Session $session not found"
+  fi
+}
+
+# ── Mode: run ────────────────────────────────────────────────────
+
+mode_run() {
+  local cmd="${*}"
+  if [[ -z "$cmd" ]]; then
+    echo "Usage: bifrost run <command>"
+    echo ""
+    echo "Runs a command on the remote machine via SSH."
+    echo ""
+    echo "Examples:"
+    echo "  bifrost run df -h"
+    echo "  bifrost run docker ps"
+    echo "  bifrost run uptime"
+    exit 1
+  fi
+
+  require_remote
+  ssh -o ConnectTimeout=5 "$REMOTE_USER@$REMOTE_HOST" "$cmd"
+}
+
+# ── Help ─────────────────────────────────────────────────────────
+
+mode_help() {
+  cat <<'HELP'
+Bifrost — bridge between realms
+
+  Dual-machine terminal workspace over Tailscale SSH.
+  Each pane is its own tmux session — work on desktop, pick up from phone.
+
+COMMANDS
+
+  bifrost setup                 Configure remote hostname and SSH user
+                                Saves to ~/.config/bifrost/config
+
+  bifrost status                Show active sessions and remote connectivity
+
+  bifrost attach <session>      Attach to a tmux session by name
+                                e.g. bifrost attach remote-2
+
+  bifrost run <command>         Run a command on the remote machine
+                                e.g. bifrost run uptime
+
+  bifrost workspace             2x2 grid on both machines (macOS + iTerm2)
+                                Two windows, 8 tmux sessions, emoji labels
+                                Auto-reconnects on remote reboot
+
+  bifrost mobile                Two iTerm tabs with tmux sessions (macOS)
+                                Reattach from phone via Blink Shell / Termux
+
+  bifrost direct                Side-by-side iTerm split panes (macOS)
+                                No tmux — direct SSH
+
+  bifrost kill                  Tear down all bifrost tmux sessions
+
+PLATFORMS
+
+  macOS + iTerm2                All commands available
+  Termux / Linux                setup, status, attach, run, kill
+                                (no workspace/mobile/direct — no iTerm)
+
+INSTALL (Termux)
+
+  pkg install openssh tmux
+  curl -sL <repo-raw>/bifrost -o ~/bin/bifrost
+  chmod +x ~/bin/bifrost
+  bifrost setup
+
+FROM PHONE
+
+  bifrost attach remote-2       Jump into a specific session
+  bifrost status                Check what's running
+  bifrost run "docker ps"       Quick remote command
+
+HELP
+}
+
 # ── Main ──────────────────────────────────────────────────────────
 
 case "${1:-}" in
-  setup)     mode_setup ;;
-  mobile)    mode_mobile ;;
-  direct)    mode_direct ;;
-  workspace) mode_workspace ;;
-  kill)      mode_kill ;;
+  setup)       mode_setup ;;
+  status)      mode_status ;;
+  attach)      shift; mode_attach "$@" ;;
+  run)         shift; mode_run "$@" ;;
+  mobile)      mode_mobile ;;
+  direct)      mode_direct ;;
+  workspace)   mode_workspace ;;
+  kill)        mode_kill ;;
+  help|--help) mode_help ;;
   *)
-    echo "Usage: bifrost <setup|mobile|direct|workspace|kill>"
+    echo "Usage: bifrost <command> — run 'bifrost help' for details"
     echo ""
     echo "  setup      — configure remote hostname and SSH user"
-    echo "  mobile     — tmux sessions (reattach from phone via Blink Shell)"
-    echo "  direct     — iTerm split panes with direct SSH (mac-to-mac)"
-    echo "  workspace  — 2x2 grid on both machines (two windows)"
+    echo "  status     — show active sessions and remote connectivity"
+    echo "  attach     — attach to a session (e.g. bifrost attach remote-2)"
+    echo "  run        — run a command on the remote (e.g. bifrost run uptime)"
+    echo ""
+    echo "  workspace  — 2x2 grid on both machines (macOS + iTerm2)"
+    echo "  mobile     — tmux sessions (reattach from phone)"
+    echo "  direct     — iTerm split panes with direct SSH"
     echo "  kill       — tear down all tmux sessions"
     exit 1
     ;;
