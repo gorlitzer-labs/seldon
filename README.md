@@ -17,57 +17,54 @@ Bifrost turns your Tailscale network into a unified terminal workspace. Add devi
 Bifrost has three roles:
 
 ```
-  CONTROLLER                        The machine running bifrost.
-  (your primary Mac)                Orchestrates everything.
-  ┌─────────────────────────────────────────────────────────────┐
-  │                                                             │
-  │  bifrost workspace                                          │
-  │       │                                                     │
-  │       ├── local-1..4     (tmux sessions on this machine)    │
-  │       │                                                     │
-  │       ├── SSH ──→ asgard-1..4   (created over SSH)       │
-  │       ├── SSH ──→ tatooine-1..4         (created over SSH)       │
-  │       └── SSH ──→ ...              (any device you add)     │
-  │                                                             │
-  │  One iTerm window per device, each a 2x2 grid:              │
-  │                                                             │
-  │  LOCAL (black)    ZANPAKUTO (red)   X64 (blue)              │
-  │  ┌──────┬──────┐  ┌──────┬──────┐  ┌──────┬──────┐         │
-  │  │🐝 1  │🦋 2  │  │🔥 1  │🌀 2  │  │💎 1  │🚀 2  │         │
-  │  ├──────┼──────┤  ├──────┼──────┤  ├──────┼──────┤         │
-  │  │🐞 3  │🪲 4  │  │⚡ 3  │🎯 4  │  │🌊 3  │🍄 4  │         │
-  │  └──────┴──────┘  └──────┴──────┘  └──────┴──────┘         │
-  └─────────────────────────────────────────────────────────────┘
-                          │                  │
-                    Tailscale SSH       Tailscale SSH
-                          │                  │
-  DEVICE                  ▼                  ▼          DEVICE
-  ┌─────────────────────────┐  ┌─────────────────────────┐
-  │  asgard (ARM Mac)    │  │  tatooine (Linux box)  │
-  │                         │  │                         │
-  │  Just needs: tmux       │  │  Just needs: tmux       │
-  │  Sessions created by    │  │  Sessions created by    │
-  │  controller over SSH    │  │  controller over SSH    │
-  └─────────────────────────┘  └─────────────────────────┘
-                ▲                          ▲
-                │          SSH             │
-                └────────┬─────────────────┘
-                         │
-  CLIENT                 │
-  ┌─────────────────────────┐
-  │  📱 Phone / iPad / etc  │
-  │                         │
-  │  Option A (easy):       │
-  │    ssh controller       │
-  │    bifrost gateway      │
-  │    → pick a session     │
-  │    → auto-hops there    │
-  │                         │
-  │  Option B (direct):     │
-  │    ssh asgard        │
-  │    tmux attach -t       │
-  │      asgard-2        │
-  └─────────────────────────┘
+  CONTROLLER                    The machine running bifrost.
+  (your primary Mac)            Orchestrates everything.
+  ┌──────────────────────────────────────────────────────┐
+  │                                                      │
+  │  bifrost workspace                                   │
+  │       │                                              │
+  │       ├── local-1..4       (sessions here)           │
+  │       ├── SSH ──→ asgard-1..4                        │
+  │       └── SSH ──→ tatooine-1..4                      │
+  │                                                      │
+  │  One iTerm window per device, each a 2x2 grid:      │
+  │                                                      │
+  │  LOCAL (black)   ASGARD (red)   TATOOINE (blue)      │
+  │  ┌─────┬─────┐  ┌─────┬─────┐  ┌─────┬─────┐       │
+  │  │🐝 1 │🦋 2 │  │🔥 1 │🌀 2 │  │💎 1 │🚀 2 │       │
+  │  ├─────┼─────┤  ├─────┼─────┤  ├─────┼─────┤       │
+  │  │🐞 3 │🪲 4 │  │⚡ 3 │🎯 4 │  │🌊 3 │🍄 4 │       │
+  │  └─────┴─────┘  └─────┴─────┘  └─────┴─────┘       │
+  └──────────────────────────────────────────────────────┘
+                         │                │
+                   Tailscale SSH    Tailscale SSH
+                         │                │
+  DEVICE                 ▼                ▼         DEVICE
+  ┌────────────────────────┐  ┌────────────────────────┐
+  │  asgard (Mac)          │  │  tatooine (Linux)      │
+  │  Just needs: tmux      │  │  Just needs: tmux      │
+  │  Sessions created by   │  │  Sessions created by   │
+  │  controller over SSH   │  │  controller over SSH   │
+  └────────────────────────┘  └────────────────────────┘
+               ▲                         ▲
+               │          SSH            │
+               └───────┬─────────────────┘
+                       │
+  CLIENT               │
+  ┌────────────────────────┐
+  │  Phone / iPad / etc    │
+  │                        │
+  │  Option A (easy):      │
+  │    ssh controller      │
+  │    bifrost gateway     │
+  │    → pick a session    │
+  │    → auto-hops there   │
+  │                        │
+  │  Option B (direct):    │
+  │    ssh asgard          │
+  │    tmux attach -t      │
+  │      asgard-2          │
+  └────────────────────────┘
 ```
 
 | Role | What it does | What to install |
@@ -109,19 +106,19 @@ bifrost workspace
 
 # 5. From your phone — SSH into the controller
 ssh my-mac
-bifrost gateway       # interactive session picker
-bifrost sessions      # visual map of everything
+bifrost gateway            # interactive session picker
+bifrost sessions           # visual map of everything
 bifrost attach tatooine-2  # jump directly to a session
 ```
 
 ## Session naming
 
-Session names are `<device-name>-<1..4>`. The device name is what you give it when you add it — typically the Tailscale hostname:
+Session names are `<device-name>-<1..4>`. The device name is whatever you choose when adding it:
 
 ```
 bifrost device add asgard    →  asgard-1, asgard-2, asgard-3, asgard-4
-bifrost device add tatooine          →  tatooine-1, tatooine-2, tatooine-3, tatooine-4
-local sessions                  →  local-1, local-2, local-3, local-4
+bifrost device add tatooine  →  tatooine-1, tatooine-2, tatooine-3, tatooine-4
+local (always)               →  local-1, local-2, local-3, local-4
 ```
 
 ## Commands
@@ -147,9 +144,9 @@ bifrost direct                  # side-by-side split panes (no tmux)
 ### Connect (works everywhere)
 
 ```bash
-bifrost gateway                 # interactive session picker (great for phone)
+bifrost gateway                 # interactive session picker (phone)
 bifrost sessions                # visual map of all sessions
-bifrost attach <session>        # jump to a session (e.g. bifrost attach tatooine-2)
+bifrost attach <session>        # jump to a session
 bifrost run <device> <cmd>      # run a command on a device
 bifrost status                  # connectivity + session overview
 ```
@@ -162,26 +159,23 @@ bifrost kill                    # tear down all tmux sessions everywhere
 
 ## From your phone
 
-You have two options:
-
-**Option A — Gateway (recommended):** SSH into the controller, then use bifrost's interactive picker:
+**Option A — Gateway (recommended):** SSH into the controller, pick a session:
 
 ```bash
 ssh my-mac
 bifrost gateway
-#   1  local-1          controller  ~ (zsh)
-#   2  local-2          controller  project (nvim)
-#   3  asgard-1      asgard   ~ (zsh)
-#   4  asgard-2      asgard   api (claude)
-#   5  tatooine-1            tatooine         ~ (zsh)
+#   1  local-1      controller  ~ (zsh)
+#   2  asgard-1     asgard      api (nvim)
+#   3  asgard-2     asgard      ~ (claude)
+#   4  tatooine-1   tatooine    ~ (zsh)
 #
-#  Select [1-5]: 4
+#  Select [1-4]: 3
 #  Attaching to asgard-2 @ asgard...
 ```
 
-Bifrost handles the SSH hop — you only need to know the controller's address.
+Bifrost handles the SSH hop — you only need the controller's address.
 
-**Option B — Direct:** SSH into the device and attach manually:
+**Option B — Direct:** SSH straight into the device:
 
 ```bash
 ssh asgard
@@ -200,4 +194,4 @@ iTerm tabs with persistent tmux sessions. Designed for reattaching from phone.
 
 ### direct
 
-Single iTerm window, side-by-side splits. No tmux — direct SSH. Requires exactly one device configured.
+Single iTerm window, side-by-side splits. No tmux — direct SSH.
