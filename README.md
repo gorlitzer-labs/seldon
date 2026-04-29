@@ -8,17 +8,21 @@
 
 ---
 
-Mac Mini at home running `caffeinate`, lid closed, doing the heavy lifting. MacBook in your backpack for the coffee shop. Phone in your pocket for when things break at 2am.
+Mac Mini at home running `caffeinate`, lid closed. It doesn't sleep. Neither do you.
 
-You're training a model on the home Mac. Four terminal panes open — GPU monitor, training logs, Claude Code refactoring the data pipeline, a shell for git. You close the laptop and walk to the café. Open the MacBook, `bifrost workspace` — same four panes, right where you left them. The model's still running. You start a new feature on the MacBook while the home Mac crunches numbers.
+MacBook in your backpack. Phone in your pocket. All on Tailscale. You're not "working from home" — you're working from everywhere, simultaneously.
 
-3pm, you're on the bus. Phone buzzes — the training finished. Pull out your phone, `bifrost gateway`, hop into the home Mac's pane, check the results, kick off the next run. Put the phone away.
+Home Mac training a model. Four panes: GPU monitor, logs, Claude Code rewriting your pipeline, a shell. Close the laptop, walk out. The model keeps running. The Mac doesn't care you left.
 
-At work, both machines are yours. Home Mac compiling, work Mac serving — two clusters, one workspace. You're orchestrating double the compute from a single screen. Need to check the home build? Glance at the red-tinted window. Deploy from work? It's the blue one. Your phone is the remote control that can reach either at any time through the gateway.
+Café. `bifrost workspace`. Same four panes, right where you left them. Start a new feature on the MacBook while the home Mac crunches numbers 40km away. Two machines, zero context switches.
 
-Every pane is a tmux session. Nothing is lost. No machine ever sleeps. You're always one SSH away from any session on any machine.
+Bus. Phone buzzes — training done. `bifrost gateway`, hop into the home Mac, check results, kick off the next run. The guy next to you thinks you're texting. You just deployed from a bus.
 
-That's it. That's the tool.
+Office. Both machines are yours. Home compiling, work serving — your own cluster. Red window is home. Blue is work. Phone reaches either through the gateway.
+
+Every pane is a tmux session. Nothing is lost. No machine sleeps. One `ssh` away from everything.
+
+We built it because we could.
 
 ```
   CONTROLLER (your Mac)
