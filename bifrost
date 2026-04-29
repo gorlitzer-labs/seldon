@@ -1289,8 +1289,116 @@ ${C}  ╚═╝╩╚  ╩╚═╚═╝╚═╝ ╩${N}
   ${G}doctor${N}               check prerequisites
   ${G}upgrade${N}              update to latest
   ${G}kill${N}                 tear down everything
+  ${G}quickstart${N}           first-time setup guide
 "
   print_update_notice
+}
+
+mode_quickstart() {
+  local C='\033[36m' G='\033[32m' Y='\033[33m' R='\033[31m'
+  local D='\033[2m' B='\033[1m' N='\033[0m' U='\033[4m'
+
+  echo -e "
+${C}  ╔╗ ╦╔═╗╦═╗╔═╗╔═╗╔╦╗${N}  ${D}quickstart guide${N}
+${C}  ╠╩╗║╠═ ╠╦╝║ ║╚═╗ ║${N}
+${C}  ╚═╝╩╚  ╩╚═╚═╝╚═╝ ╩${N}
+
+${B}WHAT IS BIFROST?${N}
+
+  A terminal workspace that spans multiple machines over Tailscale.
+  You launch it from one Mac (the ${C}controller${N}), and it creates
+  tmux sessions on your other machines (${R}devices${N}) over SSH.
+  Then you can attach to any session from anywhere — even your ${Y}phone${N}.
+
+${B}THREE ROLES${N}
+
+  ${C}Controller${N}  ${D}─${N}  Your primary Mac. Runs bifrost, manages everything.
+  ${R}Device${N}      ${D}─${N}  Any remote machine. Just needs tmux. Nothing to install.
+  ${Y}Client${N}      ${D}─${N}  Phone, iPad, laptop. Connects to existing sessions.
+
+  ${D}┌─────────────────────────────────────────────────────────┐${N}
+  ${D}│${N}                                                         ${D}│${N}
+  ${D}│${N}   ${C}CONTROLLER${N}                                            ${D}│${N}
+  ${D}│${N}   ${D}(this Mac)${N}                                             ${D}│${N}
+  ${D}│${N}       │                                                   ${D}│${N}
+  ${D}│${N}       ├── local-1..4  ${D}(sessions on this machine)${N}         ${D}│${N}
+  ${D}│${N}       │                                                   ${D}│${N}
+  ${D}│${N}       ├── SSH ──→ ${R}zanpakuto${N}-1..4                        ${D}│${N}
+  ${D}│${N}       └── SSH ──→ ${R}x64${N}-1..4                              ${D}│${N}
+  ${D}│${N}                     ▲                                     ${D}│${N}
+  ${D}│${N}                     │                                     ${D}│${N}
+  ${D}│${N}                  ${Y}📱 phone${N}                                 ${D}│${N}
+  ${D}│${N}                  ssh → bifrost gateway                     ${D}│${N}
+  ${D}│${N}                  ${D}(pick a session, auto-hop)${N}               ${D}│${N}
+  ${D}│${N}                                                         ${D}│${N}
+  ${D}└─────────────────────────────────────────────────────────┘${N}
+
+${B}STEP 1 — CHECK PREREQUISITES${N}
+
+  ${Y}\$${N} ${G}bifrost doctor${N}
+
+  This checks: tmux, iTerm2, Tailscale, SSH.
+  Tells you exactly what's missing and how to install it.
+
+${B}STEP 2 — DISCOVER YOUR MACHINES${N}
+
+  ${Y}\$${N} ${G}bifrost device scan${N}
+
+  Lists every machine on your Tailscale network.
+  Shows which are already added to bifrost.
+
+${B}STEP 3 — ADD DEVICES${N}
+
+  ${Y}\$${N} ${G}bifrost device add zanpakuto${N}
+
+  Auto-detects the Tailscale hostname, tests SSH,
+  and offers to copy your SSH key if needed.
+  The name you give it becomes the session prefix:
+    zanpakuto → ${D}zanpakuto-1, zanpakuto-2, zanpakuto-3, zanpakuto-4${N}
+
+${B}STEP 4 — LAUNCH${N}
+
+  ${Y}\$${N} ${G}bifrost workspace${N}
+
+  Opens one iTerm window per device, each with a 2x2 grid.
+  Local = black bg. Each device = a different color.
+  Every pane has a random emoji for quick identification.
+  Remote panes auto-reconnect on reboot or network drops.
+
+  ${D}You can also start local-only (no devices) and add remotes later.${N}
+
+${B}STEP 5 — CONNECT FROM PHONE${N}
+
+  ${U}Option A — Gateway (recommended)${N}
+
+  ${Y}\$${N} ssh my-mac            ${D}# SSH into the controller${N}
+  ${Y}\$${N} ${G}bifrost gateway${N}       ${D}# interactive session picker${N}
+
+  ${D}  1  local-1       controller  ~ (zsh)${N}
+  ${D}  2  zanpakuto-1   zanpakuto   api (nvim)${N}
+  ${D}  3  zanpakuto-2   zanpakuto   ~ (claude)${N}
+  ${D}  4  x64-1         x64         ~ (zsh)${N}
+  ${D}  Select [1-4]: 3${N}
+  ${D}  Attaching to zanpakuto-2...${N}
+
+  Bifrost handles the SSH hop. You only need the controller's address.
+
+  ${U}Option B — Direct${N}
+
+  ${Y}\$${N} ssh zanpakuto
+  ${Y}\$${N} tmux attach -t zanpakuto-2
+
+  ${D}No bifrost needed on the phone — just SSH + tmux.${N}
+
+${B}USEFUL COMMANDS${N}
+
+  ${G}bifrost sessions${N}     ${D}visual map of all sessions + what's running${N}
+  ${G}bifrost status${N}       ${D}connectivity overview across all devices${N}
+  ${G}bifrost attach${N} x64-2 ${D}jump directly to a session${N}
+  ${G}bifrost run${N} x64 df   ${D}run a quick command on a device${N}
+  ${G}bifrost kill${N}         ${D}tear down everything${N}
+  ${G}bifrost upgrade${N}      ${D}update to latest version${N}
+"
 }
 
 # ── Main ──────────────────────────────────────────────────────────
@@ -1310,6 +1418,7 @@ case "${1:-}" in
   kill)              mode_kill ;;
   upgrade|update)    mode_upgrade ;;
   version|--version) mode_version ;;
+  quickstart)        mode_quickstart ;;
   help|--help)       mode_help ;;
   *)
     mode_help
