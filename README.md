@@ -26,7 +26,7 @@ Bifrost has three roles:
   │       ├── local-1..4     (tmux sessions on this machine)    │
   │       │                                                     │
   │       ├── SSH ──→ asgard-1..4   (created over SSH)       │
-  │       ├── SSH ──→ x64-1..4         (created over SSH)       │
+  │       ├── SSH ──→ vanaheim-1..4         (created over SSH)       │
   │       └── SSH ──→ ...              (any device you add)     │
   │                                                             │
   │  One iTerm window per device, each a 2x2 grid:              │
@@ -43,7 +43,7 @@ Bifrost has three roles:
                           │                  │
   DEVICE                  ▼                  ▼          DEVICE
   ┌─────────────────────────┐  ┌─────────────────────────┐
-  │  asgard (ARM Mac)    │  │  x64 (Intel Mac/Linux)  │
+  │  asgard (ARM Mac)    │  │  vanaheim (Linux server)  │
   │                         │  │                         │
   │  Just needs: tmux       │  │  Just needs: tmux       │
   │  Sessions created by    │  │  Sessions created by    │
@@ -102,7 +102,7 @@ bifrost device scan
 
 # 3. Add devices
 bifrost device add asgard
-bifrost device add x64
+bifrost device add vanaheim
 
 # 4. Launch workspaces
 bifrost workspace
@@ -111,7 +111,7 @@ bifrost workspace
 ssh my-mac
 bifrost gateway       # interactive session picker
 bifrost sessions      # visual map of everything
-bifrost attach x64-2  # jump directly to a session
+bifrost attach vanaheim-2  # jump directly to a session
 ```
 
 ## Session naming
@@ -120,7 +120,7 @@ Session names are `<device-name>-<1..4>`. The device name is what you give it wh
 
 ```
 bifrost device add asgard    →  asgard-1, asgard-2, asgard-3, asgard-4
-bifrost device add x64          →  x64-1, x64-2, x64-3, x64-4
+bifrost device add vanaheim          →  vanaheim-1, vanaheim-2, vanaheim-3, vanaheim-4
 local sessions                  →  local-1, local-2, local-3, local-4
 ```
 
@@ -149,7 +149,7 @@ bifrost direct                  # side-by-side split panes (no tmux)
 ```bash
 bifrost gateway                 # interactive session picker (great for phone)
 bifrost sessions                # visual map of all sessions
-bifrost attach <session>        # jump to a session (e.g. bifrost attach x64-2)
+bifrost attach <session>        # jump to a session (e.g. bifrost attach vanaheim-2)
 bifrost run <device> <cmd>      # run a command on a device
 bifrost status                  # connectivity + session overview
 ```
@@ -173,7 +173,7 @@ bifrost gateway
 #   2  local-2          controller  project (nvim)
 #   3  asgard-1      asgard   ~ (zsh)
 #   4  asgard-2      asgard   api (claude)
-#   5  x64-1            x64         ~ (zsh)
+#   5  vanaheim-1            vanaheim         ~ (zsh)
 #
 #  Select [1-5]: 4
 #  Attaching to asgard-2 @ asgard...
