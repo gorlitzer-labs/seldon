@@ -26,7 +26,7 @@ Bifrost has three roles:
   │       ├── local-1..4     (tmux sessions on this machine)    │
   │       │                                                     │
   │       ├── SSH ──→ asgard-1..4   (created over SSH)       │
-  │       ├── SSH ──→ vanaheim-1..4         (created over SSH)       │
+  │       ├── SSH ──→ tatooine-1..4         (created over SSH)       │
   │       └── SSH ──→ ...              (any device you add)     │
   │                                                             │
   │  One iTerm window per device, each a 2x2 grid:              │
@@ -43,7 +43,7 @@ Bifrost has three roles:
                           │                  │
   DEVICE                  ▼                  ▼          DEVICE
   ┌─────────────────────────┐  ┌─────────────────────────┐
-  │  asgard (ARM Mac)    │  │  vanaheim (Linux server)  │
+  │  asgard (ARM Mac)    │  │  tatooine (Linux box)  │
   │                         │  │                         │
   │  Just needs: tmux       │  │  Just needs: tmux       │
   │  Sessions created by    │  │  Sessions created by    │
@@ -102,7 +102,7 @@ bifrost device scan
 
 # 3. Add devices
 bifrost device add asgard
-bifrost device add vanaheim
+bifrost device add tatooine
 
 # 4. Launch workspaces
 bifrost workspace
@@ -111,7 +111,7 @@ bifrost workspace
 ssh my-mac
 bifrost gateway       # interactive session picker
 bifrost sessions      # visual map of everything
-bifrost attach vanaheim-2  # jump directly to a session
+bifrost attach tatooine-2  # jump directly to a session
 ```
 
 ## Session naming
@@ -120,7 +120,7 @@ Session names are `<device-name>-<1..4>`. The device name is what you give it wh
 
 ```
 bifrost device add asgard    →  asgard-1, asgard-2, asgard-3, asgard-4
-bifrost device add vanaheim          →  vanaheim-1, vanaheim-2, vanaheim-3, vanaheim-4
+bifrost device add tatooine          →  tatooine-1, tatooine-2, tatooine-3, tatooine-4
 local sessions                  →  local-1, local-2, local-3, local-4
 ```
 
@@ -149,7 +149,7 @@ bifrost direct                  # side-by-side split panes (no tmux)
 ```bash
 bifrost gateway                 # interactive session picker (great for phone)
 bifrost sessions                # visual map of all sessions
-bifrost attach <session>        # jump to a session (e.g. bifrost attach vanaheim-2)
+bifrost attach <session>        # jump to a session (e.g. bifrost attach tatooine-2)
 bifrost run <device> <cmd>      # run a command on a device
 bifrost status                  # connectivity + session overview
 ```
@@ -173,7 +173,7 @@ bifrost gateway
 #   2  local-2          controller  project (nvim)
 #   3  asgard-1      asgard   ~ (zsh)
 #   4  asgard-2      asgard   api (claude)
-#   5  vanaheim-1            vanaheim         ~ (zsh)
+#   5  tatooine-1            tatooine         ~ (zsh)
 #
 #  Select [1-5]: 4
 #  Attaching to asgard-2 @ asgard...
