@@ -1265,31 +1265,32 @@ mode_gateway() {
 # ── Help ─────────────────────────────────────────────────────────
 
 mode_help() {
-  local C='\033[36m' G='\033[32m' Y='\033[33m' D='\033[2m' B='\033[1m' N='\033[0m'
+  local C='\033[36m' G='\033[32m' Y='\033[33m' R='\033[31m'
+  local M='\033[35m' D='\033[2m' B='\033[1m' N='\033[0m'
 
   echo -e "
 ${C}  ╔╗ ╦╔═╗╦═╗╔═╗╔═╗╔╦╗${N}  ${D}v${BIFROST_VERSION}${N}
 ${C}  ╠╩╗║╠═ ╠╦╝║ ║╚═╗ ║${N}
 ${C}  ╚═╝╩╚  ╩╚═╚═╝╚═╝ ╩${N}
 
-  ${G}device scan${N}          find Tailscale devices
+  ${G}device scan${N}          find Tailscale devices    ${Y}← start here${N}
   ${G}device add${N} <name>    add a device
   ${G}device list${N}          show devices
 
-  ${G}workspace${N}            launch 2x2 grids ${D}(iTerm2)${N}
-  ${G}mobile${N}               tmux tabs ${D}(iTerm2)${N}
-  ${G}direct${N}               split panes ${D}(iTerm2)${N}
+  ${C}${B}workspace${N}            launch 2x2 grids ${D}(iTerm2)${N}  ${Y}← try it${N}
+  ${C}mobile${N}               tmux tabs ${D}(iTerm2)${N}
+  ${C}direct${N}               split panes ${D}(iTerm2)${N}
 
-  ${G}sessions${N}             map all sessions
-  ${G}gateway${N}              interactive picker ${D}(phone)${N}
-  ${G}attach${N} <session>     jump to session
-  ${G}run${N} <device> <cmd>   remote command
-  ${G}status${N}               connectivity overview
+  ${M}${B}sessions${N}             map all sessions          ${Y}← see what's running${N}
+  ${M}${B}gateway${N}              interactive picker ${D}(phone)${N}
+  ${M}attach${N} <session>     jump to session
+  ${M}run${N} <device> <cmd>   remote command
+  ${M}status${N}               connectivity overview
 
-  ${G}doctor${N}               check prerequisites
-  ${G}upgrade${N}              update to latest
-  ${G}kill${N}                 tear down everything
-  ${G}quickstart${N}           first-time setup guide
+  ${D}doctor${N}               check prerequisites
+  ${D}upgrade${N}              update to latest
+  ${R}kill${N}                 tear down everything
+  ${G}${B}quickstart${N}           first-time setup guide    ${Y}← new here?${N}
 "
   print_update_notice
 }
