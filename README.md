@@ -25,7 +25,7 @@ Bifrost has three roles:
   │       │                                                     │
   │       ├── local-1..4     (tmux sessions on this machine)    │
   │       │                                                     │
-  │       ├── SSH ──→ zanpakuto-1..4   (created over SSH)       │
+  │       ├── SSH ──→ asgard-1..4   (created over SSH)       │
   │       ├── SSH ──→ x64-1..4         (created over SSH)       │
   │       └── SSH ──→ ...              (any device you add)     │
   │                                                             │
@@ -43,7 +43,7 @@ Bifrost has three roles:
                           │                  │
   DEVICE                  ▼                  ▼          DEVICE
   ┌─────────────────────────┐  ┌─────────────────────────┐
-  │  zanpakuto (ARM Mac)    │  │  x64 (Intel Mac/Linux)  │
+  │  asgard (ARM Mac)    │  │  x64 (Intel Mac/Linux)  │
   │                         │  │                         │
   │  Just needs: tmux       │  │  Just needs: tmux       │
   │  Sessions created by    │  │  Sessions created by    │
@@ -64,9 +64,9 @@ Bifrost has three roles:
   │    → auto-hops there    │
   │                         │
   │  Option B (direct):     │
-  │    ssh zanpakuto        │
+  │    ssh asgard        │
   │    tmux attach -t       │
-  │      zanpakuto-2        │
+  │      asgard-2        │
   └─────────────────────────┘
 ```
 
@@ -101,7 +101,7 @@ bifrost doctor
 bifrost device scan
 
 # 3. Add devices
-bifrost device add zanpakuto
+bifrost device add asgard
 bifrost device add x64
 
 # 4. Launch workspaces
@@ -119,7 +119,7 @@ bifrost attach x64-2  # jump directly to a session
 Session names are `<device-name>-<1..4>`. The device name is what you give it when you add it — typically the Tailscale hostname:
 
 ```
-bifrost device add zanpakuto    →  zanpakuto-1, zanpakuto-2, zanpakuto-3, zanpakuto-4
+bifrost device add asgard    →  asgard-1, asgard-2, asgard-3, asgard-4
 bifrost device add x64          →  x64-1, x64-2, x64-3, x64-4
 local sessions                  →  local-1, local-2, local-3, local-4
 ```
@@ -171,12 +171,12 @@ ssh my-mac
 bifrost gateway
 #   1  local-1          controller  ~ (zsh)
 #   2  local-2          controller  project (nvim)
-#   3  zanpakuto-1      zanpakuto   ~ (zsh)
-#   4  zanpakuto-2      zanpakuto   api (claude)
+#   3  asgard-1      asgard   ~ (zsh)
+#   4  asgard-2      asgard   api (claude)
 #   5  x64-1            x64         ~ (zsh)
 #
 #  Select [1-5]: 4
-#  Attaching to zanpakuto-2 @ zanpakuto...
+#  Attaching to asgard-2 @ asgard...
 ```
 
 Bifrost handles the SSH hop — you only need to know the controller's address.
@@ -184,8 +184,8 @@ Bifrost handles the SSH hop — you only need to know the controller's address.
 **Option B — Direct:** SSH into the device and attach manually:
 
 ```bash
-ssh zanpakuto
-tmux attach -t zanpakuto-2
+ssh asgard
+tmux attach -t asgard-2
 ```
 
 ## Modes

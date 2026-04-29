@@ -636,8 +636,8 @@ ssh_reconnect_cmd() {
 #
 # Creates persistent tmux sessions on both machines.
 # You can reattach from Blink Shell on your phone:
-#   local:  ssh legendary → tmux attach -t local
-#   remote: ssh zanpakuto → tmux attach -t remote
+#   local:  ssh midgard → tmux attach -t local
+#   remote: ssh asgard → tmux attach -t remote
 
 mode_mobile() {
   require_iterm "mobile"
@@ -694,7 +694,7 @@ APPLESCRIPT
 # ── Mode: direct (split panes) ───────────────────────────────────
 #
 # Single iTerm window with side-by-side splits.
-# Left = local, Right = SSH into zanpakuto.
+# Left = local, Right = SSH into asgard.
 # No tmux — direct connection, visual color distinction.
 
 mode_direct() {
@@ -1324,7 +1324,7 @@ ${B}THREE ROLES${N}
   ${D}│${N}       │                                                   ${D}│${N}
   ${D}│${N}       ├── local-1..4  ${D}(sessions on this machine)${N}         ${D}│${N}
   ${D}│${N}       │                                                   ${D}│${N}
-  ${D}│${N}       ├── SSH ──→ ${R}zanpakuto${N}-1..4                        ${D}│${N}
+  ${D}│${N}       ├── SSH ──→ ${R}asgard${N}-1..4                        ${D}│${N}
   ${D}│${N}       └── SSH ──→ ${R}x64${N}-1..4                              ${D}│${N}
   ${D}│${N}                     ▲                                     ${D}│${N}
   ${D}│${N}                     │                                     ${D}│${N}
@@ -1350,12 +1350,12 @@ ${B}STEP 2 — DISCOVER YOUR MACHINES${N}
 
 ${B}STEP 3 — ADD DEVICES${N}
 
-  ${Y}\$${N} ${G}bifrost device add zanpakuto${N}
+  ${Y}\$${N} ${G}bifrost device add asgard${N}
 
   Auto-detects the Tailscale hostname, tests SSH,
   and offers to copy your SSH key if needed.
   The name you give it becomes the session prefix:
-    zanpakuto → ${D}zanpakuto-1, zanpakuto-2, zanpakuto-3, zanpakuto-4${N}
+    asgard → ${D}asgard-1, asgard-2, asgard-3, asgard-4${N}
 
 ${B}STEP 4 — LAUNCH${N}
 
@@ -1376,18 +1376,18 @@ ${B}STEP 5 — CONNECT FROM PHONE${N}
   ${Y}\$${N} ${G}bifrost gateway${N}       ${D}# interactive session picker${N}
 
   ${D}  1  local-1       controller  ~ (zsh)${N}
-  ${D}  2  zanpakuto-1   zanpakuto   api (nvim)${N}
-  ${D}  3  zanpakuto-2   zanpakuto   ~ (claude)${N}
+  ${D}  2  asgard-1   asgard   api (nvim)${N}
+  ${D}  3  asgard-2   asgard   ~ (claude)${N}
   ${D}  4  x64-1         x64         ~ (zsh)${N}
   ${D}  Select [1-4]: 3${N}
-  ${D}  Attaching to zanpakuto-2...${N}
+  ${D}  Attaching to asgard-2...${N}
 
   Bifrost handles the SSH hop. You only need the controller's address.
 
   ${U}Option B — Direct${N}
 
-  ${Y}\$${N} ssh zanpakuto
-  ${Y}\$${N} tmux attach -t zanpakuto-2
+  ${Y}\$${N} ssh asgard
+  ${Y}\$${N} tmux attach -t asgard-2
 
   ${D}No bifrost needed on the phone — just SSH + tmux.${N}
 
