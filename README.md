@@ -10,7 +10,7 @@
 
 ### The idea
 
-A Mac at home running `caffeinate`, always on. It doesn't sleep. Neither do you.
+A Mac at home running `caffeinate`. Always on. We don't sleep.
 
 MacBook in your backpack. Phone in your pocket. All on Tailscale.
 
