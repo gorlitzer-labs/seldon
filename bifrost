@@ -151,11 +151,10 @@ mode_doctor() {
   # Tailscale
   if command -v tailscale &>/dev/null; then
     local ts_status
-    ts_status=$(tailscale status --json 2>/dev/null | grep -o '"BackendState":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
-    if [[ "$ts_status" == "Running" ]]; then
+    if tailscale status &>/dev/null; then
       echo "    ✓ Tailscale (running)"
     else
-      echo "    ⚠ Tailscale (installed but status: $ts_status)"
+      echo "    ⚠ Tailscale (installed but not connected)"
       echo "      → tailscale up"
       ok=false
     fi
@@ -292,7 +291,7 @@ device_scan() {
   fi
 
   local this_host
-  this_host=$(tailscale status --json 2>/dev/null | grep -o '"Self":{"ID":"[^"]*","HostName":"[^"]*"' | grep -o '"HostName":"[^"]*"' | cut -d'"' -f4 || hostname -s)
+  this_host=$(hostname -s 2>/dev/null || hostname)
 
   local existing
   existing=$(list_devices)
