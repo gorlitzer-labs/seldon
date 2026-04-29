@@ -8,21 +8,31 @@
 
 ---
 
+### The idea
+
 Mac Mini at home running `caffeinate`, lid closed. It doesn't sleep. Neither do you.
 
-MacBook in your backpack. Phone in your pocket. All on Tailscale. You're not "working from home" — you're working from everywhere, simultaneously.
+MacBook in your backpack. Phone in your pocket. All on Tailscale.
 
-Home Mac training a model. Four panes: GPU monitor, logs, Claude Code rewriting your pipeline, a shell. Close the laptop, walk out. The model keeps running. The Mac doesn't care you left.
+### The workflow
 
-Café. `bifrost workspace`. Same four panes, right where you left them. Start a new feature on the MacBook while the home Mac crunches numbers 40km away. Two machines, zero context switches.
+🏠 **Home** — Training a model. Four panes: GPU monitor, logs, Claude Code rewriting your pipeline, a shell. Close the laptop, walk out. The model keeps running.
 
-Bus. Phone buzzes — training done. `bifrost gateway`, hop into the home Mac, check results, kick off the next run. The guy next to you thinks you're texting. You just deployed from a bus.
+☕ **Café** — `bifrost workspace`. Same four panes, right where you left them. Start a new feature while the home Mac crunches numbers 40km away.
 
-Office. Both machines are yours. Home compiling, work serving — your own cluster. Red window is home. Blue is work. Phone reaches either through the gateway.
+🚌 **Bus** — Phone buzzes, training done. `bifrost gateway`, hop into the home Mac, check results, kick off the next run. The guy next to you thinks you're texting. You just deployed from a bus.
+
+🏢 **Office** — Both machines are yours. Home compiling, work serving — your own cluster. Red window is home. Blue is work. Phone reaches either through the gateway.
+
+### The point
 
 Every pane is a tmux session. Nothing is lost. No machine sleeps. One `ssh` away from everything.
 
-We built it because we could.
+*We built it because we could.*
+
+---
+
+## Architecture
 
 ```
   CONTROLLER (your Mac)
@@ -62,6 +72,8 @@ We built it because we could.
 | **Device** | tmux only | Hosts sessions (created over SSH) |
 | **Client** | SSH only | Attaches to sessions |
 
+---
+
 ## Install
 
 ```bash
@@ -73,6 +85,8 @@ brew install tmux    # macOS
 sudo apt install tmux  # Linux
 ```
 
+---
+
 ## Quick start
 
 ```bash
@@ -82,10 +96,12 @@ bifrost device add asgard   # add a device
 bifrost workspace           # launch
 ```
 
-From phone:
+**From phone:**
 ```bash
 ssh my-mac && bifrost gateway   # pick a session, auto-hop
 ```
+
+---
 
 ## Sessions
 
@@ -94,6 +110,8 @@ bifrost device add asgard    →  asgard-1, asgard-2, asgard-3, asgard-4
 bifrost device add tatooine  →  tatooine-1, tatooine-2, tatooine-3, tatooine-4
 local (always)               →  local-1, local-2, local-3, local-4
 ```
+
+---
 
 ## Commands
 
@@ -120,6 +138,8 @@ bifrost kill                # tear down everything
 bifrost quickstart          # onboarding guide
 bifrost help                # command reference
 ```
+
+---
 
 ## Releasing
 
