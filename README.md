@@ -8,9 +8,13 @@
 
 ---
 
-You have a Mac at home running `caffeinate`. Another Mac in your backpack. Your phone in your pocket. All on Tailscale.
+Mac Mini at home running `caffeinate`, lid closed, doing the heavy lifting. MacBook in your backpack for the coffee shop. Phone in your pocket for when things break at 2am.
 
-Bifrost gives you a 2x2 terminal grid on each machine — open Claude Code in one pane, vim in another, logs in a third. Walk out the door, pull out your phone, SSH into either machine, and you're right where you left off. Every pane is a tmux session. Nothing is lost. The home Mac never sleeps.
+You're training a model on the home Mac. Four terminal panes open — GPU monitor, training logs, Claude Code refactoring the data pipeline, a shell for git. You close the laptop and walk to the café. Open the MacBook, `bifrost workspace` — same four panes, right where you left them. The model's still running. You start a new feature on the MacBook while the home Mac crunches numbers.
+
+3pm, you're on the bus. Phone buzzes — the training finished. Pull out your phone, `bifrost gateway`, hop into the home Mac's pane, check the results, kick off the next run. Put the phone away.
+
+Every pane is a tmux session. Nothing is lost. No machine ever sleeps. You're always one SSH away from any session on any machine.
 
 That's it. That's the tool.
 
