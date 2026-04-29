@@ -10,7 +10,7 @@
 
 ### The idea
 
-Mac Mini at home running `caffeinate`, lid closed. It doesn't sleep. Neither do you.
+A Mac at home running `caffeinate`, always on. It doesn't sleep. Neither do you.
 
 MacBook in your backpack. Phone in your pocket. All on Tailscale.
 
