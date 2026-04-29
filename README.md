@@ -10,9 +10,9 @@
 
 ---
 
-Bifrost launches a multi-pane iTerm2 workspace across two machines over Tailscale SSH. Each pane runs its own tmux session — work on desktop, pick up from your phone.
+Bifrost launches a multi-pane iTerm2 workspace across two machines over Tailscale SSH. Each pane runs its own tmux session — work on desktop, pick up from your phone. Remote connections auto-reconnect on reboot or network drops.
 
-## Setup
+## Install
 
 ```bash
 cp bifrost ~/bin/
@@ -21,12 +21,19 @@ chmod +x ~/bin/bifrost
 
 Requires: iTerm2, tmux, Tailscale (for SSH between machines).
 
-## Config
+## Setup
+
+First run — configure your remote machine interactively:
 
 ```bash
-export WORKBENCH_REMOTE=your-hostname   # tailscale hostname of remote mac
-export WORKBENCH_USER=your-user         # SSH user (defaults to $(whoami))
+bifrost setup
+# Remote hostname (Tailscale): your-machine
+# SSH user on remote [you]: 
+# Testing SSH... Connected.
+# Config saved to ~/.config/bifrost/config
 ```
+
+Config is stored in `~/.config/bifrost/config`. Env vars (`WORKBENCH_REMOTE`, `WORKBENCH_USER`) override it if set.
 
 ## Usage
 
@@ -51,6 +58,8 @@ LOCAL                            REMOTE (red tint)
 │🐞 local-3│🪲 local-4│          │💎 remote-3│🚀 remote-4│
 └──────────┴──────────┘          └──────────┴──────────┘
 ```
+
+Remote panes auto-reconnect if the connection drops (reboot, network blip).
 
 From your phone:
 ```bash
