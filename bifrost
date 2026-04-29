@@ -1317,20 +1317,16 @@ ${B}THREE ROLES${N}
   ${R}Device${N}      ${D}─${N}  Any remote machine. Just needs tmux. Nothing to install.
   ${Y}Client${N}      ${D}─${N}  Phone, iPad, laptop. Connects to existing sessions.
 
-  ${D}┌──────────────────────────────────────────────────┐${N}
-  ${D}│${N}                                                  ${D}│${N}
-  ${D}│${N}   ${C}CONTROLLER${N} ${D}(this Mac)${N}                           ${D}│${N}
-  ${D}│${N}       │                                          ${D}│${N}
-  ${D}│${N}       ├── local-1..4  ${D}(local sessions)${N}          ${D}│${N}
-  ${D}│${N}       │                                          ${D}│${N}
-  ${D}│${N}       ├── SSH ──→ ${R}asgard${N}-1..4                 ${D}│${N}
-  ${D}│${N}       └── SSH ──→ ${R}tatooine${N}-1..4               ${D}│${N}
-  ${D}│${N}                       ▲                          ${D}│${N}
-  ${D}│${N}                       │                          ${D}│${N}
-  ${D}│${N}                    ${Y}📱 phone${N}                     ${D}│${N}
-  ${D}│${N}                    ssh → bifrost gateway          ${D}│${N}
-  ${D}│${N}                                                  ${D}│${N}
-  ${D}└──────────────────────────────────────────────────┘${N}
+  ${C}CONTROLLER${N} ${D}(this Mac)${N}
+      │
+      ├── local-1..4  ${D}(local sessions)${N}
+      │
+      ├── SSH ──→ ${R}asgard${N}-1..4
+      └── SSH ──→ ${R}tatooine${N}-1..4
+                      ▲
+                      │
+                   ${Y}phone${N}
+                   ssh → bifrost gateway
 
 ${B}STEP 1 — CHECK PREREQUISITES${N}
 
