@@ -79,6 +79,14 @@ Heimdall works on macOS (with iTerm2 for visual grids), Linux, and Android via T
 
 ## Install
 
+**One-liner** (macOS, Linux, Termux):
+```bash
+curl -fsSL https://raw.githubusercontent.com/gorlitzer-labs/bifrost/main/install.sh | bash
+```
+
+Installs bifrost + dependencies, generates tmux.conf, and on Termux creates home screen widget shortcuts.
+
+**Manual:**
 ```bash
 # Heimdall (your primary machine)
 cp bifrost ~/bin/ && chmod +x ~/bin/bifrost
@@ -88,6 +96,19 @@ bifrost setup   # generates tmux.conf + config
 brew install tmux    # macOS
 sudo apt install tmux  # Linux
 pkg install tmux     # Termux (Android)
+```
+
+**Termux (Google Pixel / Android):**
+```bash
+# 1. Install Termux from F-Droid (not Play Store — the Play Store version is outdated)
+#    https://f-droid.org/en/packages/com.termux/
+
+# 2. Open Termux and run:
+curl -fsSL https://raw.githubusercontent.com/gorlitzer-labs/bifrost/main/install.sh | bash
+
+# 3. Optional: Install Termux:Widget from F-Droid for home screen shortcuts
+#    https://f-droid.org/en/packages/com.termux.widget/
+#    Long-press home → Widgets → Termux:Widget → tap bifrost-gateway
 ```
 
 ---
