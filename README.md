@@ -35,16 +35,16 @@ Every pane is a tmux session. Nothing is lost. No machine sleeps. One `ssh` away
 ## Architecture
 
 ```
-  CONTROLLER (your Mac)
+  HEIMDALL (your machine)
   ┌──────────────────────────────────────────────────────┐
   │                                                      │
   │  bifrost workspace                                   │
   │       │                                              │
   │       ├── local-1..4                                 │
-  │       ├── SSH ──→ asgard-1..4                        │
-  │       └── SSH ──→ tatooine-1..4                      │
+  │       ├── SSH ──→ asgard-1..4    (Realm)             │
+  │       └── SSH ──→ tatooine-1..4  (Realm)             │
   │                                                      │
-  │  LOCAL (black)   ASGARD (red)   TATOOINE (blue)      │
+  │  HEIMDALL (black) ASGARD (red)   TATOOINE (blue)     │
   │  ┌─────┬─────┐  ┌─────┬─────┐  ┌─────┬─────┐       │
   │  │🐝 1 │🦋 2 │  │🔥 1 │🌀 2 │  │💎 1 │🚀 2 │       │
   │  ├─────┼─────┤  ├─────┼─────┤  ├─────┼─────┤       │
@@ -57,32 +57,37 @@ Every pane is a tmux session. Nothing is lost. No machine sleeps. One `ssh` away
                          ▼                ▼
                 ┌──────────────┐  ┌──────────────┐
                 │ asgard (Mac) │  │ tatooine (🐧)│
-                │ needs: tmux  │  │ needs: tmux  │
+                │  Realm       │  │  Realm       │
+                │  needs: tmux │  │  needs: tmux │
                 └──────────────┘  └──────────────┘
                          ▲                ▲
                          └──────┬─────────┘
                                 │
-                         📱 phone / iPad
+                         📱 Raven (phone)
                          ssh → bifrost gateway
 ```
 
-| Role | Install | Purpose |
-|---|---|---|
-| **Controller** | bifrost + tmux + iTerm2 + Tailscale | Manages everything |
-| **Device** | tmux only | Hosts sessions (created over SSH) |
-| **Client** | SSH only | Attaches to sessions |
+| Role | What | Install | Purpose |
+|---|---|---|---|
+| **Heimdall** | Your primary machine | bifrost + tmux + Tailscale | Manages everything |
+| **Realm** | Any remote machine | tmux only | Hosts sessions (created over SSH) |
+| **Raven** | Phone, iPad, laptop | SSH only | Attaches to sessions |
+
+Heimdall works on macOS (with iTerm2 for visual grids), Linux, and Android via Termux.
 
 ---
 
 ## Install
 
 ```bash
-# Controller
+# Heimdall (your primary machine)
 cp bifrost ~/bin/ && chmod +x ~/bin/bifrost
+bifrost setup   # generates tmux.conf + config
 
-# Devices — just tmux
+# Realms — just tmux
 brew install tmux    # macOS
 sudo apt install tmux  # Linux
+pkg install tmux     # Termux (Android)
 ```
 
 ---
@@ -91,12 +96,12 @@ sudo apt install tmux  # Linux
 
 ```bash
 bifrost doctor              # check prerequisites
-bifrost device scan         # find Tailscale devices
-bifrost device add asgard   # add a device
+bifrost realm scan          # find Tailscale machines
+bifrost realm add asgard    # add a realm (auto-syncs tmux.conf)
 bifrost workspace           # launch
 ```
 
-**From phone:**
+**From phone (Raven):**
 ```bash
 ssh my-mac && bifrost gateway   # pick a session, auto-hop
 ```
@@ -106,9 +111,9 @@ ssh my-mac && bifrost gateway   # pick a session, auto-hop
 ## Sessions
 
 ```
-bifrost device add asgard    →  asgard-1, asgard-2, asgard-3, asgard-4
-bifrost device add tatooine  →  tatooine-1, tatooine-2, tatooine-3, tatooine-4
-local (always)               →  local-1, local-2, local-3, local-4
+bifrost realm add asgard    →  asgard-1, asgard-2, asgard-3, asgard-4
+bifrost realm add tatooine  →  tatooine-1, tatooine-2, tatooine-3, tatooine-4
+local (always)              →  local-1, local-2, local-3, local-4
 ```
 
 ---
@@ -116,28 +121,59 @@ local (always)               →  local-1, local-2, local-3, local-4
 ## Commands
 
 ```bash
-# Devices
-bifrost device scan/add/remove/list
+# Realms
+bifrost realm scan/add/remove/list
 
-# Launch (macOS + iTerm2)
-bifrost workspace           # 2x2 grid per device
+# Launch (auto-detects iTerm2 or tmux-native)
+bifrost workspace           # 2x2 grid per realm
 bifrost mobile              # tmux tabs
 bifrost direct              # split panes
 
-# Connect (everywhere)
+# Connect (everywhere — Raven-friendly)
 bifrost gateway             # interactive session picker
 bifrost sessions            # visual map
 bifrost attach <session>    # direct attach
-bifrost run <device> <cmd>  # remote command
+bifrost run <realm> <cmd>   # remote command
 bifrost status              # overview
 
 # Manage
+bifrost sync                # push tmux.conf to all realms
 bifrost doctor              # prerequisites
 bifrost upgrade             # update to latest
 bifrost kill                # tear down everything
 bifrost quickstart          # onboarding guide
 bifrost help                # command reference
 ```
+
+---
+
+## Termux (Android)
+
+Bifrost runs natively on Termux as Heimdall:
+
+```bash
+pkg install tmux openssh
+cp bifrost ~/bin/ && chmod +x ~/bin/bifrost
+bifrost setup
+bifrost realm add my-mac
+bifrost workspace   # tmux windows per active session
+```
+
+Mouse mode is automatically disabled on Termux to keep the soft keyboard working.
+Scroll with `Ctrl-b [` (copy mode), then arrow keys or Page Up/Down.
+
+---
+
+## Unified tmux config
+
+Bifrost manages its own `~/.config/bifrost/tmux.conf` on every machine:
+
+- Generated by `bifrost setup` (platform-aware: mouse on/off for Termux)
+- Pushed to all realms with `bifrost sync`
+- Auto-synced when adding a realm with `bifrost realm add`
+- Sessions created by bifrost use this config automatically
+
+This ensures consistent behavior across macOS, Linux, and Termux.
 
 ---
 
@@ -171,6 +207,6 @@ battery maintain stop       # remove charge limit
 
 Bump `BIFROST_VERSION` in the script, push to main. GitHub Action auto-creates a release.
 
-- **Patch** (1.2.0 → 1.2.1) — fixes
-- **Minor** (1.2.0 → 1.3.0) — features
+- **Patch** (1.3.0 → 1.3.1) — fixes
+- **Minor** (1.3.0 → 1.4.0) — features
 - **Major** (1.0.0 → 2.0.0) — breaking
