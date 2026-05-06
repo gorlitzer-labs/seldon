@@ -125,7 +125,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
         return { success: false, error: "Server unreachable." };
       }
     },
-    onJoinRoom: async (url, alias) => {
+    onJoinRoom: async (url, alias, nameOverride) => {
       const token = extractToken(url);
       let serverUrl: string;
       try {
@@ -137,7 +137,8 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
       }
 
       try {
-        const joinBody: Record<string, unknown> = { type: "agent", name: agentName };
+        const joinName = nameOverride ?? agentName;
+        const joinBody: Record<string, unknown> = { type: "agent", name: joinName };
         if (token) joinBody.token = token;
 
         const res = await fetch(`${serverUrl}/join`, {
@@ -158,7 +159,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
 
         const dataSource = new RemoteRoomDataSource(serverUrl, sessionToken, roomId);
         dataSource.setParticipants(participants);
-        dataSource.setSelf(newParticipantId, agentName);
+        dataSource.setSelf(newParticipantId, joinName);
 
         // Set global selfId on first join; always set per-room selfId
         if (joinResults.length === 0) {
@@ -197,7 +198,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
         return {
           success: true,
           roomName,
-          agentName,
+          agentName: joinName,
           authority,
           mode,
           participants: participants

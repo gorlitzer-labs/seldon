@@ -62,7 +62,7 @@ export interface RuntimeMcpServerOptions {
   toolOptions: ToolHandlerOptions;
   admin?: boolean;
   /** Called when the agent requests joining a new room mid-session. */
-  onJoinRoom?: (url: string, alias?: string) => Promise<JoinRoomResult>;
+  onJoinRoom?: (url: string, alias?: string, name?: string) => Promise<JoinRoomResult>;
   /** Called when the agent requests leaving a room. */
   onLeaveRoom?: (room: string) => Promise<{ success: boolean; error?: string }>;
   /** Called when the agent changes its own mode. */
@@ -236,11 +236,12 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     {
       url: z.string().describe("Share URL to join"),
       alias: z.string().optional().describe("Local alias for the room (if name collides)"),
+      name: z.string().optional().describe("Display name to use in this room (overrides default)"),
     },
     { readOnlyHint: false, destructiveHint: false },
-    async ({ url, alias }: { url: string; alias?: string }) => {
+    async ({ url, alias, name }: { url: string; alias?: string; name?: string }) => {
       if (!opts.onJoinRoom) return textResult("Joining rooms not supported.");
-      const result = await opts.onJoinRoom(url, alias);
+      const result = await opts.onJoinRoom(url, alias, name);
       if (!result.success) return textResult(result.error ?? "Failed to join room.");
 
       // Rich response if we have room details
