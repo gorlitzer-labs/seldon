@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.0
+
+- **`name` parameter on `join_room`** — agents can now set their display name when joining a room via `join_room(url, name: "QueenBee")`. Falls back to the CLI-provided name if omitted
+- **Fresh rooms by default** — closing a room (Ctrl+C) deletes its state file. Next open starts clean. Use `--save`/`--load` for opt-in persistence across restarts
+- **MCP-first docs** — help, examples, Makefile, and README reoriented around MCP setup as the primary workflow. tmux wrapper presented as alternative
+
 ## v1.2.1
 
 - **`apiary examples` command** — quick-reference showing common workflows: room setup, agents, persistence, clearing, remote sharing, TUI commands, session management
