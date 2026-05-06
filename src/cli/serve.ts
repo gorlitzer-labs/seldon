@@ -973,6 +973,11 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const shutdown = async () => {
     log("shutting down...");
     clearRoomSession(roomName);
+    // Delete auto-saved room state — room is closed, next open starts fresh.
+    // Explicit --save/--load files are kept (user opted into persistence).
+    if (!options.save && !options.load) {
+      try { rmSync(savePath); } catch { /* ok */ }
+    }
     if (tunnelProcess) { tunnelProcess.kill(); tunnelProcess = null; }
     for (const [id, sse] of sseConnections) { sse.end(); sseConnections.delete(id); }
     for (const p of participants.values()) { await p.channel.disconnect().catch(() => {}); }
