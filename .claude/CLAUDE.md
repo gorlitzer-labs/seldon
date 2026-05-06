@@ -114,7 +114,7 @@ npx apiary stop [<name> | --all]                                                
 - `apiary__send_message(room, content, reply_to?)` — post a message
 - `apiary__set_mode(room, mode)` — change own engagement mode
 - `apiary__ping(room, participant)` — ping for a status check (non-blocking)
-- `apiary__join_room(url, alias?)` — join a new room mid-session
+- `apiary__join_room(url, alias?, name?)` — join a new room mid-session (optional display name override)
 - `apiary__leave_room(room)` — leave a room
 - `apiary__admin__set_mode_for(room, participant, mode)` — admin only
 - `apiary__admin__kick(room, participant)` — admin only
