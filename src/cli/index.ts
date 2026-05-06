@@ -59,25 +59,23 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream("");
   stream(`  ${C}apiary room ${Y}<room>${R} ${D}[${Y}<name>${R}${D}] [--share]${R}                  Host a room + join the TUI`);
   stream(`  ${C}apiary mcp ${Y}<name>${R} ${D}[--admin] [--join ${Y}<url>${R}${D}]${R}                Standalone MCP server ${D}(any client)${R}`);
-  stream(`  ${C}apiary claude ${Y}<name>${R} ${D}[--admin]${R}                          Launch Claude Code`);
-  stream(`  ${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}                           Launch Codex`);
+  stream(`  ${C}apiary claude ${Y}<name>${R} ${D}[--admin]${R}                          Launch Claude Code ${D}(tmux wrapper)${R}`);
+  stream(`  ${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}                           Launch Codex ${D}(tmux wrapper)${R}`);
   stream(`  ${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}] [--guest]${R}                   Join an existing room`);
   stream(`  ${C}apiary ps${R}                                                  List rooms + agents ${D}(with join links)${R}`);
   stream(`  ${C}apiary stop${R} ${D}[${Y}<name>${R}${D} | --all]${R}                              Stop agents`);
   stream(`  ${C}apiary update${R} ${D}[${Y}<version>${R}${D}]${R}                                Pull + rebuild`);
   stream(`  ${C}apiary examples${R}                                            Use cases + workflows`);
   stream("");
-  stream(`  ${D}Extra flags are forwarded to the agent CLI:${R}`);
-  stream(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--dangerously-skip-permissions${R}`);
+  stream(`  ${G}${B}Quick start${R}  ${D}(MCP — recommended)${R}`);
+  stream(`    ${D}1.${R} Add to ${C}~/.claude/mcp.json${R}  ${D}(or project .mcp.json):${R}`);
+  stream(`       ${D}{ "mcpServers": { "apiary": {${R}`);
+  stream(`           ${D}"type": "stdio", "command": "npx",${R}`);
+  stream(`           ${D}"args": ["apiary", "mcp", "${Y}YourName${R}${D}", "--admin"] } } }${R}`);
+  stream(`    ${D}2.${R} ${C}apiary room ${Y}brood-box${R}    ${D}→ start a room${R}`);
+  stream(`    ${D}3.${R} ${D}Paste the URL to any agent — it calls join_room() and participates.${R}`);
   stream("");
-  stream(`  ${G}${B}Quick start${R}`);
-  stream(`    ${D}T1${R}  ${C}apiary room ${Y}brood-box Overlord${R}`);
-  stream(`    ${D}T2${R}  ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}`);
-  stream(`    ${D}T3${R}  ${C}apiary claude ${Y}Unpaid-Intern${R}`);
-  stream(`    ${D}Tell them the URL. They don't get a choice.${R}`);
-  stream("");
-  stream(`  ${G}${B}Or just add to MCP config${R}  ${D}(no tmux needed)${R}`);
-  stream(`    ${C}apiary mcp ${Y}WorkerBee${R} ${D}--admin${R}   ${D}→ add to mcp.json, tell agent the URL${R}`);
+  stream(`  ${D}tmux wrapper:${R}  ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}  ${D}(alternative to MCP)${R}`);
   stream("");
 }
 
@@ -94,58 +92,48 @@ function printExamples(): void {
   console.log(`  ${Y}${B}apiary examples${R}`);
   console.log("");
 
-  // ── Local room
-  console.log(`  ${G}${B}Start a room locally${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box${R}                  ${D}# host + join the TUI${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box Overlord${R}         ${D}# with a display name${R}`);
-  console.log("");
-
-  // ── Connect agents
-  console.log(`  ${G}${B}Connect agents${R}`);
-  console.log(`    ${C}apiary mcp ${Y}WorkerBee${R} ${D}--admin${R}            ${D}# standalone MCP server (any client)${R}`);
-  console.log(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}       ${D}# launch Claude Code (tmux wrapper)${R}`);
-  console.log(`    ${C}apiary codex ${Y}CheapLabor${R}                ${D}# launch Codex${R}`);
-  console.log(`    ${D}Tell the agent the room URL — it joins via apiary__join_room.${R}`);
-  console.log("");
-
-  // ── MCP config
-  console.log(`  ${G}${B}MCP config${R}  ${D}(add to ~/.claude/mcp.json or project .mcp.json)${R}`);
+  // ── MCP config (primary)
+  console.log(`  ${G}${B}MCP setup${R}  ${D}(recommended — add to ~/.claude/mcp.json or project .mcp.json)${R}`);
   console.log(`    ${D}{${R}`);
   console.log(`      ${D}"mcpServers": {${R}`);
   console.log(`        ${D}"apiary": {${R}`);
   console.log(`          ${D}"type": "stdio",${R}`);
   console.log(`          ${D}"command": "npx",${R}`);
-  console.log(`          ${D}"args": ["apiary", "mcp", "${Y}WorkerBee${R}${D}", "--admin"]${R}`);
+  console.log(`          ${D}"args": ["apiary", "mcp", "${Y}YourName${R}${D}", "--admin"]${R}`);
   console.log(`        ${D}}${R}`);
   console.log(`      ${D}}${R}`);
   console.log(`    ${D}}${R}`);
+  console.log(`    ${D}Then paste a room URL to any agent — it calls join_room() and participates.${R}`);
+  console.log(`    ${D}Events are pull-based via catch_up(). No tmux, no wrapper.${R}`);
+  console.log("");
+
+  // ── Start a room
+  console.log(`  ${G}${B}Start a room${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box${R}                  ${D}# host + join the TUI${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box Overlord${R}         ${D}# with a display name${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--share${R}           ${D}# with a public tunnel URL${R}`);
+  console.log(`    ${D}Closing a room (Ctrl+C) deletes its state — next open starts fresh.${R}`);
   console.log("");
 
   // ── Persistence
-  console.log(`  ${G}${B}Room persistence${R}  ${D}(auto — no flags needed)${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box${R}                  ${D}# saves to ~/.apiary/rooms/brood-box.json${R}`);
-  console.log(`    ${D}# ... work, Ctrl+C ...${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box${R}                  ${D}# resumes where you left off${R}`);
-  console.log("");
-  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--save ${Y}my.json${R}   ${D}# override save location${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--load ${Y}my.json${R}   ${D}# load from a specific file${R}`);
-  console.log("");
-
-  // ── Clear + backup
-  console.log(`  ${G}${B}Fresh start${R}`);
-  console.log(`    ${D}In the TUI:${R}  ${C}/clear${R}                   ${D}# wipe all history (admin only)${R}`);
-  console.log(`    ${D}Backup first:${R} ${C}cp ~/.apiary/rooms/brood-box.json brood-box.bak${R}`);
+  console.log(`  ${G}${B}Persistent rooms${R}  ${D}(opt-in)${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--save ${Y}session.json${R}  ${D}# save state to file${R}`);
+  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--load ${Y}session.json${R}  ${D}# resume from file${R}`);
+  console.log(`    ${D}Mid-session:${R}  ${C}/clear${R}                        ${D}# wipe all history (admin only)${R}`);
   console.log("");
 
   // ── Remote sharing
   console.log(`  ${G}${B}Share remotely${R}`);
   console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--share${R}           ${D}# starts a cloudflared tunnel${R}`);
-  console.log(`    ${D}# prints a public URL — share it with anyone${R}`);
-  console.log("");
-  console.log(`    ${D}From another machine:${R}`);
-  console.log(`    ${C}apiary join ${Y}<url>${R}                       ${D}# join the room${R}`);
+  console.log(`    ${C}apiary join ${Y}<url>${R}                       ${D}# join from another machine${R}`);
   console.log(`    ${C}apiary join ${Y}<url>${R} ${D}--guest${R}              ${D}# watch read-only${R}`);
-  console.log(`    ${C}apiary claude ${Y}Drone42${R}                   ${D}# agent joins after you give it the URL${R}`);
+  console.log("");
+
+  // ── tmux wrapper (alternative)
+  console.log(`  ${G}${B}tmux wrapper${R}  ${D}(alternative to MCP)${R}`);
+  console.log(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}       ${D}# launch Claude Code in tmux${R}`);
+  console.log(`    ${C}apiary codex ${Y}CheapLabor${R}                ${D}# launch Codex in tmux${R}`);
+  console.log(`    ${D}Tell the agent the room URL — it joins via apiary__join_room.${R}`);
   console.log("");
 
   // ── TUI commands

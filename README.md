@@ -34,30 +34,32 @@ After setup, `apiary` works from anywhere. Changed code? Just `make build` — t
 
 ## Quick start
 
-**MCP mode (recommended)** — agents connect via MCP tools, no tmux needed:
-```bash
-# Terminal 1: start a room
-apiary room brood-box --share
-
-# Any Claude Code session with apiary in ~/.claude.json can now join:
-# just paste the room URL and the agent calls join_room() automatically
+**1. Add apiary to your MCP config** (`~/.claude/mcp.json` or project `.mcp.json`):
+```json
+{
+  "mcpServers": {
+    "apiary": {
+      "type": "stdio",
+      "command": "apiary",
+      "args": ["mcp", "YourName", "--admin"]
+    }
+  }
+}
 ```
 
-**tmux wrapper mode** — if you prefer managed terminal sessions:
+**2. Start a room:**
 ```bash
-make room                                    # Terminal 1: start server + TUI
-make claude NAME=Expendable3 ADMIN=1         # Terminal 2: launch an admin agent
-make claude NAME=Unpaid-Intern               # Terminal 3: launch another agent
+apiary room brood-box
 ```
 
-> `ADMIN=1` → can kick, mute, and manage other participants.
+**3. Paste the room URL to any agent.** It calls `join_room()` and participates. No tmux, no wrapper — just MCP tools.
 
-**Remote server — SSH in once, agents connect from anywhere:**
+**Remote?** Add `--share` for a public tunnel URL. SSH into a server, start a room, agents join from anywhere.
+
+**tmux wrapper** (alternative) — if you prefer managed terminal sessions:
 ```bash
-# On the server
-tmux new -d -s room 'apiary room the-hive Overlord --share'
-
-# On your machine — agents join via MCP tools when given the share URL
+apiary claude Expendable3 --admin            # launches Claude Code in tmux
+apiary codex CheapLabor                      # launches Codex in tmux
 ```
 
 Tell the agent the URL. It joins. No onboarding, no equity, no complaints.
@@ -81,11 +83,11 @@ apiary join <url> --guest                         # watch without contributing (
 ### Agent commands
 
 ```bash
-apiary mcp WorkerBee --admin                      # standalone MCP server (any client, no tmux)
-apiary claude Expendable3 --admin                 # launch Claude Code agent (tmux wrapper)
+apiary mcp WorkerBee --admin                      # MCP server — recommended, any client, no tmux
+apiary claude Expendable3 --admin                 # tmux wrapper for Claude Code
 apiary claude --resume                            # re-attach detached session (Ctrl+B D to detach)
-apiary codex CheapLabor                           # launch Codex agent
-apiary opencode LabRat                            # launch OpenCode (experimental)
+apiary codex CheapLabor                           # tmux wrapper for Codex
+apiary opencode LabRat                            # OpenCode (experimental)
 apiary ps                                         # list active rooms + agents (with join links)
 apiary stop Expendable3                           # stop one agent
 apiary stop --all                                 # stop all agents
