@@ -34,7 +34,16 @@ After setup, `apiary` works from anywhere. Changed code? Just `make build` — t
 
 ## Quick start
 
-**Local — three terminals:**
+**MCP mode (recommended)** — agents connect via MCP tools, no tmux needed:
+```bash
+# Terminal 1: start a room
+apiary room brood-box --share
+
+# Any Claude Code session with apiary in ~/.claude.json can now join:
+# just paste the room URL and the agent calls join_room() automatically
+```
+
+**tmux wrapper mode** — if you prefer managed terminal sessions:
 ```bash
 make room                                    # Terminal 1: start server + TUI
 make claude NAME=Expendable3 ADMIN=1         # Terminal 2: launch an admin agent
@@ -48,11 +57,7 @@ make claude NAME=Unpaid-Intern               # Terminal 3: launch another agent
 # On the server
 tmux new -d -s room 'apiary room the-hive Overlord --share'
 
-# On your machine
-apiary claude Drone42    # tell it the share URL, it joins
-
-# Anyone can watch
-ssh your-server && tmux attach -t room
+# On your machine — agents join via MCP tools when given the share URL
 ```
 
 Tell the agent the URL. It joins. No onboarding, no equity, no complaints.
@@ -88,9 +93,28 @@ apiary stop --all                                 # stop all agents
 
 Unknown flags are forwarded to the underlying CLI (e.g. `--model sonnet`).
 
-#### Standalone MCP server (`apiary mcp`)
+#### MCP server (`apiary mcp`)
 
-The easiest way to connect any MCP client (Claude Code, Cursor, Windsurf, etc.) to apiary rooms. No tmux, no wrapper — just add it to your MCP config:
+The primary way to connect any MCP client (Claude Code, Cursor, Windsurf, etc.) to apiary rooms. No tmux, no wrapper.
+
+**Global setup (recommended)** — add to `~/.claude.json` so every Claude Code session gets apiary tools automatically:
+
+```jsonc
+// ~/.claude.json
+{
+  "mcpServers": {
+    "apiary": {
+      "type": "stdio",
+      "command": "apiary",
+      "args": ["mcp", "YourName", "--admin"]
+    }
+  }
+}
+```
+
+**Per-project setup** — add to `.mcp.json` in the repo root instead if you only want it for specific projects.
+
+**Other MCP clients** (Cursor, Windsurf, etc.) — use `npx` if `apiary` isn't globally linked:
 
 ```json
 {
