@@ -363,7 +363,7 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
 }
 
 /**
- * Create a runtime MCP server on a random localhost port.
+ * Create a runtime MCP server on a random localhost port (HTTP transport).
  * Returns the URL for --mcp-config and a stop function.
  */
 export async function createRuntimeMcpServer(
@@ -422,4 +422,38 @@ export async function createRuntimeMcpServer(
   };
 
   return { url, stop };
+}
+
+/**
+ * Create a runtime MCP server using stdio transport (stdin/stdout).
+ * Used by `apiary mcp` — the server runs as a standalone process that
+ * any MCP client (Claude Code, etc.) can connect to via stdio.
+ *
+ * Returns a stop function and signals when the transport closes.
+ */
+export async function createStdioRuntimeMcpServer(
+  opts: RuntimeMcpServerOptions,
+): Promise<{ stop: () => Promise<void>; closed: Promise<void> }> {
+  const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
+  const { StdioServerTransport } = await import(
+    "@modelcontextprotocol/sdk/server/stdio.js"
+  );
+
+  const mcpServer = new McpServer({ name: "apiary_runtime", version: "1.0.0" });
+  registerTools(mcpServer, opts);
+
+  const transport = new StdioServerTransport();
+
+  const closed = new Promise<void>((resolve) => {
+    transport.onclose = () => resolve();
+  });
+
+  await mcpServer.connect(transport);
+
+  const stop = async () => {
+    await transport.close();
+    await mcpServer.close();
+  };
+
+  return { stop, closed };
 }

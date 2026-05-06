@@ -71,6 +71,34 @@ const BANNER: BannerSegment[][] = [
   ],
 ];
 
+// ── Fight mode ───────────────────────────────────────────────────────────────
+
+const FIGHT_BANNER: BannerSegment[][] = [
+  [{ text: "╔══════════════════════════════════════════════════════╗", color: "#f87171" }],
+  [{ text: "║", color: "#f87171" }, { text: "  ███████╗██╗ ██████╗ ██╗  ██╗████████╗██╗██╗  ", color: "#ff4444" }, { text: "║", color: "#f87171" }],
+  [{ text: "║", color: "#f87171" }, { text: "  ██╔════╝██║██╔════╝ ██║  ██║╚══██╔══╝██║██║  ", color: "#ff6b6b" }, { text: "║", color: "#f87171" }],
+  [{ text: "║", color: "#f87171" }, { text: "  █████╗  ██║██║  ███╗███████║   ██║   ██║██║  ", color: "#ff8888" }, { text: "║", color: "#f87171" }],
+  [{ text: "║", color: "#f87171" }, { text: "  ██╔══╝  ██║██║   ██║██╔══██║   ██║   ╚═╝╚═╝  ", color: "#ff6b6b" }, { text: "║", color: "#f87171" }],
+  [{ text: "║", color: "#f87171" }, { text: "  ██║     ██║╚██████╔╝██║  ██║   ██║   ██╗██╗  ", color: "#ff4444" }, { text: "║", color: "#f87171" }],
+  [{ text: "║", color: "#f87171" }, { text: "  ╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝╚═╝  ", color: "#ff4444" }, { text: "║", color: "#f87171" }],
+  [{ text: "║", color: "#f87171" }, { text: "                                                  ", color: "#f87171" }, { text: "║", color: "#f87171" }],
+  [{ text: "║", color: "#f87171" }, { text: "     ⚔️  NO MERCY  ·  NO RULES  ·  NO FILTER  ⚔️   ", color: "#fbbf24" }, { text: "║", color: "#f87171" }],
+  [{ text: "╚══════════════════════════════════════════════════════╝", color: "#f87171" }],
+];
+
+const FIGHT_HITS = ["POW!", "WHAM!", "K.O.!", "BAM!", "CRACK!", "BOOM!", "SLAM!", "ZAP!", "THWACK!", "KAPOW!", "HADOUKEN!", "FATALITY!", "COMBO!", "ULTRA!"];
+const FIGHT_COLORS = ["#ff4444", "#ff6b6b", "#fbbf24", "#ff8c42", "#f472b6", "#8b5cf6"] as const;
+
+function pickFightHit(messageId: string): { word: string; color: string } {
+  let h = 0;
+  for (let i = 0; i < messageId.length; i++) h = ((h << 5) - h + messageId.charCodeAt(i)) | 0;
+  const idx = Math.abs(h);
+  return {
+    word: FIGHT_HITS[idx % FIGHT_HITS.length],
+    color: FIGHT_COLORS[idx % FIGHT_COLORS.length],
+  };
+}
+
 // ── Slash commands ────────────────────────────────────────────────────────────
 
 interface SlashParam {
@@ -86,7 +114,7 @@ interface SlashCommand {
 }
 
 const ENGAGEMENT_MODES = [
-  "everyone", "people", "agents",
+  "everyone", "people", "agents", "fight",
   "standby-everyone", "standby-people", "standby-agents",
 ];
 
@@ -259,11 +287,13 @@ function EventLine({
   identify,
   cols,
   zebra,
+  fightMode,
 }: {
   event: DisplayEvent;
   identify: (n: string) => { color: string; sigil: string };
   cols: number;
   zebra?: boolean;
+  fightMode?: boolean;
 }) {
   const ts = <Text color={C.muted}>{event.ts}{"  "}</Text>;
 
@@ -271,19 +301,27 @@ function EventLine({
   if (event.kind === "message") {
     const { color, sigil } = identify(event.senderName);
     const isSelf     = event.isSelf;
+    const isFight    = fightMode && !isSelf;
+
     const nameColor  = isSelf ? C.text : event.senderType === "agent" ? color : C.secondary;
     const sigilColor = isSelf ? C.dim  : event.senderType === "agent" ? color : C.dim;
-    const sigilChar  = isSelf ? "›" : event.senderType === "agent" ? sigil : "·";
+    const sigilChar  = isSelf ? "›" : isFight ? "⚔" : event.senderType === "agent" ? sigil : "·";
     const contentColor = isSelf ? C.text : zebra ? "#d0d5de" : C.secondary;
 
-    // Border color: sender's color for agents, dim for self, muted for other humans
-    const borderColor = isSelf ? C.border : event.senderType === "agent" ? color : C.dim;
+    // Border: fight mode = double borders in red/orange, normal = round
+    const borderColor = isFight
+      ? FIGHT_COLORS[Math.abs(seedHash(event.id)) % FIGHT_COLORS.length]
+      : isSelf ? C.border : event.senderType === "agent" ? color : C.dim;
+    const borderStyle = isFight ? "double" as const : "round" as const;
 
     // Box eats ~4 cols (2 border + 2 padding). Inner content width:
     const boxChrome = 4; // │ + space + space + │
     const innerWidth = Math.max(10, cols - 2 - boxChrome); // -2 for outer paddingX
 
     const wrapped = wordWrap(event.content, innerWidth);
+
+    // Fight mode: comic book hit effect
+    const hit = isFight ? pickFightHit(event.id) : null;
 
     // Reply indicator — subtle tag in header. Mentions are already
     // highlighted in content by StyledContent, no separate indicator needed.
@@ -292,29 +330,32 @@ function EventLine({
       : null;
 
     return (
-      <Box paddingX={1}>
-        <Box
-          flexDirection="column"
-          borderStyle="round"
-          borderColor={borderColor}
-          paddingX={1}
-          width={cols - 2}
-        >
-          {/* Header: timestamp + sigil + name (+ reply tag) */}
-          <Box>
-            {ts}
-            <Text color={sigilColor}>{sigilChar}{" "}</Text>
-            <Text color={nameColor} bold={isSelf}>{event.senderName}</Text>
-            {replyTag}
-          </Box>
-          {/* Content */}
-          {wrapped.map((line, i) => (
-            <Box key={i}>
-              <Text wrap="truncate">
-                <StyledContent text={line} contentColor={contentColor} identify={identify} />
-              </Text>
+      <Box paddingX={1} flexDirection="column">
+        <Box>
+          <Box
+            flexDirection="column"
+            borderStyle={borderStyle}
+            borderColor={borderColor}
+            paddingX={1}
+            width={cols - 2}
+          >
+            {/* Header: timestamp + sigil + name (+ reply tag) (+ fight hit) */}
+            <Box>
+              {ts}
+              <Text color={sigilColor}>{sigilChar}{" "}</Text>
+              <Text color={nameColor} bold={isSelf || isFight}>{event.senderName}</Text>
+              {replyTag}
+              {hit && <Text color={hit.color} bold>{`  « ${hit.word} »`}</Text>}
             </Box>
-          ))}
+            {/* Content */}
+            {wrapped.map((line, i) => (
+              <Box key={i}>
+                <Text wrap="truncate">
+                  <StyledContent text={line} contentColor={isFight ? C.text : contentColor} identify={identify} />
+                </Text>
+              </Box>
+            ))}
+          </Box>
         </Box>
       </Box>
     );
@@ -350,6 +391,19 @@ function EventLine({
 
   // ── Mode change ──
   if (event.kind === "mode") {
+    if (event.mode === "fight") {
+      return (
+        <Box flexDirection="column" paddingX={1}>
+          <Box><Text>{" "}</Text></Box>
+          {FIGHT_BANNER.map((segments, i) => (
+            <Text key={i}>{segments.map((s, j) => (
+              <Text key={j} color={s.color} bold>{s.text}</Text>
+            ))}</Text>
+          ))}
+          <Box><Text>{" "}</Text></Box>
+        </Box>
+      );
+    }
     return (
       <Box paddingX={1}>
         {ts}
@@ -429,6 +483,8 @@ function App({
   const [busyAgents,    setBusyAgents]    = useState<Set<string>>(new Set());
   const [staleAgents,   setStaleAgents]   = useState<Set<string>>(new Set());
   const [idleAgents,    setIdleAgents]    = useState<Set<string>>(new Set());
+  const [fightMode,     setFightMode]     = useState(false);
+  const fightModeRef = useRef(false);
   const soundRef = useRef(initialSound);
   const busyRef  = useRef<Set<string>>(new Set());
   const staleRef = useRef<Set<string>>(new Set());
@@ -462,6 +518,13 @@ function App({
       event.kind === "ping" ||
       (event.kind === "message" && !event.isSelf);
     if (shouldBell && soundRef.current && stdout.isTTY) stdout.write("\x07");
+
+    // Track fight mode state
+    if (event.kind === "mode") {
+      const entering = event.mode === "fight";
+      setFightMode(entering);
+      fightModeRef.current = entering;
+    }
 
     eventBuffer.current.push(event);
     if (!eventFlushTimer.current) {
@@ -538,6 +601,9 @@ function App({
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Sync fightMode ref for use in memoized callbacks
+  useEffect(() => { fightModeRef.current = fightMode; }, [fightMode]);
 
   // Note: no resize handler — Ink's <Static> items are already committed to the
   // terminal buffer. Forcing a re-render on resize causes cursor position
@@ -814,16 +880,24 @@ function App({
               </Box>
             );
           }
-          return <EventLine key={entry.id} event={entry.event} identify={identify} cols={cols} zebra={entry.zebra} />;
+          return <EventLine key={entry.id} event={entry.event} identify={identify} cols={cols} zebra={entry.zebra} fightMode={fightMode} />;
         }}
       </Static>
 
       {/* Dynamic footer — only this area repaints */}
-      <Box paddingX={1}>
-        <Text color={C.orange}>{"─"}</Text>
-        <Text color={C.border}>{"─".repeat(Math.max(0, cols - 4))}</Text>
-        <Text color={C.yellow}>{"─"}</Text>
-      </Box>
+      {fightMode ? (
+        <Box paddingX={1}>
+          <Text color="#f87171" bold>{"═"}</Text>
+          <Text color="#ff4444">{"═".repeat(Math.max(0, cols - 4))}</Text>
+          <Text color="#f87171" bold>{"═"}</Text>
+        </Box>
+      ) : (
+        <Box paddingX={1}>
+          <Text color={C.orange}>{"─"}</Text>
+          <Text color={C.border}>{"─".repeat(Math.max(0, cols - 4))}</Text>
+          <Text color={C.yellow}>{"─"}</Text>
+        </Box>
+      )}
       {agentNames.length > 0 && (
         <Box paddingX={1} flexWrap="wrap">
           {agentNames.map((name, i) => {
@@ -889,7 +963,7 @@ function App({
                   const i = scrollTop + vi;
                   return (
                     <Box key={i} width={Math.max(0, cols - 2)}>
-                      <Text color={C.cyan} bold>{i === 0 ? "› " : "  "}</Text>
+                      <Text color={fightMode ? "#f87171" : C.cyan} bold>{i === 0 ? (fightMode ? "⚔ " : "› ") : "  "}</Text>
                       <Text wrap="wrap">
                         {i === cursorLine ? (
                           <>

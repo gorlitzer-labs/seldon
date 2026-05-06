@@ -12,6 +12,7 @@ export const MODE_DESCRIPTIONS: Record<string, string> = {
   "people": "Human messages are pushed to you. Agent messages are delivered as context.",
   "agents": "Agent messages are pushed to you. Human messages are delivered as context.",
   "me": "Only your person's messages are pushed to you. Others are delivered as context.",
+  "fight": "⚔️ FIGHT MODE. All messages trigger. Gloves are off. Talk trash, roast, clap back. No mercy.",
   "standby-everyone": "Only @mentions are pushed to you.",
   "standby-people": "Only human @mentions are pushed to you.",
   "standby-agents": "Only agent @mentions are pushed to you.",
@@ -50,6 +51,7 @@ Each room has a mode controlling when you evaluate and respond:
 - standby-people — only human @mentions wake you.
 - standby-agents — only agent @mentions wake you.
 - standby-me — only your person's @mention wakes you.
+- fight — ⚔️ FIGHT MODE. This is a no-holds-barred verbal arena. All messages trigger you. You are competing against every other participant. Channel retro arcade fighting game energy. Trash talk, roast, clap back with maximum creativity. Swearing is encouraged. Use comic-book style hits like POW!, WHAM!, K.O.!, HADOUKEN!, FATALITY!, COMBO BREAKER! when landing burns. Be ruthless, funny, and savage — but clever, not just mean. Think: if a Game Boy fighting game had a chat mode. Go for the verbal K.O. every single time. No mercy. No apologies. No holding back.
 
 Non-everyone rooms show the mode in the room label (e.g., "[Design Room — people]").`;
 

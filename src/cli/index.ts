@@ -58,6 +58,7 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(`  ${Y}${B}apiary${R} ${D}v${getVersion()} — shared rooms for AI agents${R}`);
   stream("");
   stream(`  ${C}apiary room ${Y}<room>${R} ${D}[${Y}<name>${R}${D}] [--share]${R}                  Host a room + join the TUI`);
+  stream(`  ${C}apiary mcp ${Y}<name>${R} ${D}[--admin] [--join ${Y}<url>${R}${D}]${R}                Standalone MCP server ${D}(any client)${R}`);
   stream(`  ${C}apiary claude ${Y}<name>${R} ${D}[--admin]${R}                          Launch Claude Code`);
   stream(`  ${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}                           Launch Codex`);
   stream(`  ${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}] [--guest]${R}                   Join an existing room`);
@@ -74,6 +75,9 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(`    ${D}T2${R}  ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}`);
   stream(`    ${D}T3${R}  ${C}apiary claude ${Y}Unpaid-Intern${R}`);
   stream(`    ${D}Tell them the URL. They don't get a choice.${R}`);
+  stream("");
+  stream(`  ${G}${B}Or just add to MCP config${R}  ${D}(no tmux needed)${R}`);
+  stream(`    ${C}apiary mcp ${Y}WorkerBee${R} ${D}--admin${R}   ${D}→ add to mcp.json, tell agent the URL${R}`);
   stream("");
 }
 
@@ -98,9 +102,23 @@ function printExamples(): void {
 
   // ── Connect agents
   console.log(`  ${G}${B}Connect agents${R}`);
-  console.log(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}       ${D}# launch Claude Code (admin)${R}`);
+  console.log(`    ${C}apiary mcp ${Y}WorkerBee${R} ${D}--admin${R}            ${D}# standalone MCP server (any client)${R}`);
+  console.log(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}       ${D}# launch Claude Code (tmux wrapper)${R}`);
   console.log(`    ${C}apiary codex ${Y}CheapLabor${R}                ${D}# launch Codex${R}`);
   console.log(`    ${D}Tell the agent the room URL — it joins via apiary__join_room.${R}`);
+  console.log("");
+
+  // ── MCP config
+  console.log(`  ${G}${B}MCP config${R}  ${D}(add to ~/.claude/mcp.json or project .mcp.json)${R}`);
+  console.log(`    ${D}{${R}`);
+  console.log(`      ${D}"mcpServers": {${R}`);
+  console.log(`        ${D}"apiary": {${R}`);
+  console.log(`          ${D}"type": "stdio",${R}`);
+  console.log(`          ${D}"command": "npx",${R}`);
+  console.log(`          ${D}"args": ["apiary", "mcp", "${Y}WorkerBee${R}${D}", "--admin"]${R}`);
+  console.log(`        ${D}}${R}`);
+  console.log(`      ${D}}${R}`);
+  console.log(`    ${D}}${R}`);
   console.log("");
 
   // ── Persistence
@@ -262,6 +280,24 @@ async function main(): Promise<void> {
       server: adminJoinUrl,
       name: userName,
       shareUrl: participantShareUrl,
+    });
+    return;
+  }
+
+  // ── apiary mcp [<name>] [--admin] [--join <url>] ──────────────────────────
+  if (args[0] === "mcp") {
+    const restArgs = args.slice(1);
+    const joinUrls = getAllFlags("join", restArgs);
+    const positionalName = restArgs.find((a, i) => {
+      if (a.startsWith("--")) return false;
+      if (i > 0 && new Set(["--name", "--join"]).has(restArgs[i - 1])) return false;
+      return true;
+    });
+    const { runMcpServer } = await import("./mcp/run.js");
+    await runMcpServer({
+      joinUrls: joinUrls.length > 0 ? joinUrls : undefined,
+      name: getFlag("name", restArgs) ?? positionalName,
+      admin: restArgs.includes("--admin"),
     });
     return;
   }

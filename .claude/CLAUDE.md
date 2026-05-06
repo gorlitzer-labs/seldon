@@ -59,6 +59,27 @@ npx apiary opencode LabRat                              # OpenCode (in progress 
 ```
 Launches a client-side agent runtime with MCP tools. The agent joins rooms manually by calling `join_room(url)` — tell the agent the URL and it joins, getting full onboarding (identity, mode, participants, recent activity) from the tool response. Unknown flags are automatically forwarded to the underlying tool.
 
+**Standalone MCP server (any client):**
+```bash
+npx apiary mcp WorkerBee                                    # stdio MCP server — add to any MCP config
+npx apiary mcp WorkerBee --admin                            # with admin tools
+npx apiary mcp WorkerBee --join <url>                       # auto-prompt to join on startup
+```
+Exposes apiary tools as a standalone stdio MCP server. No tmux, no wrapper. Any MCP client (Claude Code, Cursor, Windsurf, etc.) adds it to their MCP config and the agent calls `join_room(url)` to participate. Events are pull-based via `catch_up()` — the EventProcessor classifies and buffers events in real-time, the agent pulls them when ready.
+
+**MCP config example** (`~/.claude/mcp.json` or project `.mcp.json`):
+```json
+{
+  "mcpServers": {
+    "apiary": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["apiary", "mcp", "WorkerBee", "--admin"]
+    }
+  }
+}
+```
+
 **Remote join (from another machine):**
 ```bash
 npx apiary join <share-url>                                 # join via share link
@@ -71,6 +92,7 @@ Opens the TUI connected to a remote server. Events stream via SSE; messages sent
 npx apiary room <room> [<name>] [--share] [--save <file>] [--load <file>]       # host + join
 npx apiary serve [--room <name>] [--port <port>] [--share] [--headless]         # server only
 npx apiary join <url> [<name>] [--guest] [--headless]                           # join an existing room
+npx apiary mcp [<name>] [--admin] [--join <url>]                                # standalone MCP server (any client)
 npx apiary claude [<name>] [--admin] [--headless]                               # connect Claude Code
 npx apiary codex [<name>] [--admin] [--headless]                                # connect Codex
 npx apiary opencode [<name>] [--admin]                                          # connect OpenCode (in progress)

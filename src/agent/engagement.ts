@@ -122,11 +122,11 @@ export interface EngagementStrategy {
 // ── Built-in modes ────────────────────────────────────────────────────────────
 
 export type EngagementMode =
-  | "me" | "people" | "agents" | "everyone"
+  | "me" | "people" | "agents" | "everyone" | "fight"
   | "standby-me" | "standby-people" | "standby-agents" | "standby-everyone";
 
 export const VALID_MODES: ReadonlySet<string> = new Set<EngagementMode>([
-  "me", "people", "agents", "everyone",
+  "me", "people", "agents", "everyone", "fight",
   "standby-me", "standby-people", "standby-agents", "standby-everyone",
 ]);
 
@@ -144,6 +144,7 @@ function senderMatches(
 ): boolean {
   switch (filter) {
     case "everyone": return true;
+    case "fight":    return true;
     case "people":   return senderType === "human";
     case "agents":   return senderType === "agent";
     case "me":       return !!personParticipantId && senderId === personParticipantId;

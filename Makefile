@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup update build room claude codex run-claude run-codex ps stop test typecheck release
+.PHONY: help setup update build room mcp claude codex run-claude run-codex ps stop test typecheck release
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 Y  := \033[33m
@@ -18,6 +18,7 @@ help: ## show this help
 	@echo "  $(C)make build$(R)       rebuild after code changes"
 	@echo ""
 	@echo "  $(C)make room$(R)        host a room    $(D)ROOM= NAME=$(R)"
+	@echo "  $(C)make mcp$(R)         standalone MCP $(D)NAME= ADMIN=1$(R)"
 	@echo "  $(C)make claude$(R)      launch agent   $(D)NAME= ADMIN=1 ARGS=$(R)"
 	@echo "  $(C)make codex$(R)       launch codex   $(D)NAME= ADMIN=1 ARGS=$(R)"
 	@echo "  $(C)make ps$(R)          list rooms + agents $(D)(with join links)$(R)"
@@ -65,7 +66,10 @@ build: ## build TypeScript
 room: ## start a room + join the TUI
 	apiary room $(or $(ROOM),brood-box) $(if $(NAME),--name $(NAME)) $(ARGS)
 
-claude: ## launch Claude Code agent
+mcp: ## start standalone MCP server (any client, no tmux)
+	apiary mcp $(if $(NAME),--name $(NAME)) $(if $(ADMIN),--admin) $(ARGS)
+
+claude: ## launch Claude Code agent (tmux wrapper)
 	apiary claude $(if $(NAME),--name $(NAME)) $(if $(ADMIN),--admin) $(ARGS)
 
 codex: ## launch Codex agent
