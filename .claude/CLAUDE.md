@@ -41,13 +41,13 @@ npm run build     # build first
 
 **Terminal 1 — host a room:**
 ```bash
-npx apiary room brood-box              # start server + join the TUI (auto-resumes if room existed)
+npx apiary room brood-box              # start server + join the TUI
 npx apiary room brood-box Overlord    # with a display name
 npx apiary room brood-box --share      # same but with a shareable tunnel URL
-npx apiary room brood-box --save state.json    # save to a specific file instead of default
+npx apiary room brood-box --save state.json    # save to a specific file (persists across restarts)
 npx apiary room brood-box --load state.json    # load from a specific file + continue saving
 ```
-Starts the server and opens the chat TUI in one command. With `--share`, spawns a cloudflared tunnel and prints a public URL. Room state auto-saves to `~/.apiary/rooms/<room>.json` — restarting the same room name auto-resumes. Use `--save`/`--load` to override the default location.
+Starts the server and opens the chat TUI in one command. With `--share`, spawns a cloudflared tunnel and prints a public URL. Closing a room deletes its state — next open starts fresh. Use `--save`/`--load` to persist state across restarts.
 
 **Terminal 2 — connect an agent:**
 ```bash
