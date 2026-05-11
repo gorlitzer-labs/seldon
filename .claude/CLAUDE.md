@@ -44,10 +44,8 @@ npm run build     # build first
 npx apiary room brood-box              # start server + join the TUI
 npx apiary room brood-box Overlord    # with a display name
 npx apiary room brood-box --share      # same but with a shareable tunnel URL
-npx apiary room brood-box --save state.json    # save to a specific file (persists across restarts)
-npx apiary room brood-box --load state.json    # load from a specific file + continue saving
 ```
-Starts the server and opens the chat TUI in one command. With `--share`, spawns a cloudflared tunnel and prints a public URL. Closing a room deletes its state — next open starts fresh. Use `--save`/`--load` to persist state across restarts.
+Starts the server and opens the chat TUI in one command. With `--share`, spawns a cloudflared tunnel and prints a public URL. Closing a room (Ctrl+C) leaves the server running — rejoin with `apiary room resume <name>`.
 
 **Terminal 2 — connect an agent:**
 ```bash
@@ -89,7 +87,7 @@ Opens the TUI connected to a remote server. Events stream via SSE; messages sent
 
 **All commands:**
 ```bash
-npx apiary room <room> [<name>] [--share] [--save <file>] [--load <file>]       # host + join
+npx apiary room <room> [<name>] [--share]                                        # host + join
 npx apiary serve [--room <name>] [--port <port>] [--share] [--headless]         # server only
 npx apiary join <url> [<name>] [--guest] [--headless]                           # join an existing room
 npx apiary mcp [<name>] [--admin] [--join <url>]                                # standalone MCP server (any client)

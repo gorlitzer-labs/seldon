@@ -11,7 +11,7 @@ import { runClaude, stopClaude, listClaudeSessions } from "./claude/run.js";
 import { runOpencode } from "./opencode/run.js";
 import { runCodex } from "./codex/run.js";
 import { buildShareUrl } from "./auth.js";
-import { printUpdateNotice, checkForUpdate, runUpdate } from "./update.js";
+import { printUpdateNotice, checkForUpdate } from "./update.js";
 
 const args = process.argv.slice(2);
 
@@ -73,7 +73,6 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream("");
   stream(`  ${C}apiary ps${R}                                                  List rooms + agents`);
   stream(`  ${C}apiary stop${R} ${D}[${Y}<name>${R}${D} | --all]${R}                              Stop agents`);
-  stream(`  ${C}apiary update${R} ${D}[${Y}<version>${R}${D}]${R}                                Pull + rebuild`);
   stream(`  ${C}apiary examples${R}                                            Use cases + workflows`);
   stream("");
   stream(`  ${G}${B}Quick start${R}  ${D}(MCP — recommended)${R}`);
@@ -124,14 +123,7 @@ function printExamples(): void {
   console.log(`    ${C}apiary room ${Y}brood-box${R}                  ${D}# host + join the TUI${R}`);
   console.log(`    ${C}apiary room ${Y}brood-box Overlord${R}         ${D}# with a display name${R}`);
   console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--share${R}           ${D}# with a public tunnel URL${R}`);
-  console.log(`    ${D}Closing a room (Ctrl+C) deletes its state — next open starts fresh.${R}`);
-  console.log("");
-
-  // ── Persistence
-  console.log(`  ${G}${B}Persistent rooms${R}  ${D}(opt-in)${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--save ${Y}session.json${R}  ${D}# save state to file${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--load ${Y}session.json${R}  ${D}# resume from file${R}`);
-  console.log(`    ${D}Mid-session:${R}  ${C}/clear${R}                        ${D}# wipe all history (admin only)${R}`);
+  console.log(`    ${D}Ctrl+C leaves the server running — rejoin with: apiary room resume <name>${R}`);
   console.log("");
 
   // ── Remote sharing
@@ -204,10 +196,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── apiary update [<version>] ─────────────────────────────────────────
+  // ── apiary update — redirect to npm ──────────────────────────────────
   if (args[0] === "update") {
-    const targetVersion = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
-    await runUpdate(targetVersion);
+    console.log("To update apiary, run:  npm update -g @gorlitzer/apiary");
     return;
   }
 
@@ -319,31 +310,7 @@ async function main(): Promise<void> {
         process.exit(1);
       }
 
-      // If --save/--load are passed, fall through to the old in-process serve
-      // so file paths work as before (daemon can't inherit cwd-relative paths safely).
-      const saveFlag = getFlag("save", allRoomArgs);
-      const loadFlag = getFlag("load", allRoomArgs);
-      if (saveFlag || loadFlag) {
-        const result = await serve({
-          room: roomName,
-          port,
-          share: allRoomArgs.includes("--share"),
-          quiet: true,
-          expose: allRoomArgs.includes("--expose"),
-          corsOrigins: getAllFlags("cors-origin", allRoomArgs),
-          save: saveFlag,
-          load: loadFlag,
-        });
-        const adminJoinUrl = buildShareUrl(result.serverUrl, result.adminToken);
-        const participantShareUrl = buildShareUrl(
-          result.publicUrl !== result.serverUrl ? result.publicUrl : result.serverUrl,
-          result.memberToken,
-        );
-        await join({ server: adminJoinUrl, name: userName, shareUrl: participantShareUrl });
-        return;
-      }
-
-      // Default: daemon-backed so Ctrl+C only kills TUI
+      // Daemon-backed so Ctrl+C only kills TUI
       const { spawnDaemonServer } = await import("./room.js");
       const daemon = await spawnDaemonServer({
         room: roomName,
@@ -486,8 +453,6 @@ async function main(): Promise<void> {
       headless: args.includes("--headless"),
       expose: args.includes("--expose"),
       corsOrigins: getAllFlags("cors-origin"),
-      save: getFlag("save"),
-      load: getFlag("load"),
       shareTtlMs,
     });
     return;
@@ -508,8 +473,6 @@ async function main(): Promise<void> {
       quiet: true,
       expose: args.includes("--expose"),
       corsOrigins: getAllFlags("cors-origin"),
-      save: getFlag("save"),
-      load: getFlag("load"),
     });
 
     // Host joins locally as admin using the admin share token

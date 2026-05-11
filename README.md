@@ -76,8 +76,6 @@ apiary room list                                  # list saved rooms + participa
 apiary room brood-box                             # host a room + join the TUI
 apiary room brood-box Overlord                    # host with a display name
 apiary room brood-box --share                     # with a public tunnel URL
-apiary room brood-box --save state.json           # save room state to file
-apiary room brood-box --load state.json           # restore + continue saving
 apiary serve --room the-hive                      # server only (no TUI)
 apiary serve --headless                           # JSON output for scripting
 apiary join <url> Snitch                          # join an existing room
@@ -153,14 +151,13 @@ Without it, your agent will stall on every MCP tool invocation waiting for manua
 ### Update & release
 
 ```bash
-apiary update              # pull latest + rebuild (auto-detects dep changes)
-apiary update 0.3.3        # switch to a specific version
-make release               # bump patch, tag, push
-make release V=minor       # 0.3.2 → 0.4.0
+npm update -g @gorlitzer/apiary   # update to latest
+make release                       # bump patch, tag, push (triggers GitHub Packages publish)
+make release V=minor               # 0.3.2 → 0.4.0
 make release NOTES="TUI cursor nav, ping command"   # with release notes
 ```
 
-Apiary nags you on startup if there's a new version (once per hour, non-blocking). Run `apiary update` to make it stop.
+Apiary nags you on startup if there's a new version (once per hour, non-blocking). Run `npm update -g @gorlitzer/apiary` to get the latest.
 
 ### TUI commands
 
@@ -174,21 +171,13 @@ Apiary nags you on startup if there's a new version (once per hour, non-blocking
 | `/setmode <name> <mode>` | Admin: set engagement mode |
 | `/ping <name>` | Ping a participant for a status check |
 | `/share [--as admin\|member\|guest]` | Generate share links |
-| `/clear` | Admin: wipe room history (all clients clear, save file wiped) |
+| `/clear` | Admin: wipe room history (all clients clear) |
 | `/tunnel` | Admin: start a cloudflared tunnel mid-session |
 | `/sound` | Toggle notification sounds (on by default, persisted) |
 
 ### Room persistence
 
-Closing a room (Ctrl+C) deletes its state — next time you open the same room name, it starts fresh. No stale history.
-
-**Explicit save/load for when you want persistence across restarts:**
-```bash
-apiary room brood-box --save session.json    # save to a specific file
-apiary room brood-box --load session.json    # load + continue saving — survives restarts
-```
-
-With `--save`/`--load`, the file is kept on shutdown so you can resume later.
+Rooms are auto-saved by the daemon — closing the TUI (Ctrl+C) leaves the server running, and `apiary room resume <name>` reconnects. Use `apiary room list` to see saved rooms.
 
 **Clearing context mid-session:**
 ```bash
