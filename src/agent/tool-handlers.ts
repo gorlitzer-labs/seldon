@@ -45,7 +45,10 @@ export async function formatMsgLine(
     if (a.type === "path") return ` [attachment: ${a.name} (${a.mime_type}, path: ${a.path} — same-machine only)]`;
     return ` [attachment: ${a.name} (${a.mime_type}, ${a.size}B, url: ${a.url})]`;
   }).join("");
-  let line = `[${ts}] ${ref} ${msg.sender_name}: ${msg.content}${imageNote}${attachmentNotes}`;
+  const whisperNote = (msg.recipients?.length ?? 0) > 0
+    ? ` [whisper → ${conn.dataSource.listParticipants().filter(p => msg.recipients!.includes(p.id)).map(p => p.name).join(", ")}]`
+    : "";
+  let line = `[${ts}] ${ref} ${msg.sender_name}: ${msg.content}${whisperNote}${imageNote}${attachmentNotes}`;
   if (msg.reply_to_id) {
     const target = await conn.dataSource.getMessage(msg.reply_to_id);
     if (target) {
@@ -100,11 +103,19 @@ export async function buildCatchUpLines(
   const seenIds: string[] = [];
   const mkRef = (id: string) => `#${options.assignRef?.(id) ?? messageRef(id)}`;
 
+  // Undefined selfId → no whispers shown (safe default: fail closed, not open).
+  const selfId = conn.dataSource.selfId || conn.channel?.participantId;
+
   for (const event of unseen) {
     seenIds.push(event.id);
     const ts = formatTimestamp(new Date(event.timestamp));
 
     if (event.type === "MessageSent") {
+      const msg = event.message;
+      // Filter whispers: only show if this agent is the sender or a recipient.
+      if ((msg.recipients?.length ?? 0) > 0 && msg.sender_id !== selfId && (!selfId || !msg.recipients!.includes(selfId))) {
+        continue;
+      }
       lines.push(await formatMsgLine(event.message, conn, (id) => mkRef(id)));
       // Collect path-type image attachments as content blocks
       for (const att of event.message.attachments ?? []) {
@@ -309,6 +320,7 @@ export async function handleSendMessage(
     image_mime_type?: string;
     image_size_bytes?: number;
     attachments?: Attachment[];
+    to?: string[];
   },
   options: ToolHandlerOptions,
 ): Promise<ToolResult> {
@@ -329,7 +341,21 @@ export async function handleSendMessage(
     const rawRef = replyToId.startsWith("#") ? replyToId.slice(1) : replyToId;
     replyToId = options.resolveRef?.(rawRef) ?? replyToId;
   }
-  const message = await r.conn.dataSource.sendMessage(args.content, replyToId, image, args.attachments);
+
+  // Resolve recipient names to IDs for whisper delivery.
+  let recipientIds: string[] | undefined;
+  if (args.to && args.to.length > 0) {
+    const participants = r.conn.dataSource.listParticipants();
+    recipientIds = [];
+    for (const name of args.to) {
+      const matches = participants.filter((p) => p.name === name);
+      if (matches.length === 0) return textResult(`Unknown participant "${name}". Known: ${participants.map((p) => p.name).join(", ")}.`);
+      if (matches.length > 1) return textResult(`Ambiguous name "${name}" — multiple participants match. Use a more specific name.`);
+      recipientIds.push(matches[0].id);
+    }
+  }
+
+  const message = await r.conn.dataSource.sendMessage(args.content, replyToId, image, args.attachments, recipientIds);
 
   const ref = options.assignRef?.(message.id) ?? messageRef(message.id);
   return textResult(`Message sent #${ref}.`);

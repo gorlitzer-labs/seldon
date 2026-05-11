@@ -107,6 +107,8 @@ function registerTools(server: any, resolver: RoomResolver, options: ToolHandler
           url: z.string().describe("URL returned by POST /attachment"),
         }),
       ])).optional().describe("Typed file/image attachments"),
+      to: z.array(z.string()).optional()
+        .describe("Participant display names to whisper to. Others see [sender → recipient] but not the content. Omit for a public message."),
     },
     { readOnlyHint: false, destructiveHint: false },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

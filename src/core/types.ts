@@ -70,6 +70,7 @@ export type Attachment = z.infer<typeof AttachmentSchema>;
  * - `sender_name`       — display name at the time of sending (denormalized)
  * - `content`           — text body (may be empty if the message is image-only)
  * - `reply_to_id`       — if set, this message is a reply to that message ID
+ * - `recipients`        — if non-empty, this is a whisper: only these participant IDs (plus the sender) can read it
  * - `attachments`       — zero or more file/image attachments
  * - `image_url`         — legacy single-image URL (kept for backward compat)
  * - `image_mime_type`   — MIME type of the legacy image
@@ -83,6 +84,7 @@ export const MessageSchema = z.object({
   sender_name: z.string(),
   content: z.string(),
   reply_to_id: z.string().nullable().default(null),
+  recipients: z.array(z.string()).default([]),
   attachments: z.array(AttachmentSchema).default([]),
   image_url: z.string().nullable().default(null),
   image_mime_type: z.string().nullable().default(null),

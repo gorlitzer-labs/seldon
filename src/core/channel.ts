@@ -66,6 +66,7 @@ export class Channel {
    * @param replyToId   — ID of the message being replied to (optional)
    * @param image       — optional legacy image attachment
    * @param attachments — optional array of typed attachments
+   * @param recipients  — if non-empty, this is a whisper: only these participant IDs (plus sender) receive it
    */
   async sendMessage(
     content: string,
@@ -76,6 +77,7 @@ export class Channel {
       sizeBytes: number;
     } | null,
     attachments?: import("./types.js").Attachment[],
+    recipients?: string[],
   ): Promise<Message> {
     if (this._disconnected) {
       throw new Error("Channel is disconnected");
@@ -86,6 +88,7 @@ export class Channel {
       sender_name: this.participantName,
       content,
       reply_to_id: replyToId ?? null,
+      recipients: recipients ?? [],
       attachments: attachments ?? [],
       image_url: image?.url ?? null,
       image_mime_type: image?.mimeType ?? null,

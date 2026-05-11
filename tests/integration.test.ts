@@ -1039,4 +1039,114 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     });
     expect(res.status).toBe(403);
   }, 15_000);
+
+  // ── Whisper / DM ──────────────────────────────────────────────────────
+
+  test("whisper: recipient sees full content, non-recipient sees WhisperNotified", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+    await httpJoin(server.serverUrl, server.memberToken, { name: "Bob" });
+
+    // Charlie observes live — should see WhisperNotified, not the message content
+    const charlie = await joinHeadless(server.serverUrl, server.memberToken, { name: "Charlie" });
+    clients.push(charlie);
+
+    // Alice whispers to Bob
+    const sendRes = await fetch(`${server.serverUrl}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({ content: "secret message", recipients: ["Bob"] }),
+    });
+    expect(sendRes.status).toBe(200);
+
+    // Charlie receives WhisperNotified, not the message
+    const notified = await charlie.waitForEvent(
+      (e) => e.type === "WhisperNotified",
+    );
+    expect((notified as any).sender_name).toBe("Alice");
+    expect((notified as any).recipient_names).toContain("Bob");
+    expect((notified as any).content).toBeUndefined();
+  }, 15_000);
+
+  test("whisper: non-recipient excluded from GET /messages history", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+    const bob = await httpJoin(server.serverUrl, server.memberToken, { name: "Bob" });
+    const charlie = await httpJoin(server.serverUrl, server.memberToken, { name: "Charlie" });
+
+    // Alice whispers to Bob
+    await fetch(`${server.serverUrl}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({ content: "private for bob", recipients: ["Bob"] }),
+    });
+
+    // Bob sees it
+    const bobHistory = (await (await fetch(`${server.serverUrl}/messages`, {
+      headers: { Authorization: `Bearer ${bob.sessionToken}` },
+    })).json()) as { items: Array<{ content: string }> };
+    expect(bobHistory.items.some((m) => m.content === "private for bob")).toBe(true);
+
+    // Charlie does not see it
+    const charlieHistory = (await (await fetch(`${server.serverUrl}/messages`, {
+      headers: { Authorization: `Bearer ${charlie.sessionToken}` },
+    })).json()) as { items: Array<{ content: string }> };
+    expect(charlieHistory.items.some((m) => m.content === "private for bob")).toBe(false);
+  }, 15_000);
+
+  test("whisper: sender sees own whisper in history", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+    await httpJoin(server.serverUrl, server.memberToken, { name: "Bob" });
+
+    await fetch(`${server.serverUrl}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({ content: "secret from alice", recipients: ["Bob"] }),
+    });
+
+    const aliceHistory = (await (await fetch(`${server.serverUrl}/messages`, {
+      headers: { Authorization: `Bearer ${alice.sessionToken}` },
+    })).json()) as { items: Array<{ content: string }> };
+    expect(aliceHistory.items.some((m) => m.content === "secret from alice")).toBe(true);
+  }, 15_000);
+
+  test("whisper: unknown recipient name returns 400", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+
+    const res = await fetch(`${server.serverUrl}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({ content: "test", recipients: ["Nobody"] }),
+    });
+    expect(res.status).toBe(400);
+  }, 15_000);
+
+  test("whisper: ambiguous recipient name (two participants same display name) returns 400", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+    // Two participants share the same display name
+    await httpJoin(server.serverUrl, server.memberToken, { name: "Twin" });
+    await httpJoin(server.serverUrl, server.memberToken, { name: "Twin" });
+
+    const res = await fetch(`${server.serverUrl}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({ content: "which twin?", recipients: ["Twin"] }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("Ambiguous");
+  }, 15_000);
 });

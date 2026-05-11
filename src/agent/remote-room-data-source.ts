@@ -34,6 +34,10 @@ export class RemoteRoomDataSource implements RoomDataSource {
     return this._roomId;
   }
 
+  get selfId(): string {
+    return this._selfId;
+  }
+
   get serverUrl(): string {
     return this._serverUrl;
   }
@@ -143,11 +147,13 @@ export class RemoteRoomDataSource implements RoomDataSource {
     replyToId?: string,
     image?: { url: string; mimeType: string; sizeBytes: number } | null,
     attachments?: import("../core/types.js").Attachment[],
+    recipients?: string[],
   ): Promise<Message> {
     const body: Record<string, unknown> = { content };
     if (replyToId) body.replyTo = replyToId;
     if (image) body.image = image;
     if (attachments?.length) body.attachments = attachments;
+    if (recipients?.length) body.recipients = recipients;
 
     const res = await fetch(`${this._serverUrl}/message`, {
       method: "POST",

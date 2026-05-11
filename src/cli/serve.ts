@@ -17,7 +17,7 @@ import { join as pathJoin, resolve, sep } from "node:path";
 import { Room } from "../core/room.js";
 import { InMemoryStorage, FileBackedStorage } from "../core/storage.js";
 import { randomRoomName, randomName } from "../core/names.js";
-import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomClearedEvent, type RoomEvent, type StatusChangedEvent } from "../core/events.js";
+import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomClearedEvent, type RoomEvent, type StatusChangedEvent, type WhisperNotifiedEvent } from "../core/events.js";
 import { AttachmentSchema } from "../core/types.js";
 import type { AuthorityLevel, Attachment } from "../core/types.js";
 import type { Channel } from "../core/channel.js";
@@ -452,16 +452,27 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         if (session.kind === "participant") touchParticipant(session.id);
       }, 30_000);
 
-      // Send recent history so the joiner has context
+      // Send recent history so the joiner has context.
+      // Whispers are filtered: only deliver if this participant is sender or recipient.
       const history = await room.listEvents(undefined, 50);
       for (const event of [...history.items].reverse()) {
+        if (event.type === "MessageSent" && (event.message.recipients?.length ?? 0) > 0) {
+          const isParticipant = event.message.recipients!.includes(session.id) || event.message.sender_id === session.id;
+          if (!isParticipant) continue;
+        }
         await enrichAndSend(res, event, room);
       }
 
-      // Live event stream
+      // Live event stream.
+      // Whispers: the full MessageSentEvent is filtered here for non-participants;
+      // the WhisperNotifiedEvent is sent directly to them at POST /message time.
       const streamEvents = async () => {
         try {
           for await (const event of session.channel) {
+            if (event.type === "MessageSent" && (event.message.recipients?.length ?? 0) > 0) {
+              const isParticipant = event.message.recipients!.includes(session.id) || event.message.sender_id === session.id;
+              if (!isParticipant) continue;
+            }
             await enrichAndSend(res, event, room);
             if (session.kind === "participant") touchParticipant(session.id);
           }
@@ -521,8 +532,18 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         const count = clampInt(url.searchParams.get("count"), 30, 1, 100);
         const cursor = url.searchParams.get("cursor") ?? null;
         const result = await room.listMessages(count, cursor);
+        // Filter whispers: only include if sender or recipient.
+        // Undefined session.id → no whispers shown (safe default: fail closed).
+        const filtered = {
+          ...result,
+          items: result.items.filter((m) => {
+            if (!(m.recipients?.length)) return true;
+            if (!session.id) return false;
+            return m.sender_id === session.id || m.recipients.includes(session.id);
+          }),
+        };
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(result));
+        res.end(JSON.stringify(filtered));
         return;
       }
 
@@ -533,8 +554,18 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         const count = clampInt(url.searchParams.get("count"), 50, 1, 200);
         const cursor = url.searchParams.get("cursor") ?? null;
         const result = await room.listEvents(category as any, count, cursor);
+        // Filter whispers from event history: same rules as GET /messages.
+        // Undefined session.id → no whispers shown (safe default: fail closed).
+        const filteredEvents = {
+          ...result,
+          items: result.items.filter((e) => {
+            if (e.type !== "MessageSent" || !(e.message.recipients?.length)) return true;
+            if (!session.id) return false;
+            return e.message.sender_id === session.id || e.message.recipients.includes(session.id);
+          }),
+        };
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(result));
+        res.end(JSON.stringify(filteredEvents));
         return;
       }
 
@@ -728,7 +759,46 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           if (!parsed.success) return jsonError(res, 400, `Invalid attachments: ${parsed.error.issues[0]?.message ?? "bad shape"}`);
           rawAttachments = parsed.data;
         }
-        const msg = await p.channel.sendMessage(content, replyTo, undefined, rawAttachments);
+
+        // Resolve whisper recipients (display names → participant IDs).
+        let recipientIds: string[] | undefined;
+        if (Array.isArray(body.recipients) && body.recipients.length > 0) {
+          recipientIds = [];
+          const allParticipants = room.listParticipants();
+          for (const name of body.recipients as string[]) {
+            const matches = allParticipants.filter((pp) => pp.name === name);
+            if (matches.length === 0) return jsonError(res, 400, `Unknown participant "${name}"`);
+            if (matches.length > 1) return jsonError(res, 400, `Ambiguous participant name "${name}"`);
+            recipientIds.push(matches[0].id);
+          }
+        }
+
+        const msg = await p.channel.sendMessage(content, replyTo, undefined, rawAttachments, recipientIds);
+
+        // Emit WhisperNotifiedEvent to all non-participants so they see [A → B].
+        if (recipientIds && recipientIds.length > 0) {
+          const recipientNames = recipientIds
+            .map((id) => room.listParticipants().find((pp) => pp.id === id)?.name ?? id);
+          const whisperNotified = createEvent<WhisperNotifiedEvent>({
+            type: "WhisperNotified",
+            category: "ACTIVITY",
+            room_id: room.roomId,
+            participant_id: p.id,
+            sender_id: p.id,
+            sender_name: p.name,
+            recipient_ids: recipientIds,
+            recipient_names: recipientNames,
+          });
+          // Direct write — intentionally bypasses enrichAndSend (no enrichment
+          // needed, not persisted; if enrichAndSend gains per-event auth checks
+          // later, revisit this path).
+          for (const [participantId, sseRes] of sseConnections) {
+            if (!recipientIds.includes(participantId) && participantId !== p.id) {
+              sseRes.write(`data: ${JSON.stringify(whisperNotified)}\n\n`);
+            }
+          }
+        }
+
         jsonOk(res, { messageId: msg.id });
         return;
       }

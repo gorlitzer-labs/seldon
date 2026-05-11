@@ -20,13 +20,15 @@ import type { EventCategory, Message, PaginatedResult, Participant } from "../co
  */
 export interface RoomDataSource {
   readonly roomId: string;
+  /** The agent's own participant ID in this room. Used for whisper filtering. */
+  readonly selfId: string;
 
   listParticipants(): Participant[];
   getMessage(id: string): Promise<Message | null>;
   searchMessages(query: string, limit?: number, cursor?: string | null): Promise<PaginatedResult<Message>>;
   getMessages(limit?: number, cursor?: string | null): Promise<PaginatedResult<Message>>;
   getEvents(category?: EventCategory | null, limit?: number, cursor?: string | null): Promise<PaginatedResult<RoomEvent>>;
-  sendMessage(content: string, replyToId?: string, image?: { url: string; mimeType: string; sizeBytes: number } | null, attachments?: import("../core/types.js").Attachment[]): Promise<Message>;
+  sendMessage(content: string, replyToId?: string, image?: { url: string; mimeType: string; sizeBytes: number } | null, attachments?: import("../core/types.js").Attachment[], recipients?: string[]): Promise<Message>;
   emitEvent?(event: RoomEvent): Promise<void>;
 }
 
@@ -45,6 +47,10 @@ export class LocalRoomDataSource implements RoomDataSource {
 
   get roomId(): string {
     return this._room.roomId;
+  }
+
+  get selfId(): string {
+    return this._channel.participantId;
   }
 
   /** Direct access to the underlying Room (for backward compat / internal use). */
@@ -77,8 +83,8 @@ export class LocalRoomDataSource implements RoomDataSource {
     return this._room.listEvents(category, limit, cursor);
   }
 
-  async sendMessage(content: string, replyToId?: string, image?: { url: string; mimeType: string; sizeBytes: number } | null, attachments?: import("../core/types.js").Attachment[]): Promise<Message> {
-    return this._channel.sendMessage(content, replyToId, image ?? undefined, attachments);
+  async sendMessage(content: string, replyToId?: string, image?: { url: string; mimeType: string; sizeBytes: number } | null, attachments?: import("../core/types.js").Attachment[], recipients?: string[]): Promise<Message> {
+    return this._channel.sendMessage(content, replyToId, image ?? undefined, attachments, recipients);
   }
 
   async emitEvent(event: RoomEvent): Promise<void> {

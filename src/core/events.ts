@@ -298,6 +298,26 @@ export interface PingedEvent extends BaseRoomEvent {
   pinger_name: string;
 }
 
+/**
+ * A whisper was sent to specific participants.
+ *
+ * Broadcast to all participants NOT in the whisper, so they know a private
+ * conversation is happening without seeing the content. Sender and recipients
+ * receive the full `MessageSentEvent` instead. Not persisted to storage.
+ */
+export interface WhisperNotifiedEvent extends BaseRoomEvent {
+  type: "WhisperNotified";
+  category: "ACTIVITY";
+  room_id: string;
+  /** The sender's participant ID (follows the common event convention). */
+  participant_id: string;
+  timestamp: Date;
+  sender_id: string;
+  sender_name: string;
+  recipient_ids: string[];
+  recipient_names: string[];
+}
+
 // ── Union ─────────────────────────────────────────────────────────────────────
 
 export type RoomEvent =
@@ -316,7 +336,8 @@ export type RoomEvent =
   | MentionedEvent
   | PingedEvent
   | ContextCompactedEvent
-  | RoomClearedEvent;
+  | RoomClearedEvent
+  | WhisperNotifiedEvent;
 
 // ── Event roles ───────────────────────────────────────────────────────────────
 
@@ -348,9 +369,10 @@ export const EVENT_ROLE: Record<RoomEvent["type"], EventRole> = {
   MessageDeleted:    "internal",
   ReactionRemoved:   "internal",
   StatusChanged:     "internal",
-  ToolUse:           "internal",
-  Activity:          "internal",
-  RoomCleared:       "internal",
+  ToolUse:            "internal",
+  Activity:           "internal",
+  RoomCleared:        "internal",
+  WhisperNotified:    "ambient",
 };
 
 // ── Factory ───────────────────────────────────────────────────────────────────
