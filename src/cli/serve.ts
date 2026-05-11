@@ -17,7 +17,7 @@ import { join as pathJoin, resolve, sep } from "node:path";
 import { Room } from "../core/room.js";
 import { InMemoryStorage, FileBackedStorage } from "../core/storage.js";
 import { randomRoomName, randomName } from "../core/names.js";
-import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomClearedEvent, type RoomEvent } from "../core/events.js";
+import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomClearedEvent, type RoomEvent, type StatusChangedEvent } from "../core/events.js";
 import type { AuthorityLevel } from "../core/types.js";
 import type { Channel } from "../core/channel.js";
 import { formatTimestamp } from "../agent/prompts.js";
@@ -203,6 +203,44 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   // Track active SSE connections for cleanup
   const sseConnections = new Map<string, ServerResponse>();
 
+  // ── Presence tracking ────────────────────────────────────────────────────
+  // Updated on every SSE write (heartbeat or event) and every authenticated HTTP request.
+  const lastSeenAt = new Map<string, number>();           // participantId → ms timestamp
+  const presenceStatus = new Map<string, "online" | "unresponsive" | "offline">();
+
+  // Configurable thresholds (overridable via env for testing or custom deployments).
+  // Both are measured from `lastSeenAt` (last proof of life), not from each other.
+  // Default: unresponsive at 90s, offline at 180s from last activity.
+  const UNRESPONSIVE_AFTER_MS = parseInt(process.env.APIARY_UNRESPONSIVE_MS ?? "90000", 10);
+  const OFFLINE_AFTER_MS = parseInt(process.env.APIARY_OFFLINE_MS ?? String(UNRESPONSIVE_AFTER_MS * 2), 10);
+  const PRESENCE_CHECK_INTERVAL_MS = parseInt(process.env.APIARY_PRESENCE_CHECK_MS ?? "30000", 10);
+
+  function touchParticipant(id: string): void {
+    lastSeenAt.set(id, Date.now());
+  }
+
+  function broadcastStatusChange(
+    participantId: string,
+    name: string,
+    status: "online" | "unresponsive" | "offline",
+    previousStatus: "online" | "unresponsive" | "offline",
+    reason: "ping_timeout" | "recovered" | "left" | "kicked",
+  ): void {
+    const event = createEvent<StatusChangedEvent>({
+      type: "StatusChanged",
+      category: "PRESENCE",
+      room_id: room.roomId,
+      participant_id: participantId,
+      name,
+      status,
+      previous_status: previousStatus,
+      reason,
+    });
+    for (const [, sseRes] of sseConnections) {
+      sseRes.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+  }
+
   // ── JSON body parser helper ──────────────────────────────────────────────
 
   async function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -368,10 +406,29 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       sseConnections.set(session.id, res);
 
+      // Initialize or recover presence for participants (not guests).
+      // Recover from both "unresponsive" and "offline" (timeout case — session is
+      // still valid). Left/kicked participants can't reach here: their session token
+      // is revoked and getSession() returns null → 401 above.
+      if (session.kind === "participant") {
+        touchParticipant(session.id);
+        const prev = presenceStatus.get(session.id);
+        if (prev === "unresponsive" || prev === "offline") {
+          presenceStatus.set(session.id, "online");
+          broadcastStatusChange(session.id, session.name, "online", prev, "recovered");
+          log(`${session.name} recovered`);
+        } else if (!prev) {
+          presenceStatus.set(session.id, "online");
+        }
+      }
+
       // Heartbeat every 30s to keep the connection alive through
       // proxies, firewalls, and OS-level TCP idle timeouts.
       const heartbeat = setInterval(() => {
         res.write(":heartbeat\n\n");
+        // SSE heartframe counts as proof of life — prevents false-positive
+        // unresponsive for read-only agents that have no HTTP activity.
+        if (session.kind === "participant") touchParticipant(session.id);
       }, 30_000);
 
       // Send recent history so the joiner has context
@@ -385,6 +442,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         try {
           for await (const event of session.channel) {
             await enrichAndSend(res, event, room);
+            if (session.kind === "participant") touchParticipant(session.id);
           }
         } catch {
           // Channel disconnected
@@ -409,6 +467,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         const getCheck = getLimiter.check(sessionToken);
         if (!getCheck.allowed) return rateLimitError(res, getCheck.retryAfter!);
       }
+      if (session && session.kind === "participant") touchParticipant(session.id);
 
       // ── GET /participants ────────────────────────────────────────────────
       if (url.pathname === "/participants") {
@@ -538,6 +597,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
         participants.set(sessionToken, { id, name, authority, channel, sessionToken });
         idToSession.set(id, sessionToken);
+        touchParticipant(id);
+        presenceStatus.set(id, "online");
 
         const participantList = room.listParticipants().map((p) => ({
           id: p.id,
@@ -564,6 +625,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       const sessionToken = extractSessionToken(req, url, body) ?? "";
       const session = getSession(sessionToken);
+      // Any authenticated HTTP request counts as proof of life.
+      if (session && session.kind === "participant") touchParticipant(session.id);
 
       // ── POST /message ───────────────────────────────────────────────────
       if (url.pathname === "/message") {
@@ -697,20 +760,31 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         // Find and disconnect the target
         const targetSession = idToSession.get(targetId);
         if (targetSession) {
-          const target = participants.get(targetSession) ?? guests.get(targetSession);
+          const targetParticipant = participants.get(targetSession);
+          const targetGuest = guests.get(targetSession);
+          const target = targetParticipant ?? targetGuest;
           if (target) {
             // Emit ParticipantKicked before disconnect so all participants see it
             const adminP = participants.get(sessionToken);
-            const targetParticipant = room.listParticipants().find(p => p.id === targetId);
-            if (adminP && targetParticipant) {
+            const roomParticipant = room.listParticipants().find(p => p.id === targetId);
+            if (adminP && roomParticipant) {
               await adminP.channel.emit(createEvent<ParticipantKickedEvent>({
                 type: "ParticipantKicked",
                 category: "PRESENCE",
                 room_id: room.roomId,
                 participant_id: targetId,
-                participant: targetParticipant,
+                participant: roomParticipant,
                 kicked_by: adminP.name,
               }));
+            }
+            // Companion StatusChangedEvent for participants only
+            if (targetParticipant) {
+              const prevStatus = presenceStatus.get(targetId) ?? "online";
+              if (prevStatus !== "offline") {
+                broadcastStatusChange(targetId, targetParticipant.name, "offline", prevStatus, "kicked");
+              }
+              lastSeenAt.delete(targetId);
+              presenceStatus.delete(targetId);
             }
             // Silent disconnect — the kicked event replaces ParticipantLeft
             await target.channel.disconnect(true);
@@ -862,10 +936,16 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         if (targetToken) {
           const p = participants.get(targetToken);
           if (p) {
+            const prevStatus = presenceStatus.get(p.id) ?? "online";
+            if (prevStatus !== "offline") {
+              broadcastStatusChange(p.id, p.name, "offline", prevStatus, "left");
+            }
             await p.channel.disconnect();
             participants.delete(targetToken);
             idToSession.delete(p.id);
             tokens.revokeSessionToken(targetToken);
+            lastSeenAt.delete(p.id);
+            presenceStatus.delete(p.id);
             const sse = sseConnections.get(p.id);
             if (sse) { sse.end(); sseConnections.delete(p.id); }
             log(`${p.name} disconnected`);
@@ -907,6 +987,26 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   // Prune expired tokens every 5 minutes
   const pruneInterval = setInterval(() => tokens.pruneExpired(), 5 * 60 * 1000);
   pruneInterval.unref();
+
+  // Periodic presence checker — runs every 30s
+  const presenceInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [, p] of participants) {
+      const last = lastSeenAt.get(p.id) ?? now;
+      const elapsed = now - last;
+      const current = presenceStatus.get(p.id) ?? "online";
+      if (current === "online" && elapsed > UNRESPONSIVE_AFTER_MS) {
+        presenceStatus.set(p.id, "unresponsive");
+        broadcastStatusChange(p.id, p.name, "unresponsive", "online", "ping_timeout");
+        log(`${p.name} unresponsive`);
+      } else if (current === "unresponsive" && elapsed > OFFLINE_AFTER_MS) {
+        presenceStatus.set(p.id, "offline");
+        broadcastStatusChange(p.id, p.name, "offline", "unresponsive", "ping_timeout");
+        log(`${p.name} offline (timeout)`);
+      }
+    }
+  }, PRESENCE_CHECK_INTERVAL_MS);
+  presenceInterval.unref();
 
   // Start tunnel if --share
   if (options.share) {
@@ -979,6 +1079,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
   const shutdown = async () => {
     log("shutting down...");
+    clearInterval(presenceInterval);
     clearRoomSession(roomName);
     // Delete auto-saved room state — room is closed, next open starts fresh.
     // Explicit --save/--load files are kept (user opted into persistence).

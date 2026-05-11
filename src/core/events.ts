@@ -112,14 +112,32 @@ export interface ParticipantLeftEvent extends BaseRoomEvent {
   participant: Participant;
 }
 
-/** A participant's presence status changed (e.g. "online" → "away"). */
+/**
+ * A participant's presence status changed.
+ *
+ * Emitted by the server for all presence transitions:
+ * - `online → unresponsive`  — first ping timeout threshold missed (reason: "ping_timeout")
+ * - `unresponsive → online`  — SSE reconnect recovery (reason: "recovered")
+ * - `unresponsive → offline` — sustained timeout, second threshold missed (reason: "ping_timeout")
+ * - `online → offline`       — clean disconnect (reason: "left") or admin kick (reason: "kicked")
+ *
+ * The `"left"` and `"kicked"` variants are companion events emitted alongside
+ * `ParticipantLeftEvent` / `ParticipantKickedEvent` for state-machine consumers
+ * that only want a single event type for presence tracking.
+ *
+ * `previous_status: "offline"` never appears — re-entry is `ParticipantJoinedEvent`.
+ */
 export interface StatusChangedEvent extends BaseRoomEvent {
   type: "StatusChanged";
   category: "PRESENCE";
   room_id: string;
   participant_id: string;
   timestamp: Date;
-  status: "online" | "offline" | "away";
+  /** Display name of the affected participant. */
+  name: string;
+  status: "online" | "unresponsive" | "offline";
+  previous_status: "online" | "unresponsive" | "offline";
+  reason: "ping_timeout" | "recovered" | "left" | "kicked";
 }
 
 /**

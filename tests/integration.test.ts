@@ -35,14 +35,14 @@ function getPort(): number {
   return nextPort++;
 }
 
-async function startServer(opts?: { port?: number; room?: string }): Promise<ServerHandle> {
+async function startServer(opts?: { port?: number; room?: string; env?: Record<string, string> }): Promise<ServerHandle> {
   const port = opts?.port ?? getPort();
   const args = ["serve", "--headless", "--port", String(port)];
   if (opts?.room) args.push("--room", opts.room);
 
   const child = spawn(NODE, [CLI_PATH, ...args], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env },
+    env: { ...process.env, ...(opts?.env ?? {}) },
   });
 
   return new Promise<ServerHandle>((resolve, reject) => {
@@ -706,6 +706,166 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     }
     expect(foundHuman).toBe(true);
     expect(idleAgents.has("Bot")).toBe(false);
+  }, 15_000);
+
+  // ── 20. Presence tracking ────────────────────────────────────────────────
+
+  function collectPresenceEvents(
+    serverUrl: string,
+    sessionToken: string,
+    signal: AbortSignal,
+  ): Array<Record<string, unknown>> {
+    const events: Array<Record<string, unknown>> = [];
+    fetch(`${serverUrl}/events`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${sessionToken}` },
+      signal,
+    }).then(async (res) => {
+      const reader = res.body!.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const ev = JSON.parse(line.slice(6)) as Record<string, unknown>;
+              if (ev.type === "StatusChanged") events.push(ev);
+            } catch { /* skip non-JSON */ }
+          }
+        }
+      }
+    }).catch(() => {});
+    return events;
+  }
+
+  test("presence: participant marked unresponsive then offline on inactivity", async () => {
+    // Very short thresholds: unresponsive at 200ms, offline at 400ms, check every 100ms
+    const server = await startServer({ env: { APIARY_UNRESPONSIVE_MS: "200", APIARY_PRESENCE_CHECK_MS: "100" } });
+    servers.push(server);
+
+    const observer = await httpJoin(server.serverUrl, server.adminToken, { name: "Observer" });
+    const obsController = new AbortController();
+    const presenceEvents = collectPresenceEvents(server.serverUrl, observer.sessionToken, obsController.signal);
+    await new Promise((r) => setTimeout(r, 100)); // let SSE establish
+
+    // Target joins HTTP only — no SSE, no further HTTP calls → will time out
+    const target = await httpJoin(server.serverUrl, server.memberToken, { name: "Target" });
+
+    // Wait for unresponsive (200ms threshold + 100ms check + buffer)
+    await new Promise((r) => setTimeout(r, 600));
+
+    const unresponsive = presenceEvents.find(
+      (e) => e.participant_id === target.participantId && e.status === "unresponsive",
+    );
+    expect(unresponsive).toBeDefined();
+    expect(unresponsive?.previous_status).toBe("online");
+    expect(unresponsive?.reason).toBe("ping_timeout");
+    expect(unresponsive?.name).toBe("Target");
+
+    // Wait for offline (OFFLINE_AFTER_MS = 400ms from last seen; ~400ms after join)
+    await new Promise((r) => setTimeout(r, 500));
+
+    const offline = presenceEvents.find(
+      (e) => e.participant_id === target.participantId && e.status === "offline",
+    );
+    expect(offline).toBeDefined();
+    expect(offline?.previous_status).toBe("unresponsive");
+    expect(offline?.reason).toBe("ping_timeout");
+
+    obsController.abort();
+  }, 15_000);
+
+  test("presence: unresponsive or offline participant recovers on SSE reconnect", async () => {
+    // Use a very high OFFLINE threshold so the participant stays unresponsive
+    // long enough for us to reconnect and observe the recovery event.
+    const server = await startServer({ env: { APIARY_UNRESPONSIVE_MS: "200", APIARY_PRESENCE_CHECK_MS: "100" } });
+    servers.push(server);
+
+    const observer = await httpJoin(server.serverUrl, server.adminToken, { name: "Observer" });
+    const obsController = new AbortController();
+    const presenceEvents = collectPresenceEvents(server.serverUrl, observer.sessionToken, obsController.signal);
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Target joins HTTP only → will go unresponsive then offline
+    const target = await httpJoin(server.serverUrl, server.memberToken, { name: "Target" });
+
+    // Wait long enough for at least one timeout transition (unresponsive or offline)
+    await new Promise((r) => setTimeout(r, 700));
+    expect(presenceEvents.find(
+      (e) => e.participant_id === target.participantId &&
+             (e.status === "unresponsive" || e.status === "offline"),
+    )).toBeDefined();
+
+    // Target reconnects SSE → recovery event regardless of whether unresponsive or offline
+    const targetController = new AbortController();
+    collectPresenceEvents(server.serverUrl, target.sessionToken, targetController.signal);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const recovery = presenceEvents.find(
+      (e) => e.participant_id === target.participantId && e.status === "online" && e.reason === "recovered",
+    );
+    expect(recovery).toBeDefined();
+    expect(["unresponsive", "offline"]).toContain(recovery?.previous_status);
+
+    targetController.abort();
+    obsController.abort();
+  }, 15_000);
+
+  test("presence: disconnect emits offline StatusChangedEvent", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const observer = await httpJoin(server.serverUrl, server.adminToken, { name: "Observer" });
+    const obsController = new AbortController();
+    const presenceEvents = collectPresenceEvents(server.serverUrl, observer.sessionToken, obsController.signal);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const target = await httpJoin(server.serverUrl, server.memberToken, { name: "Target" });
+    await httpDisconnect(server.serverUrl, target.sessionToken);
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    const offline = presenceEvents.find(
+      (e) => e.participant_id === target.participantId && e.status === "offline" && e.reason === "left",
+    );
+    expect(offline).toBeDefined();
+    expect(offline?.previous_status).toBe("online");
+    expect(offline?.name).toBe("Target");
+
+    obsController.abort();
+  }, 15_000);
+
+  test("presence: kick emits offline StatusChangedEvent", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
+    const obsController = new AbortController();
+    const presenceEvents = collectPresenceEvents(server.serverUrl, admin.sessionToken, obsController.signal);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const target = await httpJoin(server.serverUrl, server.memberToken, { name: "Target" });
+
+    await fetch(`${server.serverUrl}/kick`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+      body: JSON.stringify({ participantId: target.participantId }),
+    });
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    const offline = presenceEvents.find(
+      (e) => e.participant_id === target.participantId && e.status === "offline" && e.reason === "kicked",
+    );
+    expect(offline).toBeDefined();
+    expect(offline?.previous_status).toBe("online");
+
+    obsController.abort();
   }, 15_000);
 
   test("agent busy/idle: two agents, one replied one did not", async () => {
