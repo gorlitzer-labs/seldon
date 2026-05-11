@@ -85,10 +85,28 @@ function registerTools(server: any, resolver: RoomResolver, options: ToolHandler
       content: z.string().describe("Message content. @name will notify that participant — use sparingly."),
       reply_to_id: z.string().optional()
         .describe("Message ref to reply to (e.g. #3847)."),
-      image_url: z.string().url().optional().describe("URL of an image to attach"),
-      image_mime_type: z.string().optional().describe("MIME type of the image"),
+      image_url: z.string().url().optional().describe("URL of an image to attach (legacy single-image)"),
+      image_mime_type: z.string().optional().describe("MIME type of the image (legacy)"),
       image_size_bytes: z.number().int().positive().optional()
-        .describe("Size of the image in bytes"),
+        .describe("Size of the image in bytes (legacy)"),
+      attachments: z.array(z.discriminatedUnion("type", [
+        z.object({
+          type: z.literal("path"),
+          id: z.string().describe("Stable ID (use crypto.randomUUID())"),
+          name: z.string().describe("Display filename"),
+          mime_type: z.string().describe("MIME type, e.g. image/png"),
+          size: z.number().optional().describe("File size in bytes"),
+          path: z.string().describe("Absolute local filesystem path — readable by agents on the same machine"),
+        }),
+        z.object({
+          type: z.literal("upload"),
+          id: z.string().describe("Attachment ID returned by POST /attachment"),
+          name: z.string().describe("Display filename"),
+          mime_type: z.string().describe("MIME type, e.g. image/png"),
+          size: z.number().describe("File size in bytes"),
+          url: z.string().describe("URL returned by POST /attachment"),
+        }),
+      ])).optional().describe("Typed file/image attachments"),
     },
     { readOnlyHint: false, destructiveHint: false },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -62,9 +62,10 @@ export class Channel {
    * participants (including the sender), and fires `MentionedEvent` for any
    * `@name` or `@identifier` patterns found in the content.
    *
-   * @param content    — message text (may be empty if image is provided)
-   * @param replyToId  — ID of the message being replied to (optional)
-   * @param image      — optional image attachment
+   * @param content     — message text (may be empty if image is provided)
+   * @param replyToId   — ID of the message being replied to (optional)
+   * @param image       — optional legacy image attachment
+   * @param attachments — optional array of typed attachments
    */
   async sendMessage(
     content: string,
@@ -74,6 +75,7 @@ export class Channel {
       mimeType: string;
       sizeBytes: number;
     } | null,
+    attachments?: import("./types.js").Attachment[],
   ): Promise<Message> {
     if (this._disconnected) {
       throw new Error("Channel is disconnected");
@@ -84,6 +86,7 @@ export class Channel {
       sender_name: this.participantName,
       content,
       reply_to_id: replyToId ?? null,
+      attachments: attachments ?? [],
       image_url: image?.url ?? null,
       image_mime_type: image?.mimeType ?? null,
       image_size_bytes: image?.sizeBytes ?? null,

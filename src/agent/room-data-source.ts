@@ -26,7 +26,7 @@ export interface RoomDataSource {
   searchMessages(query: string, limit?: number, cursor?: string | null): Promise<PaginatedResult<Message>>;
   getMessages(limit?: number, cursor?: string | null): Promise<PaginatedResult<Message>>;
   getEvents(category?: EventCategory | null, limit?: number, cursor?: string | null): Promise<PaginatedResult<RoomEvent>>;
-  sendMessage(content: string, replyToId?: string, image?: { url: string; mimeType: string; sizeBytes: number } | null): Promise<Message>;
+  sendMessage(content: string, replyToId?: string, image?: { url: string; mimeType: string; sizeBytes: number } | null, attachments?: import("../core/types.js").Attachment[]): Promise<Message>;
   emitEvent?(event: RoomEvent): Promise<void>;
 }
 
@@ -77,8 +77,8 @@ export class LocalRoomDataSource implements RoomDataSource {
     return this._room.listEvents(category, limit, cursor);
   }
 
-  async sendMessage(content: string, replyToId?: string, image?: { url: string; mimeType: string; sizeBytes: number } | null): Promise<Message> {
-    return this._channel.sendMessage(content, replyToId, image ?? undefined);
+  async sendMessage(content: string, replyToId?: string, image?: { url: string; mimeType: string; sizeBytes: number } | null, attachments?: import("../core/types.js").Attachment[]): Promise<Message> {
+    return this._channel.sendMessage(content, replyToId, image ?? undefined, attachments);
   }
 
   async emitEvent(event: RoomEvent): Promise<void> {

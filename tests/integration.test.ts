@@ -898,4 +898,145 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     expect(idleAgents.has("BotA")).toBe(true);
     expect(idleAgents.has("BotB")).toBe(false);
   }, 15_000);
+
+  // ── Attachment endpoints ──────────────────────────────────────────────
+
+  test("POST /attachment stores file, GET /attachment/:id returns bytes", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+    const content = Buffer.from("hello attachment");
+
+    const uploadRes = await fetch(`${server.serverUrl}/attachment`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        "Content-Disposition": "attachment; filename=hello.txt",
+        Authorization: `Bearer ${alice.sessionToken}`,
+      },
+      body: content,
+    });
+    expect(uploadRes.status).toBe(200);
+    const uploadData = (await uploadRes.json()) as { id: string; name: string; mime_type: string; size: number };
+    expect(uploadData.name).toBe("hello.txt");
+    expect(uploadData.mime_type).toBe("text/plain");
+    expect(uploadData.size).toBe(content.length);
+
+    const getRes = await fetch(`${server.serverUrl}/attachment/${uploadData.id}`, {
+      headers: { Authorization: `Bearer ${alice.sessionToken}` },
+    });
+    expect(getRes.status).toBe(200);
+    const bytes = Buffer.from(await getRes.arrayBuffer());
+    expect(bytes.equals(content)).toBe(true);
+  }, 15_000);
+
+  test("POST /attachment with oversized body returns 413", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+    // 11 MB > 10 MB server cap
+    const bigBody = Buffer.alloc(11 * 1024 * 1024, "x");
+
+    const res = await fetch(`${server.serverUrl}/attachment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", Authorization: `Bearer ${alice.sessionToken}` },
+      body: bigBody,
+    });
+    expect(res.status).toBe(413);
+  }, 15_000);
+
+  test("send_message with upload attachment broadcasts metadata, GET returns bytes", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+    const bob = await httpJoin(server.serverUrl, server.memberToken, { name: "Bob" });
+
+    // Upload attachment
+    const content = Buffer.from("file contents");
+    const uploadRes = await fetch(`${server.serverUrl}/attachment`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": "attachment; filename=data.bin",
+        Authorization: `Bearer ${alice.sessionToken}`,
+      },
+      body: content,
+    });
+    const uploadData = (await uploadRes.json()) as { id: string; url: string; name: string; mime_type: string; size: number };
+
+    // Connect Bob as SSE observer
+    const bobClient = await joinHeadless(server.serverUrl, server.memberToken, { name: "BobObs" });
+    clients.push(bobClient);
+
+    // Send message referencing the attachment
+    const sendRes = await fetch(`${server.serverUrl}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({
+        content: "here is a file",
+        attachments: [{ type: "upload", id: uploadData.id, name: uploadData.name, mime_type: uploadData.mime_type, size: uploadData.size, url: uploadData.url }],
+      }),
+    });
+    expect(sendRes.status).toBe(200);
+
+    // Verify SSE broadcast contains the attachment metadata
+    const msgEvent = await bobClient.waitForEvent(
+      (e) => e.type === "MessageSent" && (e as any).message?.content === "here is a file",
+    );
+    const attachments = (msgEvent as any).message?.attachments ?? [];
+    expect(attachments.length).toBe(1);
+    expect(attachments[0].type).toBe("upload");
+    expect(attachments[0].id).toBe(uploadData.id);
+
+    // Fetch bytes back
+    const getRes = await fetch(`${server.serverUrl}/attachment/${uploadData.id}`, {
+      headers: { Authorization: `Bearer ${alice.sessionToken}` },
+    });
+    expect(getRes.status).toBe(200);
+    const bytes = Buffer.from(await getRes.arrayBuffer());
+    expect(bytes.equals(content)).toBe(true);
+
+  }, 15_000);
+
+  test("POST /message rejects malformed attachment", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+
+    const res = await fetch(`${server.serverUrl}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice.sessionToken}` },
+      body: JSON.stringify({
+        content: "test",
+        attachments: [{ type: "unknown", id: "abc" }],
+      }),
+    });
+    expect(res.status).toBe(400);
+  }, 15_000);
+
+  test("guest cannot upload attachments", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
+    const shareRes = await fetch(`${server.serverUrl}/share`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+      body: JSON.stringify({ authority: "guest" }),
+    });
+    const shareData = (await shareRes.json()) as { links: Record<string, string> };
+    const guestToken = new URL(shareData.links.guest).searchParams.get("token")!;
+    const guest = await httpJoin(server.serverUrl, guestToken, { name: "Guest" });
+
+    const res = await fetch(`${server.serverUrl}/attachment`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain", Authorization: `Bearer ${guest.sessionToken}` },
+      body: Buffer.from("x"),
+    });
+    expect(res.status).toBe(403);
+  }, 15_000);
 });

@@ -18,7 +18,8 @@ import { Room } from "../core/room.js";
 import { InMemoryStorage, FileBackedStorage } from "../core/storage.js";
 import { randomRoomName, randomName } from "../core/names.js";
 import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomClearedEvent, type RoomEvent, type StatusChangedEvent } from "../core/events.js";
-import type { AuthorityLevel } from "../core/types.js";
+import { AttachmentSchema } from "../core/types.js";
+import type { AuthorityLevel, Attachment } from "../core/types.js";
 import type { Channel } from "../core/channel.js";
 import { formatTimestamp } from "../agent/prompts.js";
 import { TokenManager, buildShareUrl } from "./auth.js";
@@ -239,6 +240,26 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     for (const [, sseRes] of sseConnections) {
       sseRes.write(`data: ${JSON.stringify(event)}\n\n`);
     }
+  }
+
+  // ── Attachment storage ───────────────────────────────────────────────────
+  // In-memory, room-scoped. Cleared when the room is cleared or server restarts.
+
+  const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MB
+
+  interface StoredAttachment {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    roomId: string;
+    bytes: Buffer;
+  }
+
+  const attachmentStore = new Map<string, StoredAttachment>();
+
+  function attachmentUrl(id: string): string {
+    return `${publicUrl}/attachment/${id}`;
   }
 
   // ── JSON body parser helper ──────────────────────────────────────────────
@@ -529,6 +550,63 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         res.end(JSON.stringify(result));
         return;
       }
+
+      // ── GET /attachment/:id ──────────────────────────────────────────────
+      if (url.pathname.startsWith("/attachment/")) {
+        if (!session) return jsonError(res, 401, "Invalid session token");
+        const id = url.pathname.slice("/attachment/".length);
+        const stored = attachmentStore.get(id);
+        if (!stored) return jsonError(res, 404, "Attachment not found");
+        res.writeHead(200, {
+          "Content-Type": stored.mimeType,
+          "Content-Length": String(stored.size),
+          "Content-Disposition": `inline; filename="${stored.name}"`,
+        });
+        res.end(stored.bytes);
+        return;
+      }
+    }
+
+    // ── POST /attachment — raw bytes, must come before parseBody ────────────
+
+    if (req.method === "POST" && url.pathname === "/attachment") {
+      const attSessionToken = extractSessionToken(req, url);
+      const attSession = getSession(attSessionToken);
+      if (!attSession) return jsonError(res, 401, "Invalid session token");
+      if (attSession.authority === "guest") return jsonError(res, 403, "Guests cannot upload attachments");
+
+      // Raw body read (intentionally not parseBody — binary, not JSON).
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      let tooBig = false;
+      for await (const chunk of req) {
+        totalBytes += (chunk as Buffer).length;
+        if (totalBytes > MAX_ATTACHMENT_BYTES) { tooBig = true; break; }
+        chunks.push(chunk as Buffer);
+      }
+      if (tooBig) return jsonError(res, 413, `Attachment too large (max ${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB)`);
+
+      const bytes = Buffer.concat(chunks);
+      const mimeType = (req.headers["content-type"] ?? "application/octet-stream").split(";")[0].trim();
+      const disposition = req.headers["content-disposition"] ?? "";
+      const filenameMatch = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)/i);
+      const rawName =
+        filenameMatch?.[1]?.trim() ??
+        (req.headers["x-filename"] as string | undefined) ??
+        "attachment";
+      let name: string;
+      try {
+        name = decodeURIComponent(rawName);
+      } catch {
+        name = rawName;
+      }
+
+      const id = randomUUID();
+      attachmentStore.set(id, { id, name, mimeType, size: bytes.length, roomId: room.roomId, bytes });
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ id, url: attachmentUrl(id), name, mime_type: mimeType, size: bytes.length }));
+      return;
     }
 
     // ── POST endpoints ────────────────────────────────────────────────────
@@ -644,7 +722,13 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         const p = participants.get(sessionToken);
         if (!p) return jsonError(res, 403, "Not a participant");
 
-        const msg = await p.channel.sendMessage(content, replyTo);
+        let rawAttachments: Attachment[] | undefined;
+        if (Array.isArray(body.attachments) && body.attachments.length > 0) {
+          const parsed = AttachmentSchema.array().safeParse(body.attachments);
+          if (!parsed.success) return jsonError(res, 400, `Invalid attachments: ${parsed.error.issues[0]?.message ?? "bad shape"}`);
+          rawAttachments = parsed.data;
+        }
+        const msg = await p.channel.sendMessage(content, replyTo, undefined, rawAttachments);
         jsonOk(res, { messageId: msg.id });
         return;
       }
@@ -811,8 +895,11 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         if (!session) return jsonError(res, 401, "Invalid session token");
         if (session.authority !== "admin") return jsonError(res, 403, "Only admins can clear");
 
-        // Wipe storage
+        // Wipe storage and room-scoped attachments
         await storage.clearRoom(room.roomId);
+        for (const [id, att] of attachmentStore) {
+          if (att.roomId === room.roomId) attachmentStore.delete(id);
+        }
 
         // Broadcast RoomCleared to all connected clients via SSE
         const adminP = participants.get(sessionToken);

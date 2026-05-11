@@ -1,12 +1,17 @@
 /** Pure tool handler logic */
 
-import type { Message } from "../core/types.js";
+import { readFile } from "node:fs/promises";
+import type { Attachment, Message } from "../core/types.js";
 import type { RoomConnection, RoomResolver, ToolHandlerOptions } from "./types.js";
 import { messageRef, formatTimestamp } from "./prompts.js";
 
+export type ToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+
 /** Tool result shape consumed by both backends. */
 export interface ToolResult {
-  content: Array<{ type: "text"; text: string }>;
+  content: ToolContent[];
 }
 
 /** Helper: resolve room name or return an error tool result. */
@@ -36,26 +41,48 @@ export async function formatMsgLine(
   const ts = formatTimestamp(new Date(msg.timestamp));
   const ref = mkRef(msg.id);
   const imageNote = msg.image_url ? ` [[img:${msg.image_url}]]` : "";
-  let line = `[${ts}] ${ref} ${msg.sender_name}: ${msg.content}${imageNote}`;
+  const attachmentNotes = (msg.attachments ?? []).map((a) => {
+    if (a.type === "path") return ` [attachment: ${a.name} (${a.mime_type}, path: ${a.path} — same-machine only)]`;
+    return ` [attachment: ${a.name} (${a.mime_type}, ${a.size}B, url: ${a.url})]`;
+  }).join("");
+  let line = `[${ts}] ${ref} ${msg.sender_name}: ${msg.content}${imageNote}${attachmentNotes}`;
   if (msg.reply_to_id) {
     const target = await conn.dataSource.getMessage(msg.reply_to_id);
     if (target) {
       const targetRef = mkRef(target.id);
-      line = `[${ts}] ${ref} ${msg.sender_name} (→ ${targetRef} ${target.sender_name}): ${msg.content}${imageNote}`;
+      line = `[${ts}] ${ref} ${msg.sender_name} (→ ${targetRef} ${target.sender_name}): ${msg.content}${imageNote}${attachmentNotes}`;
     }
   }
   return line;
 }
 
+/** Try to read a path-type image attachment and return a base64 content block. */
+async function tryReadImageAttachment(att: Attachment & { type: "path" }): Promise<ToolContent | null> {
+  if (!att.mime_type.startsWith("image/")) return null;
+  try {
+    const bytes = await readFile(att.path);
+    return {
+      type: "image",
+      source: { type: "base64", media_type: att.mime_type as `image/${string}`, data: bytes.toString("base64") },
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build catch-up event lines for a room — shared by the catch_up MCP tool and
  * the runtime's full_catch_up injection. Returns formatted transcript lines for
- * all unseen events (oldest first), marking them as seen.
+ * all unseen events (oldest first), marking them as seen, plus any image content
+ * blocks for path-type image attachments.
+ *
+ * Upload-type attachments are included as text (URL) only — auto-fetch is a
+ * future improvement once there's an HTTP client available in the tool layer.
  */
 export async function buildCatchUpLines(
   conn: RoomConnection,
   options: Pick<ToolHandlerOptions, "isEventSeen" | "markEventsSeen" | "assignRef">,
-): Promise<string[]> {
+): Promise<{ lines: string[]; imageBlocks: ToolContent[] }> {
   const result = await conn.dataSource.getEvents(null, 50, null);
   const chronological = [...result.items].reverse();
 
@@ -69,6 +96,7 @@ export async function buildCatchUpLines(
   const unseen = chronological.slice(startIdx);
 
   const lines: string[] = [];
+  const imageBlocks: ToolContent[] = [];
   const seenIds: string[] = [];
   const mkRef = (id: string) => `#${options.assignRef?.(id) ?? messageRef(id)}`;
 
@@ -78,6 +106,13 @@ export async function buildCatchUpLines(
 
     if (event.type === "MessageSent") {
       lines.push(await formatMsgLine(event.message, conn, (id) => mkRef(id)));
+      // Collect path-type image attachments as content blocks
+      for (const att of event.message.attachments ?? []) {
+        if (att.type === "path") {
+          const block = await tryReadImageAttachment(att);
+          if (block) imageBlocks.push(block);
+        }
+      }
     } else if (event.type === "ParticipantJoined") {
       const participant = conn.dataSource.listParticipants().find((p) => p.id === event.participant_id);
       const name = participant?.name ?? event.participant_id;
@@ -96,7 +131,7 @@ export async function buildCatchUpLines(
   }
 
   if (seenIds.length > 0) options.markEventsSeen?.(seenIds);
-  return lines;
+  return { lines, imageBlocks };
 }
 
 // ── Tool handler functions ────────────────────────────────────────────────────
@@ -108,14 +143,16 @@ export async function handleCatchUp(
 ): Promise<ToolResult> {
   const r = resolveOrError(resolver, args.room);
   if (r.error) return r.result;
-  const lines = await buildCatchUpLines(r.conn, options);
+  const { lines, imageBlocks } = await buildCatchUpLines(r.conn, options);
   const out: string[] = [`Catching up on [${args.room}]:`];
   if (lines.length > 0) {
     out.push("", ...lines);
   } else {
     out.push("", "(nothing new)");
   }
-  return { content: [{ type: "text" as const, text: out.join("\n") }] };
+  const content: ToolContent[] = [{ type: "text" as const, text: out.join("\n") }];
+  content.push(...imageBlocks);
+  return { content };
 }
 
 export async function handleSearchByText(
@@ -271,6 +308,7 @@ export async function handleSendMessage(
     image_url?: string;
     image_mime_type?: string;
     image_size_bytes?: number;
+    attachments?: Attachment[];
   },
   options: ToolHandlerOptions,
 ): Promise<ToolResult> {
@@ -291,7 +329,7 @@ export async function handleSendMessage(
     const rawRef = replyToId.startsWith("#") ? replyToId.slice(1) : replyToId;
     replyToId = options.resolveRef?.(rawRef) ?? replyToId;
   }
-  const message = await r.conn.dataSource.sendMessage(args.content, replyToId, image);
+  const message = await r.conn.dataSource.sendMessage(args.content, replyToId, image, args.attachments);
 
   const ref = options.assignRef?.(message.id) ?? messageRef(message.id);
   return textResult(`Message sent #${ref}.`);

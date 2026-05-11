@@ -142,10 +142,12 @@ export class RemoteRoomDataSource implements RoomDataSource {
     content: string,
     replyToId?: string,
     image?: { url: string; mimeType: string; sizeBytes: number } | null,
+    attachments?: import("../core/types.js").Attachment[],
   ): Promise<Message> {
     const body: Record<string, unknown> = { content };
     if (replyToId) body.replyTo = replyToId;
     if (image) body.image = image;
+    if (attachments?.length) body.attachments = attachments;
 
     const res = await fetch(`${this._serverUrl}/message`, {
       method: "POST",

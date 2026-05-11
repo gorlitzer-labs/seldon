@@ -188,11 +188,15 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
         const conn = processor.resolve(roomName);
         let recentLines: string[] = [];
         if (conn) {
-          recentLines = await buildCatchUpLines(conn, {
+          const result = await buildCatchUpLines(conn, {
             isEventSeen: (id) => processor.isEventSeen(id),
             markEventsSeen: (ids) => processor.markEventsSeen(ids),
             assignRef: (id) => processor.assignRef(id),
           });
+          recentLines = result.lines;
+          // TODO: result.imageBlocks not surfaced here — runtime injection path
+          // doesn't support image content blocks yet. Wire up when adding image
+          // delivery to the tmux/HTTP agent path.
         }
 
         return {

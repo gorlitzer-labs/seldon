@@ -393,7 +393,7 @@ export class EventProcessor implements RoomResolver {
           sections.push(`Participants: ${pList}`);
         }
 
-        const lines = await buildCatchUpLines(conn, {
+        const { lines } = await buildCatchUpLines(conn, {
           isEventSeen: (id) => this._tracker.isDelivered(id),
           markEventsSeen: (ids) => { this._tracker.markManyDelivered(ids); },
           assignRef: (id) => this.assignRef(id),

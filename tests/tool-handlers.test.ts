@@ -281,10 +281,10 @@ describe("handleSendMessage", () => {
 describe("buildCatchUpLines", () => {
   test("returns empty for fresh room", async () => {
     const { conn } = await setupRoom();
-    const lines = await buildCatchUpLines(conn, {});
+    const { lines, imageBlocks } = await buildCatchUpLines(conn, {});
     // May have join events but no messages
-    // Lines should be empty or contain only join events
     expect(Array.isArray(lines)).toBe(true);
+    expect(Array.isArray(imageBlocks)).toBe(true);
   });
 
   test("skips seen events", async () => {
@@ -294,14 +294,14 @@ describe("buildCatchUpLines", () => {
 
     // First call — sees everything
     const seenIds = new Set<string>();
-    const lines1 = await buildCatchUpLines(conn, {
+    const { lines: lines1 } = await buildCatchUpLines(conn, {
       isEventSeen: (id) => seenIds.has(id),
       markEventsSeen: (ids) => { for (const id of ids) seenIds.add(id); },
     });
     expect(lines1.length).toBeGreaterThan(0);
 
     // Second call — nothing new
-    const lines2 = await buildCatchUpLines(conn, {
+    const { lines: lines2 } = await buildCatchUpLines(conn, {
       isEventSeen: (id) => seenIds.has(id),
       markEventsSeen: (ids) => { for (const id of ids) seenIds.add(id); },
     });

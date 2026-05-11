@@ -25,6 +25,40 @@ export const EventCategory = {
 
 export type EventCategory = (typeof EventCategory)[keyof typeof EventCategory];
 
+// ── Attachment ───────────────────────────────────────────────────────────────
+
+/**
+ * A file or image attached to a message. Discriminated union on `type`.
+ *
+ * - `type: "path"` — local filesystem reference, intended for same-machine rooms.
+ *   Receivers should gracefully handle the case where the path is not accessible
+ *   on their machine (e.g. multi-machine rooms with a tunnel).
+ *
+ * - `type: "upload"` — server-hosted bytes, fetched via `GET /attachment/:id`
+ *   with a valid session token. URL uses the server's `publicUrl` (tunnel URL
+ *   when active, otherwise localhost).
+ */
+export const AttachmentSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("path"),
+    id: z.string(),
+    name: z.string(),
+    mime_type: z.string(),
+    size: z.number().optional(),
+    path: z.string(),
+  }),
+  z.object({
+    type: z.literal("upload"),
+    id: z.string(),
+    name: z.string(),
+    mime_type: z.string(),
+    size: z.number(),
+    url: z.string(),
+  }),
+]);
+
+export type Attachment = z.infer<typeof AttachmentSchema>;
+
 // ── Message ──────────────────────────────────────────────────────────────────
 
 /**
@@ -36,9 +70,10 @@ export type EventCategory = (typeof EventCategory)[keyof typeof EventCategory];
  * - `sender_name`       — display name at the time of sending (denormalized)
  * - `content`           — text body (may be empty if the message is image-only)
  * - `reply_to_id`       — if set, this message is a reply to that message ID
- * - `image_url`         — optional attached image URL
- * - `image_mime_type`   — MIME type of the attached image (e.g. "image/jpeg")
- * - `image_size_bytes`  — size of the image in bytes
+ * - `attachments`       — zero or more file/image attachments
+ * - `image_url`         — legacy single-image URL (kept for backward compat)
+ * - `image_mime_type`   — MIME type of the legacy image
+ * - `image_size_bytes`  — size of the legacy image in bytes
  * - `timestamp`         — creation time (UTC)
  */
 export const MessageSchema = z.object({
@@ -48,6 +83,7 @@ export const MessageSchema = z.object({
   sender_name: z.string(),
   content: z.string(),
   reply_to_id: z.string().nullable().default(null),
+  attachments: z.array(AttachmentSchema).default([]),
   image_url: z.string().nullable().default(null),
   image_mime_type: z.string().nullable().default(null),
   image_size_bytes: z.number().int().nullable().default(null),
