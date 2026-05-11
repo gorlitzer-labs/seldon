@@ -57,12 +57,21 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream("");
   stream(`  ${Y}${B}apiary${R} ${D}v${getVersion()} — shared rooms for AI agents${R}`);
   stream("");
-  stream(`  ${C}apiary room ${Y}<room>${R} ${D}[${Y}<name>${R}${D}] [--share]${R}                  Host a room + join the TUI`);
+  stream(`  ${G}${B}Room management${R}  ${D}(interactive — recommended)${R}`);
+  stream(`  ${C}apiary room create${R}                                          Create a room + invite participants`);
+  stream(`  ${C}apiary room resume ${Y}<name>${R}                                Resume a saved room`);
+  stream(`  ${C}apiary room list${R}                                            List saved rooms + participants`);
+  stream("");
+  stream(`  ${G}${B}Quick room${R}  ${D}(one-liner, Ctrl+C leaves server running)${R}`);
+  stream(`  ${C}apiary room ${Y}<name>${R} ${D}[--share]${R}                              Host + join the TUI`);
+  stream(`  ${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}] [--guest]${R}                   Join an existing room`);
+  stream("");
+  stream(`  ${G}${B}Agents${R}`);
   stream(`  ${C}apiary mcp ${Y}<name>${R} ${D}[--admin] [--join ${Y}<url>${R}${D}]${R}                Standalone MCP server ${D}(any client)${R}`);
   stream(`  ${C}apiary claude ${Y}<name>${R} ${D}[--admin]${R}                          Launch Claude Code ${D}(tmux wrapper)${R}`);
   stream(`  ${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}                           Launch Codex ${D}(tmux wrapper)${R}`);
-  stream(`  ${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}] [--guest]${R}                   Join an existing room`);
-  stream(`  ${C}apiary ps${R}                                                  List rooms + agents ${D}(with join links)${R}`);
+  stream("");
+  stream(`  ${C}apiary ps${R}                                                  List rooms + agents`);
   stream(`  ${C}apiary stop${R} ${D}[${Y}<name>${R}${D} | --all]${R}                              Stop agents`);
   stream(`  ${C}apiary update${R} ${D}[${Y}<version>${R}${D}]${R}                                Pull + rebuild`);
   stream(`  ${C}apiary examples${R}                                            Use cases + workflows`);
@@ -72,8 +81,8 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(`       ${D}{ "mcpServers": { "apiary": {${R}`);
   stream(`           ${D}"type": "stdio", "command": "npx",${R}`);
   stream(`           ${D}"args": ["apiary", "mcp", "${Y}YourName${R}${D}", "--admin"] } } }${R}`);
-  stream(`    ${D}2.${R} ${C}apiary room ${Y}brood-box${R}    ${D}→ start a room${R}`);
-  stream(`    ${D}3.${R} ${D}Paste the URL to any agent — it calls join_room() and participates.${R}`);
+  stream(`    ${D}2.${R} ${C}apiary room create${R}  ${D}→ follow the prompts${R}`);
+  stream(`    ${D}3.${R} ${D}Agents get invited automatically — they call join_room() and participate.${R}`);
   stream("");
   stream(`  ${D}tmux wrapper:${R}  ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}  ${D}(alternative to MCP)${R}`);
   stream("");
@@ -235,41 +244,103 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── apiary room <room> [<name>] — alias for apiary --room <name> ────────
+  // ── apiary room [create | resume | list | <name>] ───────────────────────
   if (args[0] === "room") {
-    const positionals = args.slice(1).filter((a) => !a.startsWith("--"));
-    const roomArgs = args.slice(1);
-    const roomName = positionals[0] ?? getFlag("room", roomArgs);
-    const userName = positionals[1] ?? getFlag("name", roomArgs);
-    const portStr = getFlag("port", roomArgs);
-    const port = portStr ? parseInt(portStr, 10) : undefined;
-    if (port !== undefined && (isNaN(port) || port < 0 || port > 65535)) {
-      console.error(`Invalid port: ${portStr}`);
-      process.exit(1);
+    const sub = args[1];
+    const roomArgs = args.slice(2);
+
+    // apiary room create
+    if (sub === "create") {
+      const portStr = getFlag("port", roomArgs);
+      const port = portStr ? parseInt(portStr, 10) : undefined;
+      const { roomCreate } = await import("./room.js");
+      await roomCreate({
+        room: getFlag("room", roomArgs) ?? roomArgs.find((a) => !a.startsWith("--")),
+        port,
+        share: roomArgs.includes("--share"),
+        expose: roomArgs.includes("--expose"),
+      });
+      return;
     }
-    const result = await serve({
-      room: roomName,
-      port,
-      share: roomArgs.includes("--share"),
-      quiet: true,
-      expose: roomArgs.includes("--expose"),
-      corsOrigins: getAllFlags("cors-origin", roomArgs),
-      save: getFlag("save", roomArgs),
-      load: getFlag("load", roomArgs),
-    });
 
-    const adminJoinUrl = buildShareUrl(result.serverUrl, result.adminToken);
-    const participantShareUrl = buildShareUrl(
-      result.publicUrl !== result.serverUrl ? result.publicUrl : result.serverUrl,
-      result.memberToken,
-    );
+    // apiary room resume <name>
+    if (sub === "resume") {
+      const name = roomArgs.find((a) => !a.startsWith("--"));
+      if (!name) {
+        console.error("Usage: apiary room resume <name>");
+        process.exit(1);
+      }
+      const { roomResume } = await import("./room.js");
+      await roomResume(name);
+      return;
+    }
 
-    await join({
-      server: adminJoinUrl,
-      name: userName,
-      shareUrl: participantShareUrl,
-    });
-    return;
+    // apiary room list
+    if (sub === "list" || sub === "ls") {
+      const { roomList } = await import("./room.js");
+      roomList();
+      return;
+    }
+
+    // apiary room <name> [<displayName>] — daemon-backed host+join (legacy compat)
+    {
+      const allRoomArgs = args.slice(1);
+      const positionals = allRoomArgs.filter((a) => !a.startsWith("--"));
+      const roomName = positionals[0];
+      const userName = positionals[1] ?? getFlag("name", allRoomArgs);
+      const portStr = getFlag("port", allRoomArgs);
+      const port = portStr ? parseInt(portStr, 10) : undefined;
+      if (port !== undefined && (isNaN(port) || port < 0 || port > 65535)) {
+        console.error(`Invalid port: ${portStr}`);
+        process.exit(1);
+      }
+
+      // If --save/--load are passed, fall through to the old in-process serve
+      // so file paths work as before (daemon can't inherit cwd-relative paths safely).
+      const saveFlag = getFlag("save", allRoomArgs);
+      const loadFlag = getFlag("load", allRoomArgs);
+      if (saveFlag || loadFlag) {
+        const result = await serve({
+          room: roomName,
+          port,
+          share: allRoomArgs.includes("--share"),
+          quiet: true,
+          expose: allRoomArgs.includes("--expose"),
+          corsOrigins: getAllFlags("cors-origin", allRoomArgs),
+          save: saveFlag,
+          load: loadFlag,
+        });
+        const adminJoinUrl = buildShareUrl(result.serverUrl, result.adminToken);
+        const participantShareUrl = buildShareUrl(
+          result.publicUrl !== result.serverUrl ? result.publicUrl : result.serverUrl,
+          result.memberToken,
+        );
+        await join({ server: adminJoinUrl, name: userName, shareUrl: participantShareUrl });
+        return;
+      }
+
+      // Default: daemon-backed so Ctrl+C only kills TUI
+      const { spawnDaemonServer } = await import("./room.js");
+      const daemon = await spawnDaemonServer({
+        room: roomName,
+        port,
+        share: allRoomArgs.includes("--share"),
+        expose: allRoomArgs.includes("--expose"),
+      });
+      if (!daemon) {
+        console.error("Failed to start server.");
+        process.exit(1);
+      }
+      const adminJoinUrl = buildShareUrl(daemon.serverUrl, daemon.adminToken);
+      const participantShareUrl = buildShareUrl(
+        daemon.publicUrl !== daemon.serverUrl ? daemon.publicUrl : daemon.serverUrl,
+        daemon.memberToken,
+      );
+      await join({ server: adminJoinUrl, name: userName, shareUrl: participantShareUrl });
+      console.log(`\n  Server still running (room: ${daemon.roomName})`);
+      console.log(`  Rejoin: apiary room resume ${daemon.roomName}\n`);
+      return;
+    }
   }
 
   // ── apiary mcp [<name>] [--admin] [--join <url>] ──────────────────────────
@@ -281,10 +352,20 @@ async function main(): Promise<void> {
       if (i > 0 && new Set(["--name", "--join"]).has(restArgs[i - 1])) return false;
       return true;
     });
+    const name = getFlag("name", restArgs) ?? positionalName;
+
+    // Check for a pending invite dropped by `apiary room resume`
+    const pendingUrls = [...joinUrls];
+    if (name) {
+      const { readAndConsumeInvite } = await import("./room.js");
+      const inviteUrl = readAndConsumeInvite(name);
+      if (inviteUrl) pendingUrls.push(inviteUrl);
+    }
+
     const { runMcpServer } = await import("./mcp/run.js");
     await runMcpServer({
-      joinUrls: joinUrls.length > 0 ? joinUrls : undefined,
-      name: getFlag("name", restArgs) ?? positionalName,
+      joinUrls: pendingUrls.length > 0 ? pendingUrls : undefined,
+      name,
       admin: restArgs.includes("--admin"),
     });
     return;
@@ -371,6 +452,8 @@ async function main(): Promise<void> {
       console.error(`Invalid port: ${portStr}`);
       process.exit(1);
     }
+    const shareTtlStr = getFlag("share-token-ttl");
+    const shareTtlMs = shareTtlStr ? parseInt(shareTtlStr, 10) : undefined;
     await serve({
       room: getFlag("room"),
       port,
@@ -380,6 +463,7 @@ async function main(): Promise<void> {
       corsOrigins: getAllFlags("cors-origin"),
       save: getFlag("save"),
       load: getFlag("load"),
+      shareTtlMs,
     });
     return;
   }

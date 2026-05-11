@@ -56,6 +56,8 @@ export interface ServeOptions {
   expose?: boolean;
   /** Allowed CORS origins (in addition to localhost and tunnel URL). */
   corsOrigins?: string[];
+  /** Share token TTL in ms. Defaults to 24h; use a longer value for persistent sessions. */
+  shareTtlMs?: number;
 }
 
 export interface ServeResult {
@@ -68,7 +70,8 @@ export interface ServeResult {
 
 // ── Room session persistence ─────────────────────────────────────────────────
 
-const SESSION_DIR = pathJoin(homedir(), ".apiary", "sessions");
+export const SESSION_DIR = pathJoin(homedir(), ".apiary", "sessions");
+export const INVITES_DIR = pathJoin(homedir(), ".apiary", "invites");
 
 export interface PersistedRoomSession {
   roomName: string;
@@ -77,13 +80,17 @@ export interface PersistedRoomSession {
   adminToken: string;
   memberToken: string;
   pid: number;
+  /** Unix timestamp of last TUI activity (set by room create/resume). */
+  lastActive?: number;
+  /** Participants recorded at create/resume time. */
+  participants?: Array<{ alias: string; cwd: string; role: string }>;
 }
 
 function roomSessionPath(name: string): string {
   return pathJoin(SESSION_DIR, `room_${name}.json`);
 }
 
-function saveRoomSession(session: PersistedRoomSession): void {
+export function saveRoomSession(session: PersistedRoomSession): void {
   if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
   writeFileSync(roomSessionPath(session.roomName), JSON.stringify(session, null, 2));
 }
@@ -185,7 +192,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const room = new Room(roomName, storage);
 
   // Auth
-  const tokens = new TokenManager();
+  const tokens = new TokenManager({ shareTtlMs: options.shareTtlMs });
 
   // Connected participants and guests (by session token for lookup)
   const participants = new Map<string, ConnectedParticipant>();
@@ -739,14 +746,14 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           type: "RoomCleared",
           category: "ACTIVITY",
           room_id: room.roomId,
-          participant_id: session.participantId,
+          participant_id: session.id,
           cleared_by: adminP?.name ?? "admin",
         });
         for (const [, sseRes] of sseConnections) {
           sseRes.write(`data: ${JSON.stringify(clearEvent)}\n\n`);
         }
 
-        log(`room cleared by ${adminP?.name ?? session.participantId}`);
+        log(`room cleared by ${adminP?.name ?? session.id}`);
         jsonOk(res);
         return;
       }
