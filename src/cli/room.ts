@@ -6,7 +6,7 @@
  * can exit (Ctrl+C) without killing the room.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import {
   existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync,
 } from "node:fs";
@@ -220,6 +220,30 @@ async function fetchServerState(
   return { memberToken, connectedNames };
 }
 
+// ── Runtime detection ─────────────────────────────────────────────────────────
+
+// Unix/macOS only — `which` is not available on Windows; both return false there (graceful, no auto-spawn).
+function detectRuntimes(): { claude: boolean; codex: boolean } {
+  const has = (cmd: string) => {
+    try { execFileSync("which", [cmd], { stdio: "ignore" }); return true; } catch { return false; }
+  };
+  return { claude: has("claude"), codex: has("codex") };
+}
+
+// ── ASCII bee banner ──────────────────────────────────────────────────────────
+
+const A = "\x1b[33m";  // amber
+const RESET = "\x1b[0m";
+
+const BEE_BANNER = [
+  `${A}               _                      \\ \\${RESET}`,
+  `${A}  ____ _____  (_)___ ________  __      \\ \\ \\${RESET}`,
+  `${A} / __ \`/ __ \\/ / __ \`/ ___/ / / /      (o o)${RESET}`,
+  `${A}/ /_/ / /_/ / / /_/ / /  / /_/ /       )=BzZz=(${RESET}`,
+  `${A}\\__,_/ .___/_/\\__,_/_/   \\__, /        / / /${RESET}`,
+  `${A}    /_/                 /____/        / / /${RESET}`,
+].join("\n");
+
 // ── Agent background spawn ────────────────────────────────────────────────────
 
 /**
@@ -278,12 +302,21 @@ export async function roomCreate(opts: {
 
   const { ask, close } = makePrompt();
 
-  console.log(`\n  ${Y}${B}apiary${R} — create room\n`);
+  console.log(`\n${BEE_BANNER}\n`);
+  console.log(`  ${Y}${B}apiary${R} — create room\n`);
 
   const roomName = opts.room ?? ((await ask(`  Room name ${D}[random]${R}: `)) || undefined);
 
   const ttlInput = await ask(`  Session duration ${D}[7d]${R}: `);
   const shareTtlMs = parseDuration(ttlInput) ?? DAEMON_SHARE_TTL_MS;
+
+  const rts = detectRuntimes();
+  const availableRuntimes = [...(rts.claude ? ["claude"] : []), ...(rts.codex ? ["codex"] : [])];
+  if (availableRuntimes.length === 0) {
+    console.log(`\n  ${D}(neither claude nor codex found in PATH — agents will need to join manually)${R}`);
+  } else if (availableRuntimes.length === 1) {
+    console.log(`\n  ${D}Runtime auto-detected: ${availableRuntimes[0]}${R}`);
+  }
 
   const participants: Array<{ alias: string; cwd: string; role: string; runtime?: string }> = [];
   console.log(`\n  Invite participants ${D}(leave alias blank to finish)${R}:`);
@@ -292,8 +325,13 @@ export async function roomCreate(opts: {
     if (!alias) break;
     const cwd = (await ask(`    Repo path ${D}[${process.cwd()}]${R}: `)) || process.cwd();
     const role = (await ask(`    Role ${D}[agent]${R}: `)) || "agent";
-    const runtimeInput = (await ask(`    Runtime ${D}[claude]${R} ${D}(claude/codex)${R}: `)) || "claude";
-    const runtime = ["claude", "codex"].includes(runtimeInput) ? runtimeInput : "claude";
+    let runtime: string | undefined;
+    if (availableRuntimes.length >= 2) {
+      const runtimeInput = (await ask(`    Runtime ${D}[claude]${R} ${D}(claude/codex)${R}: `)) || "claude";
+      runtime = ["claude", "codex"].includes(runtimeInput) ? runtimeInput : "claude";
+    } else if (availableRuntimes.length === 1) {
+      runtime = availableRuntimes[0];
+    }
     participants.push({ alias, cwd, role, runtime });
   }
 
