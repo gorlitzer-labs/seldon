@@ -84,7 +84,7 @@ export interface PersistedRoomSession {
   /** Unix timestamp of last TUI activity (set by room create/resume). */
   lastActive?: number;
   /** Participants recorded at create/resume time. */
-  participants?: Array<{ alias: string; cwd: string; role: string }>;
+  participants?: Array<{ alias: string; cwd: string; role: string; runtime?: string }>;
 }
 
 function roomSessionPath(name: string): string {
@@ -111,6 +111,10 @@ export function listRoomSessions(): PersistedRoomSession[] {
     } catch { /* skip */ }
   }
   return sessions;
+}
+
+export function removeRoomSession(name: string): void {
+  try { rmSync(pathJoin(SESSION_DIR, `room_${name}.json`)); } catch { /* ok */ }
 }
 
 // ── SSE helper ───────────────────────────────────────────────────────────────

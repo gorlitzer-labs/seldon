@@ -37,6 +37,8 @@ export interface AgentRuntimeOptions {
   headless?: boolean;
   /** Re-attach to an existing background session instead of starting a new one. */
   resume?: boolean;
+  /** Spawned by room create: start tmux session but skip attach; wait for SIGTERM. */
+  background?: boolean;
   /** Called after a room is successfully joined via join_room MCP tool. */
   onRoomJoined?: () => void | Promise<void>;
 }

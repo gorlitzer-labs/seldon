@@ -294,6 +294,18 @@ async function main(): Promise<void> {
       return;
     }
 
+    // apiary room stop <name>
+    if (sub === "stop") {
+      const name = roomArgs.find((a) => !a.startsWith("--"));
+      if (!name) {
+        console.error("Usage: apiary room stop <name>");
+        process.exit(1);
+      }
+      const { roomStop } = await import("./room.js");
+      await roomStop(name);
+      return;
+    }
+
     // apiary room <name> [<displayName>] — daemon-backed host+join (legacy compat)
     {
       const allRoomArgs = args.slice(1);
@@ -395,7 +407,7 @@ async function main(): Promise<void> {
     const explicitExtra = ddIndex >= 0 ? restArgs.slice(ddIndex + 1) : [];
 
     // Known apiary flags — anything else gets forwarded to the underlying tool
-    const KNOWN_FLAGS = new Set(["--name", "--admin", "--headless", "--resume", "--join"]);
+    const KNOWN_FLAGS = new Set(["--name", "--admin", "--headless", "--resume", "--join", "--background"]);
     const unknownArgs: string[] = [];
     for (let i = 0; i < apiaryArgs.length; i++) {
       const arg = apiaryArgs[i];
@@ -425,6 +437,7 @@ async function main(): Promise<void> {
       admin: apiaryArgs.includes("--admin"),
       headless: apiaryArgs.includes("--headless"),
       resume: apiaryArgs.includes("--resume"),
+      background: apiaryArgs.includes("--background"),
       extraArgs,
     };
 

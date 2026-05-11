@@ -248,6 +248,24 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     pid: process.pid,
   });
 
+  // Background mode: spawned by room create — run silently until SIGTERM.
+  if (options.background) {
+    // Suppress output so this process doesn't bleed into the parent terminal.
+    const noop = (() => true) as unknown as typeof process.stdout.write;
+    process.stdout.write = noop;
+    process.stderr.write = noop;
+    await new Promise<void>((resolve) => {
+      process.on("SIGTERM", resolve);
+      process.on("SIGINT", resolve);
+    });
+    bridge.stop();
+    await setup.cleanup();
+    if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
+    try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
+    clearSession(setup.agentName);
+    return;
+  }
+
   console.log("Attaching...");
   console.log(`(Ctrl+B D to detach — resume with: apiary claude ${setup.agentName} --resume)\n`);
 

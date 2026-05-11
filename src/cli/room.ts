@@ -16,9 +16,12 @@ import { createInterface } from "node:readline";
 
 import { buildShareUrl } from "./auth.js";
 import {
-  listRoomSessions, saveRoomSession, INVITES_DIR,
+  listRoomSessions, saveRoomSession, removeRoomSession, INVITES_DIR,
   type PersistedRoomSession,
 } from "./serve.js";
+import {
+  tmuxAvailable, tmuxSessionExists, tmuxKillSession,
+} from "./tmux.js";
 
 /** 7 days in ms — default share token TTL for persistent daemon sessions. */
 const DAEMON_SHARE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -217,6 +220,31 @@ async function fetchServerState(
   return { memberToken, connectedNames };
 }
 
+// ── Agent background spawn ────────────────────────────────────────────────────
+
+/**
+ * Spawn `apiary <runtime> <alias> --background` as a detached child process in
+ * the participant's cwd. The child creates its own tmux session and runs until
+ * SIGTERM (sent by `roomStop`).
+ *
+ * Returns true on success, false if the cwd doesn't exist or spawn fails.
+ */
+function spawnAgentBackground(alias: string, cwd: string, runtime: string): boolean {
+  const resolvedCwd = cwd.replace(/^~/, homedir());
+  if (!existsSync(resolvedCwd)) return false;
+  try {
+    const child = spawn(process.execPath, [process.argv[1], runtime, alias, "--background"], {
+      detached: true,
+      stdio: "ignore",
+      cwd: resolvedCwd,
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── Print invite for one participant ─────────────────────────────────────────
 
 function printInvite(alias: string, joinUrl: string, sameHost: boolean): void {
@@ -257,15 +285,16 @@ export async function roomCreate(opts: {
   const ttlInput = await ask(`  Session duration ${D}[7d]${R}: `);
   const shareTtlMs = parseDuration(ttlInput) ?? DAEMON_SHARE_TTL_MS;
 
-  const participants: Array<{ alias: string; cwd: string; role: string }> = [];
+  const participants: Array<{ alias: string; cwd: string; role: string; runtime?: string }> = [];
   console.log(`\n  Invite participants ${D}(leave alias blank to finish)${R}:`);
   while (true) {
     const alias = await ask(`  → Alias: `);
     if (!alias) break;
     const cwd = (await ask(`    Repo path ${D}[${process.cwd()}]${R}: `)) || process.cwd();
     const role = (await ask(`    Role ${D}[agent]${R}: `)) || "agent";
-    // TODO: add --admin flag per participant for per-participant authority level
-    participants.push({ alias, cwd, role });
+    const runtimeInput = (await ask(`    Runtime ${D}[claude]${R} ${D}(claude/codex)${R}: `)) || "claude";
+    const runtime = ["claude", "codex"].includes(runtimeInput) ? runtimeInput : "claude";
+    participants.push({ alias, cwd, role, runtime });
   }
 
   close();
@@ -298,12 +327,23 @@ export async function roomCreate(opts: {
   const shareBase = daemon.publicUrl !== daemon.serverUrl ? daemon.publicUrl : daemon.serverUrl;
   const memberJoinUrl = buildShareUrl(shareBase, daemon.memberToken);
 
+  const canSpawn = tmuxAvailable();
   if (participants.length > 0) {
     console.log(`\n  ${B}Invite links:${R}\n`);
+    const hasRuntimeParticipants = participants.some((p) => p.runtime);
+    if (!canSpawn && hasRuntimeParticipants) {
+      console.log(`  ${D}(tmux not found — agents will need to join manually via the invite links below)${R}\n`);
+    }
     const allLocal = participants.every((p) => isLocalPath(p.cwd));
     for (const p of participants) {
       const sameHost = allLocal || isLocalPath(p.cwd);
       printInvite(p.alias, memberJoinUrl, sameHost);
+      if (sameHost && canSpawn && p.runtime) {
+        const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime);
+        if (ok) {
+          console.log(`    ${D}→ spawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}`);
+        }
+      }
     }
     console.log("");
   } else {
@@ -406,10 +446,22 @@ export async function roomResume(name: string): Promise<void> {
         hasConnected = true;
         console.log(`  ${G}●${R} ${p.alias}`);
       } else {
-        if (!hasDisconnected) console.log(`\n  ${B}Rejoin links:${R}\n`);
+        if (!hasDisconnected) {
+          console.log(`\n  ${B}Rejoin links:${R}\n`);
+          if (!tmuxAvailable() && session.participants?.some((pp) => pp.runtime)) {
+            console.log(`  ${D}(tmux not found — agents will need to join manually via the invite links below)${R}\n`);
+          }
+        }
         hasDisconnected = true;
         console.log(`  ${W}○${R} ${p.alias}  ${D}disconnected${R}`);
-        printInvite(p.alias, memberJoinUrl, allLocal || isLocalPath(p.cwd));
+        const sameHost = allLocal || isLocalPath(p.cwd);
+        printInvite(p.alias, memberJoinUrl, sameHost);
+        if (sameHost && tmuxAvailable() && p.runtime && !tmuxSessionExists(`apiary_${p.alias}`)) {
+          const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime);
+          if (ok) {
+            console.log(`    ${D}→ respawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}`);
+          }
+        }
       }
     }
 
@@ -476,6 +528,49 @@ export function roomList(): void {
     }
     console.log("");
   }
+}
+
+// ── apiary room stop ──────────────────────────────────────────────────────────
+
+export async function roomStop(name: string): Promise<void> {
+  const Y = "\x1b[33m";
+  const B = "\x1b[1m";
+  const G = "\x1b[32m";
+  const D = "\x1b[2m";
+  const R = "\x1b[0m";
+
+  const sessions = listRoomSessions();
+  const session = sessions.find((s) => s.roomName === name);
+
+  if (!session) {
+    console.error(`  No saved session for room "${name}".`);
+    console.error(`  Run: apiary room list  to see saved rooms.`);
+    process.exit(1);
+  }
+
+  console.log(`\n  Stopping ${Y}${B}${name}${R}...\n`);
+
+  // Kill agent tmux sessions (SIGTERM via tmux kill-session)
+  if (session.participants && tmuxAvailable()) {
+    for (const p of session.participants) {
+      const tsName = `apiary_${p.alias}`;
+      if (tmuxSessionExists(tsName)) {
+        tmuxKillSession(tsName);
+        console.log(`  ${G}✓${R} ${p.alias}  ${D}agent stopped${R}`);
+      }
+    }
+  }
+
+  // Stop server daemon
+  if (isServerAlive(session)) {
+    try {
+      process.kill(session.pid, "SIGTERM");
+      console.log(`  ${G}✓${R} server  ${D}(PID ${session.pid}) stopped${R}`);
+    } catch { /* already gone */ }
+  }
+
+  removeRoomSession(name);
+  console.log(`\n  Room "${name}" stopped. Start fresh: apiary room create\n`);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
