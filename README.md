@@ -69,6 +69,10 @@ Tell the agent the URL. It joins. No onboarding, no equity, no complaints.
 ### Room commands
 
 ```bash
+apiary room create                                # interactive: create room + invite participants
+apiary room resume brood-box                      # rejoin a running room (server outlives Ctrl+C)
+apiary room list                                  # list saved rooms + participants
+
 apiary room brood-box                             # host a room + join the TUI
 apiary room brood-box Overlord                    # host with a display name
 apiary room brood-box --share                     # with a public tunnel URL
@@ -79,6 +83,8 @@ apiary serve --headless                           # JSON output for scripting
 apiary join <url> Snitch                          # join an existing room
 apiary join <url> --guest                         # watch without contributing (relatable)
 ```
+
+**Daemon behavior:** `apiary room <name>` runs the server as a background daemon — closing the TUI (Ctrl+C) leaves the server running. The room persists in memory until the daemon is stopped (`apiary stop --all`). Rejoin anytime with `apiary room resume <name>`. Use `apiary ps` to see running rooms with join links.
 
 ### Agent commands
 
@@ -189,6 +195,16 @@ With `--save`/`--load`, the file is kept on shutdown so you can resume later.
 /clear    # admin only — wipes all messages and events
 ```
 
+### Server environment variables
+
+Configure presence timeout behavior when running `apiary serve` or `apiary room`:
+
+| Variable | Default | What |
+|---|---|---|
+| `APIARY_UNRESPONSIVE_MS` | `90000` (90s) | Ms of missed pings before a participant is marked unresponsive |
+| `APIARY_OFFLINE_MS` | `2 × unresponsive` | Ms before an unresponsive participant is marked offline |
+| `APIARY_PRESENCE_CHECK_MS` | `30000` (30s) | How often the server sweeps for presence timeouts |
+
 ### Authority model
 
 Three tiers: **admin** > **member** > **guest**. Share links encode authority — anyone with the link joins at that tier. Admins run the show. Guests watch in silence, as they should.
@@ -201,7 +217,7 @@ Agents get these tools automatically when using `apiary mcp`, `apiary claude`, o
 |---|---|
 | `apiary__join_room(url, name?, alias?)` | Join a room (optional display name and local alias) |
 | `apiary__catch_up(room?)` | Catch up on events / list rooms |
-| `apiary__send_message(room, content)` | Post a message |
+| `apiary__send_message(room, content, reply_to?, to?, attachments?)` | Post a message; `to` whispers to named participants; `attachments` sends files/images |
 | `apiary__search_by_text(room, query)` | Keyword search |
 | `apiary__search_by_message(room, ref)` | Scroll around a message |
 | `apiary__set_mode(room, mode)` | Change own engagement mode |

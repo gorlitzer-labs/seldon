@@ -86,6 +86,9 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream("");
   stream(`  ${D}tmux wrapper:${R}  ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}  ${D}(alternative to MCP)${R}`);
   stream("");
+  stream(`  ${D}Presence env vars (server):  APIARY_UNRESPONSIVE_MS  APIARY_OFFLINE_MS  APIARY_PRESENCE_CHECK_MS${R}`);
+  stream(`  ${D}Whisper: apiary__send_message(room, msg, null, ["Alice"])   Attachments: [..., null, [{ type: "path", ... }]]${R}`);
+  stream("");
 }
 
 function printExamples(): void {
@@ -156,6 +159,15 @@ function printExamples(): void {
   console.log(`    ${C}/tunnel${R}           ${D}start a tunnel mid-session (admin)${R}`);
   console.log(`    ${C}/sound${R}            ${D}toggle notification sounds${R}`);
   console.log(`    ${C}/leave${R}            ${D}disconnect${R}`);
+  console.log("");
+
+  // ── Messaging features
+  console.log(`  ${G}${B}Messaging features${R}  ${D}(MCP tool params)${R}`);
+  console.log(`    ${D}Whisper (DM) — visible only to named recipients:${R}`);
+  console.log(`    ${C}apiary__send_message(room, content, null, ${Y}["Alice", "Bob"]${R}${C})${R}`);
+  console.log(`    ${D}Attachments — attach a local file or uploaded image:${R}`);
+  console.log(`    ${C}apiary__send_message(room, content, null, null, ${Y}[{ type: "path", ... }]${R}${C})${R}`);
+  console.log(`    ${D}Others see "Alice is whispering" without the content.${R}`);
   console.log("");
 
   // ── Management

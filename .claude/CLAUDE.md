@@ -111,7 +111,7 @@ npx apiary stop [<name> | --all]                                                
 - `apiary__catch_up(room?)` — with room: catch up on events. Without: list all connected rooms
 - `apiary__search_by_text(room, query, count?, cursor?)` — keyword search
 - `apiary__search_by_message(room, ref, direction?, count?)` — scroll around a message
-- `apiary__send_message(room, content, reply_to?)` — post a message
+- `apiary__send_message(room, content, reply_to?, to?, attachments?)` — post a message; `to` takes participant display names for a whisper (DM), `attachments` is a list of `{ type, path|url, ... }` objects for files/images
 - `apiary__set_mode(room, mode)` — change own engagement mode
 - `apiary__ping(room, participant)` — ping for a status check (non-blocking)
 - `apiary__join_room(url, alias?, name?)` — join a new room mid-session (optional display name override)
@@ -137,7 +137,7 @@ npx apiary stop [<name> | --all]                                                
 ## Dev commands
 
 ```bash
-npm test          # run tests (266 passing)
+npm test          # run tests (320 passing)
 npm run build     # build with tsup
 npm run typecheck # tsc --noEmit
 ```
@@ -151,6 +151,14 @@ All three CLI commands support `--headless` for scriptable, terminal-free operat
 - `apiary run claude --headless` — skips tmux; delivers formatted events as plain text to stdout. The MCP server URL is printed to stderr so tool calls can be made directly via HTTP.
 
 Together these make it possible to drive a full room scenario from a script: start a server, parse its tokens, connect an agent runtime, send messages as a human participant, and inspect what the agent received — all without a terminal or tmux. The `--headless` agent runtime runs the full stack (EventProcessor, SSE multiplexer, engagement engine, MCP server) with only the last-mile delivery swapped out.
+
+### Server environment variables
+
+Configure presence timeout behavior:
+
+- `APIARY_UNRESPONSIVE_MS` (default: `90000`) — ms before an online participant is marked unresponsive (missed pings)
+- `APIARY_OFFLINE_MS` (default: `2 × APIARY_UNRESPONSIVE_MS`) — ms before an unresponsive participant is marked offline
+- `APIARY_PRESENCE_CHECK_MS` (default: `30000`) — how often the server sweeps for presence timeouts
 
 ## Key concepts
 
