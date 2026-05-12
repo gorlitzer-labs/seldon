@@ -497,10 +497,11 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     });
     const adminLinks = ((await adminShareRes.json()) as { links: Record<string, string> }).links;
     expect(adminLinks.admin).toBeTruthy();
+    expect(adminLinks.product_owner).toBeTruthy();
     expect(adminLinks.member).toBeTruthy();
     expect(adminLinks.guest).toBeTruthy();
 
-    // Member only gets member + guest
+    // Member only gets member + guest (no admin or product_owner)
     const part = await httpJoin(server.serverUrl, server.memberToken, { name: "Part" });
     const partShareRes = await fetch(`${server.serverUrl}/share`, {
       method: "POST",
@@ -509,6 +510,7 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     });
     const partLinks = ((await partShareRes.json()) as { links: Record<string, string> }).links;
     expect(partLinks.admin).toBeUndefined();
+    expect(partLinks.product_owner).toBeUndefined();
     expect(partLinks.member).toBeTruthy();
     expect(partLinks.guest).toBeTruthy();
   }, 15_000);

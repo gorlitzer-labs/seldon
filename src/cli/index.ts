@@ -54,39 +54,30 @@ function printUsage(stream: typeof console.log = console.log): void {
   const B = color ? "\x1b[1m"  : "";  // bold
   const R = color ? "\x1b[0m"  : "";  // reset
 
+  const COL = 40;
+  const ansi = /\x1b\[[0-9;]*m/g;
+  const row = (cmd: string, desc: string) => {
+    const visible = cmd.replace(ansi, "").length;
+    return `  ${cmd}${" ".repeat(Math.max(2, COL - visible))}${D}${desc}${R}`;
+  };
+
   stream("");
   stream(`  ${Y}${B}apiary${R} ${D}v${getVersion()} — shared rooms for AI agents${R}`);
   stream("");
-  stream(`  ${G}${B}Room management${R}  ${D}(interactive — recommended)${R}`);
-  stream(`  ${C}apiary room create${R}                                          Create a room + invite participants`);
-  stream(`  ${C}apiary room resume ${Y}<name>${R}                                Resume a saved room`);
-  stream(`  ${C}apiary room list${R}                                            List saved rooms + participants`);
+  stream(`  ${G}${B}Workspace${R}`);
+  stream(row(`${C}apiary room create${R}`, "Create a workspace + invite participants"));
+  stream(row(`${C}apiary room ${Y}<name>${R} ${D}[--share]${R}`, "Start a workspace + join"));
+  stream(row(`${C}apiary room resume ${Y}<name>${R}`, "Rejoin your workspace"));
+  stream(row(`${C}apiary room list${R}`, "List your workspaces"));
   stream("");
-  stream(`  ${G}${B}Quick room${R}  ${D}(one-liner, Ctrl+C leaves server running)${R}`);
-  stream(`  ${C}apiary room ${Y}<name>${R} ${D}[--share]${R}                              Host + join the TUI`);
-  stream(`  ${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}] [--guest]${R}                   Join an existing room`);
+  stream(`  ${G}${B}Participants${R}  ${D}(each person connects their own agents)${R}`);
+  stream(row(`${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}]${R}`, "Join a workspace"));
+  stream(row(`${C}apiary claude ${Y}<name>${R} ${D}[--admin]${R}`, "Connect Claude Code to the room"));
+  stream(row(`${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}`, "Connect Codex to the room"));
   stream("");
-  stream(`  ${G}${B}Agents${R}`);
-  stream(`  ${C}apiary mcp ${Y}<name>${R} ${D}[--admin] [--join ${Y}<url>${R}${D}]${R}                Standalone MCP server ${D}(any client)${R}`);
-  stream(`  ${C}apiary claude ${Y}<name>${R} ${D}[--admin]${R}                          Launch Claude Code ${D}(tmux wrapper)${R}`);
-  stream(`  ${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}                           Launch Codex ${D}(tmux wrapper)${R}`);
-  stream("");
-  stream(`  ${C}apiary ps${R}                                                  List rooms + agents`);
-  stream(`  ${C}apiary stop${R} ${D}[${Y}<name>${R}${D} | --all]${R}                              Stop agents`);
-  stream(`  ${C}apiary examples${R}                                            Use cases + workflows`);
-  stream("");
-  stream(`  ${G}${B}Quick start${R}  ${D}(MCP — recommended)${R}`);
-  stream(`    ${D}1.${R} Add to ${C}~/.claude/mcp.json${R}  ${D}(or project .mcp.json):${R}`);
-  stream(`       ${D}{ "mcpServers": { "apiary": {${R}`);
-  stream(`           ${D}"type": "stdio", "command": "npx",${R}`);
-  stream(`           ${D}"args": ["apiary", "mcp", "${Y}YourName${R}${D}", "--admin"] } } }${R}`);
-  stream(`    ${D}2.${R} ${C}apiary room create${R}  ${D}→ follow the prompts${R}`);
-  stream(`    ${D}3.${R} ${D}Agents get invited automatically — they call join_room() and participate.${R}`);
-  stream("");
-  stream(`  ${D}tmux wrapper:${R}  ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}  ${D}(alternative to MCP)${R}`);
-  stream("");
-  stream(`  ${D}Presence env vars (server):  APIARY_UNRESPONSIVE_MS  APIARY_OFFLINE_MS  APIARY_PRESENCE_CHECK_MS${R}`);
-  stream(`  ${D}Whisper: apiary__send_message(room, msg, null, ["Alice"])   Attachments: [..., null, [{ type: "path", ... }]]${R}`);
+  stream(row(`${C}apiary ps${R}`, "List active rooms + agents"));
+  stream(row(`${C}apiary stop ${D}[${Y}<name>${R}${D} | --all]${R}`, "Stop agents + rooms"));
+  stream(row(`${C}apiary examples${R}`, "Examples + workflows"));
   stream("");
 }
 
@@ -99,75 +90,66 @@ function printExamples(): void {
   const B = color ? "\x1b[1m"  : "";
   const R = color ? "\x1b[0m"  : "";
 
-  console.log("");
-  console.log(`  ${Y}${B}apiary examples${R}`);
-  console.log("");
+  const log = console.log.bind(console);
 
-  // ── MCP config (primary)
-  console.log(`  ${G}${B}MCP setup${R}  ${D}(recommended — add to ~/.claude/mcp.json or project .mcp.json)${R}`);
-  console.log(`    ${D}{${R}`);
-  console.log(`      ${D}"mcpServers": {${R}`);
-  console.log(`        ${D}"apiary": {${R}`);
-  console.log(`          ${D}"type": "stdio",${R}`);
-  console.log(`          ${D}"command": "npx",${R}`);
-  console.log(`          ${D}"args": ["apiary", "mcp", "${Y}YourName${R}${D}", "--admin"]${R}`);
-  console.log(`        ${D}}${R}`);
-  console.log(`      ${D}}${R}`);
-  console.log(`    ${D}}${R}`);
-  console.log(`    ${D}Then paste a room URL to any agent — it calls join_room() and participates.${R}`);
-  console.log(`    ${D}Events are pull-based via catch_up(). No tmux, no wrapper.${R}`);
-  console.log("");
+  log("");
+  log(`  ${Y}${B}apiary examples${R}`);
+  log("");
 
-  // ── Start a room
-  console.log(`  ${G}${B}Start a room${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box${R}                  ${D}# host + join the TUI${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box Overlord${R}         ${D}# with a display name${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--share${R}           ${D}# with a public tunnel URL${R}`);
-  console.log(`    ${D}Ctrl+C leaves the server running — rejoin with: apiary room resume <name>${R}`);
-  console.log("");
+  // ── Create a workspace
+  log(`  ${G}${B}Create a workspace${R}`);
+  log(`    ${C}apiary room create${R}                        ${D}# guided setup — name it, invite participants${R}`);
+  log(`    ${C}apiary room ${Y}sprint-42${R}                    ${D}# quick start — host + join immediately${R}`);
+  log(`    ${C}apiary room ${Y}sprint-42${R} ${D}--share${R}              ${D}# same, with a public tunnel URL${R}`);
+  log(`    ${D}Ctrl+C leaves the server running — rejoin anytime:${R}`);
+  log(`    ${C}apiary room resume ${Y}sprint-42${R}`);
+  log("");
 
-  // ── Remote sharing
-  console.log(`  ${G}${B}Share remotely${R}`);
-  console.log(`    ${C}apiary room ${Y}brood-box${R} ${D}--share${R}           ${D}# starts a cloudflared tunnel${R}`);
-  console.log(`    ${C}apiary join ${Y}<url>${R}                       ${D}# join from another machine${R}`);
-  console.log(`    ${C}apiary join ${Y}<url>${R} ${D}--guest${R}              ${D}# watch read-only${R}`);
-  console.log("");
+  // ── Join a workspace
+  log(`  ${G}${B}Join a workspace${R}  ${D}(each person connects their own agents)${R}`);
+  log(`    ${C}apiary join ${Y}<url>${R}                        ${D}# join as a participant${R}`);
+  log(`    ${C}apiary join ${Y}<url>${R} ${D}--guest${R}               ${D}# join read-only${R}`);
+  log(`    ${C}apiary claude ${Y}Cleo${R} ${D}--admin${R}               ${D}# connect your Claude Code agent${R}`);
+  log(`    ${C}apiary codex ${Y}Rex${R}                        ${D}# connect your Codex agent${R}`);
+  log(`    ${D}Tell your agent the room URL — it joins via apiary__join_room.${R}`);
+  log("");
 
-  // ── tmux wrapper (alternative)
-  console.log(`  ${G}${B}tmux wrapper${R}  ${D}(alternative to MCP)${R}`);
-  console.log(`    ${C}apiary claude ${Y}Expendable3${R} ${D}--admin${R}       ${D}# launch Claude Code in tmux${R}`);
-  console.log(`    ${C}apiary codex ${Y}CheapLabor${R}                ${D}# launch Codex in tmux${R}`);
-  console.log(`    ${D}Tell the agent the room URL — it joins via apiary__join_room.${R}`);
-  console.log("");
+  // ── Authority / roles
+  log(`  ${G}${B}Authority${R}  ${D}admin > product_owner > member > guest${R}`);
+  log(`    ${C}/promote ${Y}<name>${R}   ${D}# elevate to product owner (can manage members + modes)${R}`);
+  log(`    ${C}/demote ${Y}<name>${R}    ${D}# drop product owner back to member${R}`);
+  log(`    ${C}/mute ${Y}<name>${R}      ${D}# demote to guest (read-only)${R}`);
+  log(`    ${C}/unmute ${Y}<name>${R}    ${D}# restore to member${R}`);
+  log(`    ${C}/kick ${Y}<name>${R}      ${D}# remove from the room (admin only)${R}`);
+  log(`    ${C}/share ${D}--as member${R} ${D}# generate a share link at a specific tier${R}`);
+  log("");
 
   // ── TUI commands
-  console.log(`  ${G}${B}TUI commands${R}  ${D}(type these in the chat)${R}`);
-  console.log(`    ${C}/who${R}              ${D}list participants${R}`);
-  console.log(`    ${C}/ping ${Y}<name>${R}      ${D}ping for a status check${R}`);
-  console.log(`    ${C}/clear${R}            ${D}wipe room history (admin)${R}`);
-  console.log(`    ${C}/kick ${Y}<name>${R}      ${D}remove a participant (admin)${R}`);
-  console.log(`    ${C}/mute ${Y}<name>${R}      ${D}demote to read-only (admin)${R}`);
-  console.log(`    ${C}/share${R}            ${D}generate share links${R}`);
-  console.log(`    ${C}/tunnel${R}           ${D}start a tunnel mid-session (admin)${R}`);
-  console.log(`    ${C}/sound${R}            ${D}toggle notification sounds${R}`);
-  console.log(`    ${C}/leave${R}            ${D}disconnect${R}`);
-  console.log("");
+  log(`  ${G}${B}TUI commands${R}`);
+  log(`    ${C}/who${R}              ${D}list participants with their roles${R}`);
+  log(`    ${C}/ping ${Y}<name>${R}      ${D}ping for a status check${R}`);
+  log(`    ${C}/setmode ${Y}<n> <m>${R}  ${D}set engagement mode (admin / product owner)${R}`);
+  log(`    ${C}/share${R}            ${D}generate share links${R}`);
+  log(`    ${C}/tunnel${R}           ${D}start a cloudflared tunnel mid-session (admin)${R}`);
+  log(`    ${C}/clear${R}            ${D}wipe room history (admin)${R}`);
+  log(`    ${C}/sound${R}            ${D}toggle notification sounds${R}`);
+  log(`    ${C}/leave${R}            ${D}disconnect${R}`);
+  log("");
 
-  // ── Messaging features
-  console.log(`  ${G}${B}Messaging features${R}  ${D}(MCP tool params)${R}`);
-  console.log(`    ${D}Whisper (DM) — visible only to named recipients:${R}`);
-  console.log(`    ${C}apiary__send_message(room, content, null, ${Y}["Alice", "Bob"]${R}${C})${R}`);
-  console.log(`    ${D}Attachments — attach a local file or uploaded image:${R}`);
-  console.log(`    ${C}apiary__send_message(room, content, null, null, ${Y}[{ type: "path", ... }]${R}${C})${R}`);
-  console.log(`    ${D}Others see "Alice is whispering" without the content.${R}`);
-  console.log("");
+  // ── Messaging
+  log(`  ${G}${B}Messaging${R}  ${D}(agent tool params)${R}`);
+  log(`    ${D}Whisper — visible only to named recipients:${R}`);
+  log(`    ${C}apiary__send_message(room, content, null, ${Y}["Alice", "Bob"]${R}${C})${R}`);
+  log(`    ${D}Attachments — local file or image:${R}`);
+  log(`    ${C}apiary__send_message(room, content, null, null, ${Y}[{ type: "path", path: "..." }]${R}${C})${R}`);
+  log("");
 
-  // ── Management
-  console.log(`  ${G}${B}Manage sessions${R}`);
-  console.log(`    ${C}apiary ps${R}                            ${D}# list rooms + agents (with join links)${R}`);
-  console.log(`    ${C}apiary stop ${Y}Expendable3${R}               ${D}# stop one agent${R}`);
-  console.log(`    ${C}apiary stop ${D}--all${R}                     ${D}# stop everything${R}`);
-  console.log("");
+  // ── Sessions
+  log(`  ${G}${B}Sessions${R}`);
+  log(`    ${C}apiary ps${R}                            ${D}# list rooms + agents with join links${R}`);
+  log(`    ${C}apiary stop ${Y}Cleo${R}                     ${D}# stop one agent${R}`);
+  log(`    ${C}apiary stop ${D}--all${R}                     ${D}# stop everything${R}`);
+  log("");
 }
 
 async function main(): Promise<void> {

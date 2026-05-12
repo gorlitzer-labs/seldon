@@ -829,9 +829,9 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         const mode = String(body.mode ?? "");
         if (!mode) return jsonError(res, 400, "Missing mode");
 
-        // Setting someone else's mode requires admin
-        if (targetId !== session.id && session.authority !== "admin") {
-          return jsonError(res, 403, "Only admins can change other participants' modes");
+        // Setting someone else's mode requires admin or product_owner
+        if (targetId !== session.id && session.authority !== "admin" && session.authority !== "product_owner") {
+          return jsonError(res, 403, "Only admins and product owners can change other participants' modes");
         }
 
         // Emit mode_changed activity event
@@ -854,20 +854,37 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── POST /set-authority ──────────────────────────────────────────────
       if (url.pathname === "/set-authority") {
         if (!session) return jsonError(res, 401, "Invalid session token");
-        if (session.authority !== "admin") return jsonError(res, 403, "Only admins can change authority");
+        if (session.authority !== "admin" && session.authority !== "product_owner") {
+          return jsonError(res, 403, "Only admins and product owners can change authority");
+        }
         const targetId = String(body.participantId ?? "");
         const newAuthority = String(body.authority ?? "") as AuthorityLevel;
         if (!targetId) return jsonError(res, 400, "Missing participantId");
-        if (!["admin", "member", "guest"].includes(newAuthority)) {
-          return jsonError(res, 400, "Invalid authority. Must be admin, member, or guest.");
+        if (!["admin", "product_owner", "member", "guest"].includes(newAuthority)) {
+          return jsonError(res, 400, "Invalid authority. Must be admin, product_owner, member, or guest.");
         }
         if (targetId === session.id) return jsonError(res, 400, "Cannot change own authority");
+
+        // product_owner can only set member/guest, and cannot touch admins or other product_owners
+        if (session.authority === "product_owner") {
+          if (!["member", "guest"].includes(newAuthority)) {
+            return jsonError(res, 403, "Product owners can only set member or guest authority");
+          }
+        }
 
         // Update all three places: ConnectedParticipant, TokenManager session, Room participant
         const targetSession = idToSession.get(targetId);
         if (!targetSession) return jsonError(res, 404, "Participant not found");
         const target = participants.get(targetSession);
         if (!target) return jsonError(res, 404, "Participant not found");
+
+        // product_owner cannot touch admins or other product_owners
+        if (session.authority === "product_owner") {
+          const currentAuthority = target.authority ?? "member";
+          if (currentAuthority === "admin" || currentAuthority === "product_owner") {
+            return jsonError(res, 403, "Cannot change authority of admins or product owners");
+          }
+        }
 
         target.authority = newAuthority;
         tokens.updateSessionAuthority(targetSession, newAuthority);
@@ -1013,7 +1030,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           links[targetAuthority] = buildShareUrl(publicUrl, token);
         } else {
           // Generate all links the caller can create
-          const tiers: AuthorityLevel[] = ["admin", "member", "guest"];
+          const tiers: AuthorityLevel[] = ["admin", "product_owner", "member", "guest"];
           for (const tier of tiers) {
             const token = tokens.generateShareToken(session.authority, tier);
             if (token) links[tier] = buildShareUrl(publicUrl, token);

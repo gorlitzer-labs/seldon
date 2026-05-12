@@ -210,9 +210,19 @@ export async function join(options: JoinOptions): Promise<void> {
           "/sound            toggle notification sounds",
           "/leave            disconnect",
         ];
+        if (authority === "product_owner") {
+          lines.push(
+            "",
+            "/mute <name>      demote to guest",
+            "/unmute <name>    restore to member",
+            "/setmode <n> <m>  set engagement mode",
+          );
+        }
         if (authority === "admin") {
           lines.push(
             "",
+            "/promote <name>   promote to product owner",
+            "/demote <name>    demote to member",
             "/kick <name>      remove a participant",
             "/mute <name>      demote to guest",
             "/unmute <name>    restore to member",
@@ -233,7 +243,8 @@ export async function join(options: JoinOptions): Promise<void> {
           const data = (await res.json()) as { participants: Array<{ id: string; name: string; type: string; authority?: string }> };
           const lines = data.participants.map((p) => {
             const auth = p.authority ?? "member";
-            return `  ${p.type === "agent" ? "agent" : "human"} ${p.name} (${auth})`;
+            const label = auth === "product_owner" ? "owner" : auth;
+            return `  ${p.type === "agent" ? "agent" : "human"} ${p.name} (${label})`;
           });
           systemEvent(`Participants:\n${lines.join("\n")}`);
         } catch {
@@ -277,9 +288,9 @@ export async function join(options: JoinOptions): Promise<void> {
         return;
       }
 
-      // ── /mute <name> (admin only) — demote to observer ────────────
+      // ── /mute <name> (admin or product_owner) — demote to guest ─────
       case "mute": {
-        if (authority !== "admin") { systemEvent("Only admins can mute."); return; }
+        if (authority !== "admin" && authority !== "product_owner") { systemEvent("Only admins and product owners can mute."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /mute <name>"); return; }
 
@@ -303,9 +314,9 @@ export async function join(options: JoinOptions): Promise<void> {
         return;
       }
 
-      // ── /unmute <name> (admin only) — restore to participant ──────
+      // ── /unmute <name> (admin or product_owner) — restore to member ──
       case "unmute": {
-        if (authority !== "admin") { systemEvent("Only admins can unmute."); return; }
+        if (authority !== "admin" && authority !== "product_owner") { systemEvent("Only admins and product owners can unmute."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /unmute <name>"); return; }
 
@@ -329,9 +340,9 @@ export async function join(options: JoinOptions): Promise<void> {
         return;
       }
 
-      // ── /setmode <name> <mode> (admin only) ───────────────────────
+      // ── /setmode <name> <mode> (admin or product_owner) ──────────
       case "setmode": {
-        if (authority !== "admin") { systemEvent("Only admins can set modes."); return; }
+        if (authority !== "admin" && authority !== "product_owner") { systemEvent("Only admins and product owners can set modes."); return; }
         const targetName = args[0];
         const mode = args[1];
         if (!targetName || !mode) { systemEvent("Usage: /setmode <name> <mode>"); return; }
@@ -350,6 +361,58 @@ export async function join(options: JoinOptions): Promise<void> {
           });
           if (!modeRes.ok) { systemEvent(`Failed to set mode: ${await modeRes.text()}`); return; }
           systemEvent(`Set ${targetName} to ${mode}.`);
+        } catch {
+          systemEvent("Failed to reach server.");
+        }
+        return;
+      }
+
+      // ── /promote <name> (admin only) — elevate to product_owner ──
+      case "promote": {
+        if (authority !== "admin") { systemEvent("Only admins can promote."); return; }
+        const targetName = args[0];
+        if (!targetName) { systemEvent("Usage: /promote <name>"); return; }
+
+        try {
+          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
+          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
+          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
+          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
+          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
+
+          const authRes = await fetch(`${serverUrl}/set-authority`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+            body: JSON.stringify({ participantId: target.id, authority: "product_owner" }),
+          });
+          if (!authRes.ok) { systemEvent(`Failed to promote: ${await authRes.text()}`); return; }
+          systemEvent(`${targetName} is now a product owner.`);
+        } catch {
+          systemEvent("Failed to reach server.");
+        }
+        return;
+      }
+
+      // ── /demote <name> (admin only) — restore product_owner to member ──
+      case "demote": {
+        if (authority !== "admin") { systemEvent("Only admins can demote."); return; }
+        const targetName = args[0];
+        if (!targetName) { systemEvent("Usage: /demote <name>"); return; }
+
+        try {
+          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
+          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
+          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
+          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
+          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
+
+          const authRes = await fetch(`${serverUrl}/set-authority`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+            body: JSON.stringify({ participantId: target.id, authority: "member" }),
+          });
+          if (!authRes.ok) { systemEvent(`Failed to demote: ${await authRes.text()}`); return; }
+          systemEvent(`${targetName} is now a member.`);
         } catch {
           systemEvent("Failed to reach server.");
         }
@@ -770,6 +833,9 @@ function toDisplayEvent(
       }
       if (event.new_authority === "member") {
         return { id: randomUUID(), ts, kind: "system", content: `${name} was unmuted` };
+      }
+      if (event.new_authority === "product_owner") {
+        return { id: randomUUID(), ts, kind: "system", content: `${name} was promoted to product owner` };
       }
       return { id: randomUUID(), ts, kind: "system", content: `${name} → ${event.new_authority}` };
     }

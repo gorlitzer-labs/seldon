@@ -77,6 +77,10 @@ export interface RuntimeMcpServerOptions {
   onAdminMute?: (room: string, participant: string) => Promise<{ success: boolean; error?: string }>;
   /** Called for admin unmute (restore to member). */
   onAdminUnmute?: (room: string, participant: string) => Promise<{ success: boolean; error?: string }>;
+  /** Called for admin promote (elevate to product_owner). */
+  onAdminPromote?: (room: string, participant: string) => Promise<{ success: boolean; error?: string }>;
+  /** Called for admin demote (drop product_owner back to member). */
+  onAdminDemote?: (room: string, participant: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export interface RuntimeMcpServer {
@@ -378,6 +382,40 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
         return result.success
           ? textResult(`Unmuted ${participant} in [${room}] (member).`)
           : textResult(result.error ?? "Failed to unmute participant.");
+      },
+    );
+
+    server.tool(
+      "apiary__admin__promote",
+      "Admin: promote a participant to product owner (can mute/unmute members, set modes).",
+      {
+        room: z.string().describe("Room name"),
+        participant: z.string().describe("Participant name to promote"),
+      },
+      { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      async ({ room, participant }: { room: string; participant: string }) => {
+        if (!opts.onAdminPromote) return textResult("Admin promote not supported.");
+        const result = await opts.onAdminPromote(room, participant);
+        return result.success
+          ? textResult(`Promoted ${participant} to product owner in [${room}].`)
+          : textResult(result.error ?? "Failed to promote participant.");
+      },
+    );
+
+    server.tool(
+      "apiary__admin__demote",
+      "Admin: demote a product owner back to member.",
+      {
+        room: z.string().describe("Room name"),
+        participant: z.string().describe("Participant name to demote"),
+      },
+      { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      async ({ room, participant }: { room: string; participant: string }) => {
+        if (!opts.onAdminDemote) return textResult("Admin demote not supported.");
+        const result = await opts.onAdminDemote(room, participant);
+        return result.success
+          ? textResult(`Demoted ${participant} to member in [${room}].`)
+          : textResult(result.error ?? "Failed to demote participant.");
       },
     );
   }

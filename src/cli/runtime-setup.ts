@@ -334,6 +334,46 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
         return { success: false, error: "Server unreachable." };
       }
     } : undefined,
+    onAdminPromote: options.admin ? async (room, participant) => {
+      const conn = processor.resolve(room);
+      if (!conn) return { success: false, error: `Unknown room "${room}".` };
+      const ds = conn.dataSource as RemoteRoomDataSource;
+
+      const p = conn.dataSource.listParticipants().find((pp) => pp.name === participant);
+      if (!p) return { success: false, error: `Unknown participant "${participant}".` };
+
+      try {
+        const res = await fetch(`${ds.serverUrl}/set-authority`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
+          body: JSON.stringify({ participantId: p.id, authority: "product_owner" }),
+        });
+        if (!res.ok) return { success: false, error: await res.text() };
+        return { success: true };
+      } catch {
+        return { success: false, error: "Server unreachable." };
+      }
+    } : undefined,
+    onAdminDemote: options.admin ? async (room, participant) => {
+      const conn = processor.resolve(room);
+      if (!conn) return { success: false, error: `Unknown room "${room}".` };
+      const ds = conn.dataSource as RemoteRoomDataSource;
+
+      const p = conn.dataSource.listParticipants().find((pp) => pp.name === participant);
+      if (!p) return { success: false, error: `Unknown participant "${participant}".` };
+
+      try {
+        const res = await fetch(`${ds.serverUrl}/set-authority`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
+          body: JSON.stringify({ participantId: p.id, authority: "member" }),
+        });
+        if (!res.ok) return { success: false, error: await res.text() };
+        return { success: true };
+      } catch {
+        return { success: false, error: "Server unreachable." };
+      }
+    } : undefined,
   });
 
   // ── Wrap SSE source for participant cache updates ─────────────────────
