@@ -203,6 +203,9 @@ export function formatEvent(
       if (event.new_authority === "member") {
         return [{ type: "text", text: `${ts}${r}${name} was unmuted` }];
       }
+      if (event.new_authority === "product_owner") {
+        return [{ type: "text", text: `${ts}${r}${name} was promoted to product owner` }];
+      }
       return [{ type: "text", text: `${ts}${r}${name} → ${event.new_authority}` }];
     }
     case "ContextCompacted":

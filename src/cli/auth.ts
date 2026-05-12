@@ -153,15 +153,23 @@ export class TokenManager {
   }
 }
 
-/** Authority tier ordering: admin > member > guest. */
-const TIER_ORDER: Record<AuthorityLevel, number> = {
-  admin: 2,
+/** Authority tier ordering: admin > product_owner > member > guest. */
+export const TIER_ORDER: Record<AuthorityLevel, number> = {
+  admin: 3,
+  product_owner: 2,
   member: 1,
   guest: 0,
 };
 
-/** Can a caller at `callerLevel` grant authority at `targetLevel`? */
+/**
+ * Can a caller at `callerLevel` grant a share token at `targetLevel`?
+ * Admin/product_owner links can only be granted by admins.
+ * Everyone else can grant links at or below their own tier (excluding PO/admin).
+ */
 function canGrant(callerLevel: AuthorityLevel, targetLevel: AuthorityLevel): boolean {
+  if (targetLevel === "admin" || targetLevel === "product_owner") {
+    return callerLevel === "admin";
+  }
   return TIER_ORDER[callerLevel] >= TIER_ORDER[targetLevel];
 }
 

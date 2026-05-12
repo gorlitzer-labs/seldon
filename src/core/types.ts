@@ -99,13 +99,14 @@ export type Message = z.infer<typeof MessageSchema>;
 /**
  * Authority level — what a participant is allowed to do.
  *
- * - `admin`  — full control: kick, set others' modes, generate share links
- * - `member` — can send messages, set own mode
- * - `guest`  — read-only: can catch up and search, but can't send or act
+ * - `admin`         — full control: kick, promote, clear, tunnel, generate all links
+ * - `product_owner` — can mute/unmute members, set engagement modes, generate member/guest links
+ * - `member`        — can send messages, set own mode, generate member/guest links
+ * - `guest`         — read-only: can catch up and search, but can't send or act
  *
- * Set on join, doesn't change during the session. Orthogonal to engagement mode.
+ * Set on join via share token. Admins can change authority mid-session via /promote, /demote, /mute, /unmute.
  */
-export type AuthorityLevel = "admin" | "member" | "guest";
+export type AuthorityLevel = "admin" | "product_owner" | "member" | "guest";
 
 // ── Participant ───────────────────────────────────────────────────────────────
 

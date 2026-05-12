@@ -510,6 +510,22 @@ describe("AuthorityChanged formatting", () => {
     expect(text).toContain("Alice was unmuted");
   });
 
+  test("promotion to product_owner shows readable text", () => {
+    const event = createEvent<AuthorityChangedEvent>({
+      type: "AuthorityChanged",
+      category: "PRESENCE",
+      room_id: "room-1",
+      participant_id: alice.id,
+      participant: alice,
+      new_authority: "product_owner",
+      changed_by: "Admin",
+    });
+
+    const parts = formatEvent(event, resolve);
+    const text = textOf(parts);
+    expect(text).toContain("Alice was promoted to product owner");
+  });
+
   test("promotion to admin shows arrow format", () => {
     const event = createEvent<AuthorityChangedEvent>({
       type: "AuthorityChanged",
