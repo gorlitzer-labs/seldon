@@ -200,27 +200,64 @@ This ensures consistent behavior across macOS, Linux, and Termux.
 
 ## Home server tips
 
-Running a MacBook as a headless home node? Set it up once, forget about it:
+Running a MacBook as a headless home node? Set it up once, forget about it.
+
+### Stay awake (survives reboots, not just this login)
+
+`caffeinate` is a process — it dies on reboot or power-cut. For a real always-on
+server, set the power policy in `pmset`:
 
 ```bash
-# Prevent idle sleep (runs in background, survives logout)
-tmux new-session -d -s caffeinate 'caffeinate -s'  # bury it and forget
-
-# Lid closed? Plug in an HDMI dummy plug (~$5) for clamshell mode.
-# Apple Silicon ignores pmset disablesleep — the lid magnet is hardware-level.
-# Dummy plug + power adapter = Mac stays awake with lid closed.
-
-# Cap battery at 80% — lithium lives longer below 100%
-brew install battery        # actuallymentor/battery (free, open source)
-battery maintain 80         # runs as daemon, survives reboots
+# Plugged-in profile: never sleep, never disk-sleep, restart after power cut.
+sudo pmset -c sleep 0 disksleep 0 displaysleep 10 womp 1 autorestart 1
 ```
 
-Keep it plugged in. HDMI dummy plug in. Close the lid, walk away. SSH in from anywhere via Tailscale.
+On macOS Tahoe 26.5+ add `autorestartatconnect 1` so the Mac wakes the moment
+power is reconnected.
 
-To undo:
-```bash
-battery maintain stop       # remove charge limit
-```
+### Clamshell mode (lid closed)
+
+Apple Silicon enforces lid-close sleep at the firmware level — `pmset
+disablesleep` is **ignored**. You need a display (real or virtual) for clamshell
+mode:
+
+- **Software-only:** [BetterDummy](https://github.com/waydabber/BetterDummy) —
+  free, open source, no dongle.
+- **Hardware:** any HDMI or USB-C dummy plug (~$5).
+
+Either works. Plug in power, plug in display (or BetterDummy), close lid.
+
+### Cap battery charge (battery longevity)
+
+Cycling lithium between ~20–80% extends pack life. Today (2026) macOS does this
+natively:
+
+- **macOS Tahoe 26.4+** (Feb 2026) — System Settings → Battery → Charging → tap
+  the info icon → **Charge Limit** (80/85/90/95/100%). Use this first.
+- **Older macOS** — [actuallymentor/battery](https://github.com/actuallymentor/battery):
+
+  ```bash
+  brew install --cask battery   # GUI app — open it once to finish CLI setup
+  battery maintain 80           # daemon, survives reboots
+  battery maintain stop         # undo
+  ```
+
+### Gotchas (read these once)
+
+- **FileVault + reboot = no SSH.** A FileVault-encrypted Mac stops at the
+  pre-boot unlock screen after any reboot/power-cut — Tailscale isn't running
+  yet. macOS 26 (Tahoe) added pre-boot SSH unlock, but it needs **wired
+  Ethernet** and a **password** (SSH keys don't work pre-boot). Pre-Tahoe: the
+  only options are disabling FileVault on the server node, or accepting a
+  physical trip home after power failures.
+- **Tailscale key expiry.** Tailscale auth keys expire (default 180 days). For
+  a 24/7 server, disable expiry on that node in the Tailscale admin console
+  (Machines → ⋮ → Disable key expiry).
+- **Lock down SSH.** Run `tailscale up --ssh` so SSH access is gated by your
+  tailnet ACL — no need to expose port 22 even on the LAN.
+
+Keep it plugged in. BetterDummy or dummy plug. Close the lid, walk away.
+SSH in from anywhere via Tailscale.
 
 ---
 
