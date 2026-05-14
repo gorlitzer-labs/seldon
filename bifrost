@@ -13,9 +13,22 @@
 set -euo pipefail
 
 # ── Version ──────────────────────────────────────────────────────
-BIFROST_VERSION="1.4.0"
+BIFROST_VERSION="1.5.0"
 BIFROST_REPO="gorlitzer-labs/bifrost"
 BIFROST_VERSION_CACHE="${HOME}/.config/bifrost/version-check.json"
+
+# Allowed realm name pattern — protects against shell/SSH injection
+# (realm names land inside both local eval-style expansions and remote ssh heredocs)
+BIFROST_REALM_NAME_RE='^[A-Za-z0-9_-]+$'
+
+validate_realm_name() {
+  local name="${1:-}"
+  if [[ -z "$name" || ! "$name" =~ $BIFROST_REALM_NAME_RE ]]; then
+    echo "Error: realm name must match $BIFROST_REALM_NAME_RE (got: '$name')" >&2
+    return 1
+  fi
+  return 0
+}
 
 # ── Platform detection ───────────────────────────────────────────
 # macOS + iTerm2: full workspace/split support via AppleScript
@@ -32,6 +45,34 @@ fi
 BIFROST_CONFIG_DIR="${HOME}/.config/bifrost"
 BIFROST_CONFIG="${BIFROST_CONFIG_DIR}/config"
 BIFROST_TMUX_CONF="${BIFROST_CONFIG_DIR}/tmux.conf"
+
+# ── SSH options ───────────────────────────────────────────────────
+# ControlMaster reuses a single TCP connection across calls — huge win
+# over flaky LTE, where each fresh handshake adds ~1–3s of latency.
+# A typical `bifrost status` / `sessions` fans out 3–4 SSHs per realm.
+BIFROST_SSH_CTLDIR="${BIFROST_CONFIG_DIR}/ssh-cm"
+mkdir -p "$BIFROST_SSH_CTLDIR" 2>/dev/null || true
+
+# Probes (silent, programmatic — must never prompt for a password).
+SSH_OPTS_BATCH=(
+  -o BatchMode=yes
+  -o ConnectTimeout=5
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=3
+  -o ControlMaster=auto
+  -o "ControlPath=$BIFROST_SSH_CTLDIR/cm-%r@%h:%p"
+  -o ControlPersist=60s
+)
+
+# Interactive attach (Raven-friendly — keeps tunnels alive on mobile).
+SSH_OPTS_ATTACH=(
+  -o ConnectTimeout=10
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=3
+  -o ControlMaster=auto
+  -o "ControlPath=$BIFROST_SSH_CTLDIR/cm-%r@%h:%p"
+  -o ControlPersist=60s
+)
 
 load_config() {
   if [[ -f "$BIFROST_CONFIG" ]]; then
@@ -75,7 +116,7 @@ mode_setup() {
   # Test connection
   echo ""
   echo "Testing SSH to $REMOTE_USER@$REMOTE_HOST..."
-  if ssh -o ConnectTimeout=5 "$REMOTE_USER@$REMOTE_HOST" "echo 'Connected to $(hostname)'" 2>/dev/null; then
+  if ssh "${SSH_OPTS_BATCH[@]}" "$REMOTE_USER@$REMOTE_HOST" "echo 'Connected to $(hostname)'" 2>/dev/null; then
     echo "Connection OK."
   else
     echo "Warning: could not reach $REMOTE_HOST — config saved anyway."
@@ -143,7 +184,7 @@ TMUXCONF
 generate_remote_tmux_conf() {
   local user="$1" host="$2"
   local remote_platform
-  remote_platform=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "$user@$host" \
+  remote_platform=$(ssh "${SSH_OPTS_BATCH[@]}" "$user@$host" \
     'if [[ -d "/data/data/com.termux" ]]; then echo termux; elif [[ "$(uname)" == "Darwin" ]]; then echo macos; else echo linux; fi' 2>/dev/null || echo "linux")
 
   local mouse="on"
@@ -205,9 +246,12 @@ check_version_bg() {
       | cut -d'"' -f2 || echo "")
 
     if [[ -n "$latest" ]]; then
-      cat > "$BIFROST_VERSION_CACHE" <<JSON
+      # Write atomically so a concurrent reader never sees a half-written file.
+      local tmp_cache="${BIFROST_VERSION_CACHE}.tmp.$$"
+      cat > "$tmp_cache" <<JSON
 {"local":"$BIFROST_VERSION","remote":"$latest","checked":$(date +%s)}
 JSON
+      mv -f "$tmp_cache" "$BIFROST_VERSION_CACHE"
     fi
   ) &>/dev/null &
   disown 2>/dev/null || true
@@ -219,8 +263,9 @@ print_update_notice() {
     return
   fi
 
-  local remote_version
-  remote_version=$(grep -o '"remote":"[^"]*"' "$BIFROST_VERSION_CACHE" 2>/dev/null | cut -d'"' -f4)
+  # grep + pipefail would exit the whole script on a stale/empty cache; tolerate failure.
+  local remote_version=""
+  remote_version=$(grep -o '"remote":"[^"]*"' "$BIFROST_VERSION_CACHE" 2>/dev/null | cut -d'"' -f4 || true)
 
   if [[ -n "$remote_version" && "$remote_version" != "$BIFROST_VERSION" ]]; then
     local Y='\033[33m' D='\033[2m' B='\033[1m' N='\033[0m'
@@ -272,9 +317,20 @@ mode_upgrade() {
     exit 1
   fi
 
+  # Sanity-check the download: GitHub rate-limit errors return JSON that
+  # base64 happily decodes to garbage; refuse to install anything without a
+  # bash shebang.
+  if ! head -1 "$tmpfile" | grep -qE '^#!.*\b(bash|sh)\b'; then
+    echo "Error: downloaded file is not a shell script — aborting."
+    echo "  First line: $(head -1 "$tmpfile")"
+    rm -f "$tmpfile"
+    exit 1
+  fi
+
   # Find where bifrost is installed
   local install_path
-  install_path=$(which bifrost 2>/dev/null || echo "$HOME/bin/bifrost")
+  install_path=$(command -v bifrost 2>/dev/null || echo "$HOME/bin/bifrost")
+  mkdir -p "$(dirname "$install_path")"
 
   # Replace
   chmod +x "$tmpfile"
@@ -401,12 +457,12 @@ mode_doctor() {
       load_realm "$realm_name"
       echo "  REALM — $realm_name ($REALM_HOST):"
 
-      if ssh -o ConnectTimeout=3 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "echo ok" &>/dev/null; then
+      if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "echo ok" &>/dev/null; then
         echo "    ✓ SSH connection"
 
         # Check remote tmux
         local remote_tmux
-        remote_tmux=$(ssh -o ConnectTimeout=3 "$REALM_USER@$REALM_HOST" "tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
+        remote_tmux=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
         if [[ "$remote_tmux" == "missing" ]]; then
           echo "    ✗ tmux — not installed on realm"
           echo "      → ssh $REALM_USER@$REALM_HOST 'brew install tmux'"
@@ -416,7 +472,7 @@ mode_doctor() {
         fi
 
         # Check bifrost tmux.conf on realm
-        if ssh -o ConnectTimeout=3 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "test -f ~/.config/bifrost/tmux.conf" 2>/dev/null; then
+        if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "test -f ~/.config/bifrost/tmux.conf" 2>/dev/null; then
           echo "    ✓ tmux.conf synced"
         else
           echo "    ⚠ tmux.conf not synced — run 'bifrost sync'"
@@ -431,10 +487,10 @@ mode_doctor() {
     done
   elif [[ -n "$REMOTE_HOST" ]]; then
     echo "  REALM — $REMOTE_HOST:"
-    if ssh -o ConnectTimeout=3 -o BatchMode=yes "$REMOTE_USER@$REMOTE_HOST" "echo ok" &>/dev/null; then
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REMOTE_USER@$REMOTE_HOST" "echo ok" &>/dev/null; then
       echo "    ✓ SSH connection"
       local remote_tmux
-      remote_tmux=$(ssh -o ConnectTimeout=3 "$REMOTE_USER@$REMOTE_HOST" "tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
+      remote_tmux=$(ssh "${SSH_OPTS_BATCH[@]}" "$REMOTE_USER@$REMOTE_HOST" "tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
       if [[ "$remote_tmux" == "missing" ]]; then
         echo "    ✗ tmux — not installed on realm"
         ok=false
@@ -488,12 +544,18 @@ get_realm_color() {
 
 list_realms() {
   if [[ -d "$BIFROST_REALMS_DIR" ]]; then
-    ls "$BIFROST_REALMS_DIR" 2>/dev/null
+    local name
+    for name in $(ls "$BIFROST_REALMS_DIR" 2>/dev/null); do
+      [[ "$name" =~ $BIFROST_REALM_NAME_RE ]] && echo "$name"
+    done
   fi
 }
 
 load_realm() {
   local name="$1"
+  if ! validate_realm_name "$name"; then
+    exit 1
+  fi
   local file="$BIFROST_REALMS_DIR/$name"
   if [[ ! -f "$file" ]]; then
     echo "Error: realm '$name' not found. Run 'bifrost realm list'."
@@ -589,6 +651,10 @@ realm_add() {
     exit 1
   fi
 
+  if ! validate_realm_name "$name"; then
+    exit 1
+  fi
+
   # Check if already exists
   if [[ -f "$BIFROST_REALMS_DIR/$name" ]]; then
     echo "Realm '$name' already configured. Remove first: bifrost realm remove $name"
@@ -625,7 +691,7 @@ realm_add() {
     echo "Connected."
 
     # Check if key-based auth works
-    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$user@$host" "true" 2>/dev/null; then
+    if ! ssh "${SSH_OPTS_BATCH[@]}" "$user@$host" "true" 2>/dev/null; then
       echo ""
       echo "⚠ Password auth works, but key-based auth is not set up."
       echo "  Bifrost needs key auth for non-interactive commands."
@@ -639,7 +705,7 @@ realm_add() {
         fi
         ssh-copy-id "$user@$host" 2>/dev/null
         echo "  Key copied. Testing..."
-        if ssh -o ConnectTimeout=5 -o BatchMode=yes "$user@$host" "true" 2>/dev/null; then
+        if ssh "${SSH_OPTS_BATCH[@]}" "$user@$host" "true" 2>/dev/null; then
           echo "  ✓ Key auth working."
         else
           echo "  ✗ Key auth still failing — check ~/.ssh/authorized_keys on $host"
@@ -697,13 +763,13 @@ realm_list() {
     load_realm "$name"
     local color
     color=$(get_realm_color $idx)
+    # Single batch-mode probe — a fallback non-batch probe would
+    # silently prompt for a password and hang the whole `realm list`.
     local status="?"
-    if ssh -o ConnectTimeout=2 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
       status="✓ online"
-    elif ssh -o ConnectTimeout=2 "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
-      status="⚠ online (needs key auth)"
     else
-      status="✗ offline"
+      status="✗ offline or key auth missing"
     fi
     echo "  $status $name → $REALM_USER@$REALM_HOST (bg: $color)"
     idx=$((idx + 1))
@@ -736,9 +802,11 @@ sync_realm() {
   tmpfile=$(mktemp)
   generate_remote_tmux_conf "$user" "$host" > "$tmpfile"
 
-  # Push it
-  ssh -o ConnectTimeout=5 -o BatchMode=yes "$user@$host" "mkdir -p ~/.config/bifrost" 2>/dev/null
-  scp -o ConnectTimeout=5 -q "$tmpfile" "$user@$host:~/.config/bifrost/tmux.conf" 2>/dev/null
+  # Push it (BatchMode for both — never prompt during sync).
+  ssh "${SSH_OPTS_BATCH[@]}" "$user@$host" "mkdir -p ~/.config/bifrost" 2>/dev/null
+  scp -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=15 \
+    -o ControlMaster=auto -o "ControlPath=$BIFROST_SSH_CTLDIR/cm-%r@%h:%p" -o ControlPersist=60s \
+    -q "$tmpfile" "$user@$host:~/.config/bifrost/tmux.conf" 2>/dev/null
   local result=$?
   rm -f "$tmpfile"
 
@@ -809,15 +877,22 @@ ensure_tmux_session() {
   if [[ "$host" == "local" ]]; then
     tmux has-session -t "$session" 2>/dev/null || $tmux_cmd new-session -d -s "$session"
   else
-    ssh -o ConnectTimeout=5 "$REALM_USER@$host" \
-      "tmux has-session -t '$session' 2>/dev/null || tmux -f ~/.config/bifrost/tmux.conf new-session -d -s '$session' 2>/dev/null || tmux new-session -d -s '$session'"
+    ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$host" \
+      env BIFROST_SESSION="$session" bash -s <<'REMOTE'
+session="$BIFROST_SESSION"
+tmux has-session -t "$session" 2>/dev/null || \
+  tmux -f ~/.config/bifrost/tmux.conf new-session -d -s "$session" 2>/dev/null || \
+  tmux new-session -d -s "$session"
+REMOTE
   fi
 }
 
-# SSH command with auto-reconnect loop for remote panes
+# SSH command with auto-reconnect loop for remote panes.
+# Session names come from validated realm names; safe to interpolate.
 ssh_reconnect_cmd() {
   local user="$1" host="$2" session="$3"
-  echo "while true; do echo '🌈 Connecting to $host ($session)...'; ssh -t -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 $user@$host 'tmux attach -t $session || tmux new-session -s $session'; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done"
+  local opts="-t -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ControlMaster=auto -o ControlPath='$BIFROST_SSH_CTLDIR/cm-%r@%h:%p' -o ControlPersist=60s"
+  echo "while true; do echo '🌈 Connecting to $host ($session)...'; ssh $opts $user@$host 'tmux attach -t $session || tmux new-session -s $session'; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done"
 }
 
 # ── Mode: mobile (tmux) ──────────────────────────────────────────
@@ -942,7 +1017,7 @@ tell application "iTerm2"
 
   tell remoteSession
     set name to "REALM @ $REMOTE_HOST"
-    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; while true; do echo '🌈 Connecting to $REMOTE_HOST...'; ssh -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 $REMOTE_USER@$REMOTE_HOST; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done"
+    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; while true; do echo '🌈 Connecting to $REMOTE_HOST...'; ssh -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ControlMaster=auto -o ControlPath='$BIFROST_SSH_CTLDIR/cm-%r@%h:%p' -o ControlPersist=60s $REMOTE_USER@$REMOTE_HOST; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done"
   end tell
 end tell
 APPLESCRIPT
@@ -970,7 +1045,7 @@ mode_direct_tmux() {
 
   # Right pane: SSH to realm
   tmux split-window -h -t "$bsession:0"
-  tmux send-keys -t "$bsession:0.1" "while true; do echo '🌈 Connecting to $REMOTE_HOST...'; ssh -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 $REMOTE_USER@$REMOTE_HOST; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done" Enter
+  tmux send-keys -t "$bsession:0.1" "while true; do echo '🌈 Connecting to $REMOTE_HOST...'; ssh -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ControlMaster=auto -o ControlPath='$BIFROST_SSH_CTLDIR/cm-%r@%h:%p' -o ControlPersist=60s $REMOTE_USER@$REMOTE_HOST; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done" Enter
 
   echo ""
   echo "Bifrost ready (direct mode — tmux-native)"
@@ -998,24 +1073,33 @@ pick_emoji() {
 create_pane_session() {
   local host="$1" session="$2" emoji="$3"
 
-  # Use bifrost tmux.conf if available
-  local tmux_new="tmux new-session -d -s '$session'"
-  if [[ "$host" == "local" && -f "$BIFROST_TMUX_CONF" ]]; then
-    tmux_new="tmux -f '$BIFROST_TMUX_CONF' new-session -d -s '$session'"
-  elif [[ "$host" != "local" ]]; then
-    tmux_new="tmux -f ~/.config/bifrost/tmux.conf new-session -d -s '$session' 2>/dev/null || tmux new-session -d -s '$session'"
-  fi
-
-  local cmd="tmux kill-session -t '$session' 2>/dev/null; true; "
-  cmd+="$tmux_new; "
-  cmd+="tmux set-option -t '$session' set-titles on; "
-  cmd+="tmux set-option -t '$session' pane-border-format ' $emoji $session '; "
-  cmd+="tmux set-option -t '$session' status-left ' $emoji $session  '"
-
   if [[ "$host" == "local" ]]; then
-    eval "$cmd"
+    # Non-destructive: keep existing session if present (preserves prior work).
+    if ! tmux has-session -t "$session" 2>/dev/null; then
+      if [[ -f "$BIFROST_TMUX_CONF" ]]; then
+        tmux -f "$BIFROST_TMUX_CONF" new-session -d -s "$session"
+      else
+        tmux new-session -d -s "$session"
+      fi
+    fi
+    tmux set-option -t "$session" set-titles on >/dev/null
+    tmux set-option -t "$session" pane-border-format " $emoji $session " >/dev/null
+    tmux set-option -t "$session" status-left " $emoji $session  " >/dev/null
   else
-    ssh -o ConnectTimeout=5 "$REALM_USER@$host" "$cmd"
+    # Remote: session name is validated upstream (realm name + suffix).
+    # Pass emoji via env so it never enters the command string.
+    ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$host" \
+      env BIFROST_EMOJI="$emoji" BIFROST_SESSION="$session" bash -s <<'REMOTE'
+session="$BIFROST_SESSION"
+emoji="$BIFROST_EMOJI"
+if ! tmux has-session -t "$session" 2>/dev/null; then
+  tmux -f ~/.config/bifrost/tmux.conf new-session -d -s "$session" 2>/dev/null \
+    || tmux new-session -d -s "$session"
+fi
+tmux set-option -t "$session" set-titles on >/dev/null
+tmux set-option -t "$session" pane-border-format " $emoji $session " >/dev/null
+tmux set-option -t "$session" status-left " $emoji $session  " >/dev/null
+REMOTE
   fi
 }
 
@@ -1189,21 +1273,24 @@ mode_workspace_tmux() {
   for realm_name in $realms; do
     load_realm "$realm_name"
 
-    if ! ssh -o ConnectTimeout=3 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
+    if ! ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
       echo "  ✗ $realm_name — unreachable, skipping"
       continue
     fi
 
-    # Discover active sessions on this realm
+    # Discover active sessions on this realm.
+    # Pass realm name via env so it's never expanded into the remote command.
     local remote_sessions
-    remote_sessions=$(ssh -o ConnectTimeout=3 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "
-      for i in 1 2 3 4; do
-        s='${realm_name}-'\$i
-        if tmux has-session -t \"\$s\" 2>/dev/null; then
-          echo \"\$s\"
-        fi
-      done
-    " 2>/dev/null)
+    remote_sessions=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+      env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux has-session -t "$s" 2>/dev/null; then
+    echo "$s"
+  fi
+done
+REMOTE
+)
 
     if [[ -n "$remote_sessions" ]]; then
       while IFS= read -r rsession; do
@@ -1263,11 +1350,16 @@ mode_kill() {
   realms=$(list_realms)
   for realm_name in $realms; do
     load_realm "$realm_name"
-    ssh -o ConnectTimeout=5 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "
-      for i in 1 2 3 4; do
-        tmux kill-session -t '${realm_name}-'\$i 2>/dev/null && echo '  Killed ${realm_name}-'\$i || true
-      done
-    " 2>/dev/null || echo "  Could not reach $realm_name ($REALM_HOST)"
+    ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+      env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null \
+      || echo "  Could not reach $realm_name ($REALM_HOST)"
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux kill-session -t "$s" 2>/dev/null; then
+    echo "  Killed $s"
+  fi
+done
+REMOTE
   done
 
   echo "Done."
@@ -1307,18 +1399,20 @@ mode_status() {
     echo ""
     load_realm "$realm_name"
     echo "  REALM — $realm_name ($REALM_HOST):"
-    if ssh -o ConnectTimeout=3 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "echo ok" &>/dev/null; then
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "echo ok" &>/dev/null; then
       echo "    ✓ Reachable"
       local remote_info
-      remote_info=$(ssh -o ConnectTimeout=3 "$REALM_USER@$REALM_HOST" "
-        for i in 1 2 3 4; do
-          s='${realm_name}-'\$i
-          if tmux has-session -t \"\$s\" 2>/dev/null; then
-            cmd=\$(tmux list-panes -t \"\$s\" -F '#{pane_current_command}' 2>/dev/null | head -1)
-            echo \"    ✓ \$s (\$cmd)\"
-          fi
-        done
-      " 2>/dev/null)
+      remote_info=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+        env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux has-session -t "$s" 2>/dev/null; then
+    cmd=$(tmux list-panes -t "$s" -F '#{pane_current_command}' 2>/dev/null | head -1)
+    echo "    ✓ $s ($cmd)"
+  fi
+done
+REMOTE
+)
       if [[ -n "$remote_info" ]]; then
         echo "$remote_info"
       else
@@ -1354,7 +1448,7 @@ mode_attach() {
       load_realm "$realm_name"
       echo ""
       echo "Realm $realm_name ($REALM_HOST):"
-      ssh -o ConnectTimeout=3 -o BatchMode=yes "$REALM_USER@$REALM_HOST" \
+      ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
         "tmux list-sessions -F '  #{session_name}' 2>/dev/null || echo '  (none)'" 2>/dev/null \
         || echo "  (unreachable)"
     done
@@ -1375,7 +1469,9 @@ mode_attach() {
   if [[ -f "$BIFROST_REALMS_DIR/$realm_name" ]]; then
     load_realm "$realm_name"
     echo "Attaching to $session @ $REALM_HOST..."
-    ssh -t "$REALM_USER@$REALM_HOST" "tmux attach -t '$session' || echo 'Session $session not found'"
+    # Session name comes from validated realm prefix + -N; safe to single-quote-embed.
+    ssh -t "${SSH_OPTS_ATTACH[@]}" "$REALM_USER@$REALM_HOST" \
+      "tmux attach -t '$session' || echo 'Session $session not found'"
   else
     # Try local first, then fail
     echo "Attaching to $session..."
@@ -1412,7 +1508,7 @@ mode_run() {
   fi
 
   load_realm "$realm_name"
-  ssh -o ConnectTimeout=5 "$REALM_USER@$REALM_HOST" "$*"
+  ssh "${SSH_OPTS_ATTACH[@]}" "$REALM_USER@$REALM_HOST" "$*"
 }
 
 # ── Mode: sessions (visual map) ──────────────────────────────────
@@ -1467,21 +1563,23 @@ mode_sessions() {
       5) color='\033[34m' ;;
     esac
 
-    if ssh -o ConnectTimeout=2 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
       echo -e "  ${B}${color}REALM — $realm_name${N} ${D}($REALM_HOST)${N}  ${G}online${N}"
 
       local remote_sessions
-      remote_sessions=$(ssh -o ConnectTimeout=3 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "
-        for i in 1 2 3 4; do
-          s='${realm_name}-'\$i
-          if tmux has-session -t \"\$s\" 2>/dev/null; then
-            cmd=\$(tmux list-panes -t \"\$s\" -F '#{pane_current_command}' 2>/dev/null | head -1)
-            cwd=\$(tmux list-panes -t \"\$s\" -F '#{pane_current_path}' 2>/dev/null | head -1)
-            cwd=\${cwd##*/}
-            echo \"\$s|\$cwd|\$cmd\"
-          fi
-        done
-      " 2>/dev/null)
+      remote_sessions=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+        env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux has-session -t "$s" 2>/dev/null; then
+    cmd=$(tmux list-panes -t "$s" -F '#{pane_current_command}' 2>/dev/null | head -1)
+    cwd=$(tmux list-panes -t "$s" -F '#{pane_current_path}' 2>/dev/null | head -1)
+    cwd=${cwd##*/}
+    echo "$s|$cwd|$cmd"
+  fi
+done
+REMOTE
+)
 
       if [[ -n "$remote_sessions" ]]; then
         while IFS='|' read -r sname scwd scmd; do
@@ -1544,18 +1642,20 @@ mode_gateway() {
   realms=$(list_realms)
   for realm_name in $realms; do
     load_realm "$realm_name"
-    if ssh -o ConnectTimeout=2 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
       local remote_sessions
-      remote_sessions=$(ssh -o ConnectTimeout=2 -o BatchMode=yes "$REALM_USER@$REALM_HOST" "
-        for i in 1 2 3 4; do
-          s='${realm_name}-'\$i
-          if tmux has-session -t \"\$s\" 2>/dev/null; then
-            cmd=\$(tmux list-panes -t \"\$s\" -F '#{pane_current_command}' 2>/dev/null | head -1)
-            cwd=\$(tmux list-panes -t \"\$s\" -F '#{pane_current_path}' 2>/dev/null | head -1)
-            echo \"\$s|\${cwd##*/}|\$cmd\"
-          fi
-        done
-      " 2>/dev/null)
+      remote_sessions=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+        env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux has-session -t "$s" 2>/dev/null; then
+    cmd=$(tmux list-panes -t "$s" -F '#{pane_current_command}' 2>/dev/null | head -1)
+    cwd=$(tmux list-panes -t "$s" -F '#{pane_current_path}' 2>/dev/null | head -1)
+    echo "$s|${cwd##*/}|$cmd"
+  fi
+done
+REMOTE
+)
 
       if [[ -n "$remote_sessions" ]]; then
         while IFS='|' read -r sname scwd scmd; do
@@ -1603,7 +1703,8 @@ mode_gateway() {
     local shost="${session_hosts[$idx]}"
     local suser="${session_users[$idx]}"
     echo "Attaching to $selected @ $shost..."
-    ssh -t "$suser@$shost" "tmux attach -t '$selected'"
+    # Session name is realm-prefix + -N; realm prefix is validated by load_realm.
+    ssh -t "${SSH_OPTS_ATTACH[@]}" "$suser@$shost" "tmux attach -t '$selected'"
   fi
 }
 
