@@ -18,6 +18,7 @@ import { buildShareUrl } from "./auth.js";
 import { agentEmoji, roomEmoji } from "./config.js";
 import { askRepoPath, askRuntime, shortenPath } from "./repoPicker.js";
 import type { AuthorityLevel } from "../core/types.js";
+import { roomRulesPath } from "../core/rules.js";
 import {
   listRoomSessions, saveRoomSession, removeRoomSession, INVITES_DIR,
   type PersistedRoomSession,
@@ -570,6 +571,9 @@ export async function roomCreate(opts: {
     console.log(`\n  ${D}Member join link:${R}  ${C}${memberJoinUrl}${R}\n`);
   }
 
+  // Tell the user where the rules file lives. Defaults are seeded server-side
+  // on first boot; users edit the file by hand and the daemon hot-reloads.
+  console.log(`  ${D}Rules:${R}  ${C}${shortenPath(roomRulesPath(daemon.roomName))}${R}  ${D}(edit to customize — hot-reloads)${R}`);
   console.log(`  Press Ctrl+C to leave — server keeps running.\n`);
 
   const { join } = await import("./join.js");

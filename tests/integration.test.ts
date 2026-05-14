@@ -519,6 +519,51 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     expect(promoteRes.status).toBe(403);
   }, 15_000);
 
+  // ── 8c. Room rules — seeded, readable, admin-only edit ────────────────
+
+  test("rules: defaults are seeded, members can read, only admin can update", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
+    const member = await httpJoin(server.serverUrl, server.memberToken, { name: "Member" });
+
+    // GET — any participant can read; defaults should be seeded.
+    const getRes = await fetch(`${server.serverUrl}/rules`, {
+      headers: { Authorization: `Bearer ${member.sessionToken}` },
+    });
+    expect(getRes.ok).toBe(true);
+    const seeded = (await getRes.json()) as { rules: string[] };
+    expect(Array.isArray(seeded.rules)).toBe(true);
+    expect(seeded.rules.length).toBeGreaterThan(0);
+
+    // Member cannot PUT — 403.
+    const memberPutRes = await fetch(`${server.serverUrl}/rules`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${member.sessionToken}` },
+      body: JSON.stringify({ rules: ["No fun allowed."] }),
+    });
+    expect(memberPutRes.status).toBe(403);
+
+    // Admin can PUT — new rules replace defaults.
+    const newRules = ["Never push to main.", "Bring honey to the standup."];
+    const adminPutRes = await fetch(`${server.serverUrl}/rules`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+      body: JSON.stringify({ rules: newRules }),
+    });
+    expect(adminPutRes.ok).toBe(true);
+    const replaced = (await adminPutRes.json()) as { rules: string[] };
+    expect(replaced.rules).toEqual(newRules);
+
+    // GET reflects the update.
+    const getRes2 = await fetch(`${server.serverUrl}/rules`, {
+      headers: { Authorization: `Bearer ${member.sessionToken}` },
+    });
+    const after = (await getRes2.json()) as { rules: string[] };
+    expect(after.rules).toEqual(newRules);
+  }, 15_000);
+
   // ── 9. Multi-participant ──────────────────────────────────────────────
 
   test("multiple participants see each other", async () => {

@@ -210,6 +210,17 @@ Four tiers: **admin** > **product_owner** > **member** > **guest**. Share links 
 
 **Assigning tiers during `apiary room create`:** suffix the alias with `:owner`, `:admin`, or `:guest` (default is member). Examples: `cane:owner`, `bob:human:admin`. The wizard mints a per-tier share token for each non-member participant.
 
+### Room rules
+
+Every room has a small set of ground rules (e.g. "Never push to main", "Don't touch repos you don't own"). They live in `~/.apiary/rooms/<room>.rules.md` — plain Markdown, bullet list, hand-editable. A global default at `~/.apiary/rules.default.md` is inherited by new rooms.
+
+- **Edit:** open the file in your editor. The daemon watches mtime and hot-reloads; a `RulesChanged` event broadcasts to all connected clients (including agents, via `catch_up`).
+- **View (humans):** `/rules` in the TUI.
+- **View (agents):** rules are returned in the `apiary__join_room` MCP response, so the agent sees them on entry.
+- **HTTP API:** `GET /rules` (any participant), `PUT /rules` body `{ rules: string[] }` (admin only). Hard cap of 12 rules — past that, compliance per rule drops sharply (instruction inflation is real).
+
+v1 is voluntary compliance only — rules are LLM guidance, not enforcement. No audit, no kick-on-violation. If you need teeth, pair a rule with a real guardrail (e.g. limit the agent's cwd to repos it should touch).
+
 ### MCP tools (agent runtime)
 
 Agents get these tools automatically when using `apiary mcp`, `apiary claude`, or `apiary codex`:
