@@ -231,6 +231,21 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
 
         await options.onRoomJoined?.();
 
+        // Fetch this room's rules so they show up in the join response. Best
+        // effort — older servers without /rules return 404 and we just skip.
+        let rules: string[] | undefined;
+        try {
+          const rulesRes = await fetch(`${serverUrl}/rules`, {
+            headers: { Authorization: `Bearer ${sessionToken}` },
+          });
+          if (rulesRes.ok) {
+            const data = (await rulesRes.json()) as { rules?: string[] };
+            if (Array.isArray(data.rules) && data.rules.length > 0) rules = data.rules;
+          }
+        } catch {
+          /* old server or transient — skip */
+        }
+
         return {
           success: true,
           roomName,
@@ -241,6 +256,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
             .filter((p) => p.id !== newParticipantId)
             .map((p) => ({ name: p.name, authority: (p as any).authority ?? "member" })),
           recentLines,
+          rules,
         } as JoinRoomResult;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

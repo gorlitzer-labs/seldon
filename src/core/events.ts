@@ -253,6 +253,26 @@ export interface RoomClearedEvent extends BaseRoomEvent {
   cleared_by: string;
 }
 
+/**
+ * Room rules were created or updated.
+ *
+ * Emitted when the rules file changes — either via `PUT /rules` (admin) or
+ * when the underlying `~/.apiary/rooms/<name>.rules.md` file is hand-edited
+ * (mtime watch). Surfaced by `apiary__catch_up` so long-running agents
+ * re-discover the current ruleset after compaction or mid-session edits.
+ */
+export interface RulesChangedEvent extends BaseRoomEvent {
+  type: "RulesChanged";
+  category: "ACTIVITY";
+  room_id: string;
+  participant_id: string;
+  timestamp: Date;
+  /** The full ruleset in effect after this change. */
+  rules: string[];
+  /** Display name of the actor who updated the rules; "[system]" if hand-edit. */
+  updated_by: string;
+}
+
 // ── MENTION category ─────────────────────────────────────────────────────────
 
 /**
@@ -337,6 +357,7 @@ export type RoomEvent =
   | PingedEvent
   | ContextCompactedEvent
   | RoomClearedEvent
+  | RulesChangedEvent
   | WhisperNotifiedEvent;
 
 // ── Event roles ───────────────────────────────────────────────────────────────
@@ -372,6 +393,7 @@ export const EVENT_ROLE: Record<RoomEvent["type"], EventRole> = {
   ToolUse:            "internal",
   Activity:           "internal",
   RoomCleared:        "internal",
+  RulesChanged:       "ambient",
   WhisperNotified:    "ambient",
 };
 

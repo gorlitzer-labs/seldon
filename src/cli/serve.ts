@@ -17,7 +17,9 @@ import { join as pathJoin, resolve, sep } from "node:path";
 import { Room } from "../core/room.js";
 import { InMemoryStorage, FileBackedStorage } from "../core/storage.js";
 import { randomRoomName, randomName } from "../core/names.js";
-import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomClearedEvent, type RoomEvent, type StatusChangedEvent, type WhisperNotifiedEvent } from "../core/events.js";
+import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomClearedEvent, type RoomEvent, type RulesChangedEvent, type StatusChangedEvent, type WhisperNotifiedEvent } from "../core/events.js";
+import { loadRulesForRoom, saveRulesForRoom, seedRulesIfMissing, roomRulesPath, RULES_MAX } from "../core/rules.js";
+import { watchFile, unwatchFile, type Stats } from "node:fs";
 import { AttachmentSchema } from "../core/types.js";
 import type { AuthorityLevel, Attachment } from "../core/types.js";
 import { can } from "../core/authority.js";
@@ -207,6 +209,29 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   }
   const room = new Room(roomName, storage);
 
+  // ── Rules ─────────────────────────────────────────────────────────────────
+  // Seed defaults on first boot, then watch the file so hand-edits hot-reload
+  // and broadcast `RulesChanged` to every connected SSE client. The current
+  // ruleset is held in-memory and re-served on `GET /rules` to avoid disk
+  // I/O on the hot path.
+  seedRulesIfMissing(roomName);
+  let currentRules = loadRulesForRoom(roomName);
+  const rulesFilePath = roomRulesPath(roomName);
+  const onRulesFileChange = (curr: Stats, prev: Stats) => {
+    if (curr.mtimeMs === prev.mtimeMs) return; // spurious event
+    try {
+      const next = loadRulesForRoom(roomName);
+      // Skip no-op reloads (same content). Cheap stringify for short lists.
+      if (JSON.stringify(next) === JSON.stringify(currentRules)) return;
+      currentRules = next;
+      broadcastRulesChanged(currentRules, "[system]");
+      log(`rules reloaded from disk (${currentRules.length} rules)`);
+    } catch {
+      /* corrupt mid-edit — ignore, next save will fire again */
+    }
+  };
+  watchFile(rulesFilePath, { interval: 2000 }, onRulesFileChange);
+
   // Auth
   const tokens = new TokenManager({ shareTtlMs: options.shareTtlMs });
 
@@ -251,6 +276,20 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       status,
       previous_status: previousStatus,
       reason,
+    });
+    for (const [, sseRes] of sseConnections) {
+      sseRes.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+  }
+
+  function broadcastRulesChanged(rules: string[], updatedBy: string): void {
+    const event = createEvent<RulesChangedEvent>({
+      type: "RulesChanged",
+      category: "ACTIVITY",
+      room_id: room.roomId,
+      participant_id: "[system]",
+      rules,
+      updated_by: updatedBy,
     });
     for (const [, sseRes] of sseConnections) {
       sseRes.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -574,6 +613,15 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         return;
       }
 
+      // ── GET /rules ───────────────────────────────────────────────────────
+      // Any authenticated participant (including guests) can read the rules.
+      if (url.pathname === "/rules") {
+        if (!session) return jsonError(res, 401, "Invalid session token");
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ rules: currentRules }));
+        return;
+      }
+
       // ── GET /message/:id ─────────────────────────────────────────────────
       if (url.pathname.startsWith("/message/")) {
         if (!session) return jsonError(res, 401, "Invalid session token");
@@ -701,6 +749,34 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ id, url: attachmentUrl(id), name, mime_type: mimeType, size: bytes.length }));
+      return;
+    }
+
+    // ── PUT /rules — admin updates the ruleset ────────────────────────────
+
+    if (req.method === "PUT" && url.pathname === "/rules") {
+      const sessionToken = extractSessionToken(req, url);
+      const session = getSession(sessionToken);
+      if (!session) return jsonError(res, 401, "Invalid session token");
+      if (!can(session.authority, "clear_history")) {
+        return jsonError(res, 403, "Only admins can update rules");
+      }
+      const body = await parseBody(req);
+      const rawRules = body.rules;
+      if (!Array.isArray(rawRules) || rawRules.some((r) => typeof r !== "string")) {
+        return jsonError(res, 400, "Body must be { rules: string[] }");
+      }
+      const cleaned = (rawRules as string[])
+        .map((r) => r.trim())
+        .filter((r) => r.length > 0)
+        .slice(0, RULES_MAX);
+      currentRules = cleaned;
+      saveRulesForRoom(roomName, currentRules);
+      const adminP = sessionToken ? participants.get(sessionToken) : undefined;
+      broadcastRulesChanged(currentRules, adminP?.name ?? "admin");
+      log(`rules updated by ${adminP?.name ?? session.id} (${currentRules.length} rules)`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ rules: currentRules }));
       return;
     }
 
@@ -1334,6 +1410,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const shutdown = async () => {
     log("shutting down...");
     clearInterval(presenceInterval);
+    unwatchFile(rulesFilePath, onRulesFileChange);
     clearRoomSession(roomName);
     // Delete auto-saved room state — room is closed, next open starts fresh.
     // Explicit --save/--load files are kept (user opted into persistence).

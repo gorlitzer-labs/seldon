@@ -57,6 +57,8 @@ export interface JoinRoomResult {
   personName?: string;
   participants?: Array<{ name: string; authority: string }>;
   recentLines?: string[];
+  /** Room rules — surfaced in the join response so the agent sees them on entry. */
+  rules?: string[];
 }
 
 export interface RuntimeMcpServerOptions {
@@ -116,6 +118,13 @@ function formatJoinResponse(result: JoinRoomResult): string {
   if (result.personName) {
     lines.push(`Person: ${result.personName}`);
     lines.push(`  Your person's messages always reach you regardless of mode.`);
+    lines.push("");
+  }
+
+  // Room rules — surface before participants so the agent sees them prominently.
+  if (result.rules && result.rules.length > 0) {
+    lines.push("Room rules — follow these:");
+    result.rules.forEach((r, i) => lines.push(`  ${i + 1}. ${r}`));
     lines.push("");
   }
 

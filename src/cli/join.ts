@@ -254,6 +254,27 @@ export async function join(options: JoinOptions): Promise<void> {
         return;
       }
 
+      // ── /rules ────────────────────────────────────────────────────
+      // Read-only display of the room's current rules. Any participant
+      // (including guests) can view.
+      case "rules": {
+        try {
+          const res = await fetch(`${serverUrl}/rules`, { headers: { Authorization: `Bearer ${sessionToken}` } });
+          if (!res.ok) { systemEvent("Failed to fetch rules."); return; }
+          const data = (await res.json()) as { rules: string[] };
+          if (data.rules.length === 0) {
+            systemEvent("No rules set for this room.");
+            return;
+          }
+          const lines = ["Room rules:"];
+          data.rules.forEach((r, i) => lines.push(`  ${i + 1}. ${r}`));
+          systemEvent(lines.join("\n"));
+        } catch {
+          systemEvent("Failed to reach server.");
+        }
+        return;
+      }
+
       // ── /leave ────────────────────────────────────────────────────
       case "leave": {
         await disconnect();
