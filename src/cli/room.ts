@@ -17,6 +17,7 @@ import { createInterface } from "node:readline";
 import { buildShareUrl } from "./auth.js";
 import { agentEmoji, roomEmoji } from "./config.js";
 import { askRepoPath, askRuntime, shortenPath } from "./repoPicker.js";
+import type { AuthorityLevel } from "../core/types.js";
 import {
   listRoomSessions, saveRoomSession, removeRoomSession, INVITES_DIR,
   type PersistedRoomSession,
@@ -33,6 +34,59 @@ const DAEMON_SHARE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 interface Prompter {
   ask: (q: string) => Promise<string>;
   close: () => void;
+}
+
+// ── Alias-spec parser ────────────────────────────────────────────────────────
+//
+// The wizard accepts `alias[:token][:token...]` where each suffix token
+// modifies one independent axis:
+//   - type:  `human` (default `agent`)
+//   - tier:  `owner` (= product_owner), `admin`, `guest` (default `member`)
+//   - role:  any unrecognized token is preserved as a cosmetic role label.
+//
+// Examples:
+//   `cane`              → agent / member
+//   `bob:human`         → human / member
+//   `cane:owner`        → agent / product_owner ("the agent in charge")
+//   `bob:human:admin`   → human / admin
+//   `cane:owner:human`  → human / product_owner (order doesn't matter)
+
+const TIER_TOKENS: Record<string, AuthorityLevel> = {
+  owner: "product_owner",
+  product_owner: "product_owner",
+  admin: "admin",
+  member: "member",
+  guest: "guest",
+};
+const TYPE_TOKENS: Record<string, "agent" | "human"> = {
+  agent: "agent",
+  human: "human",
+};
+
+function parseAliasSpec(input: string): {
+  alias: string;
+  type: "agent" | "human";
+  tier: AuthorityLevel;
+  role: string;
+} | null {
+  const parts = input.split(":").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  const alias = parts[0];
+  let type: "agent" | "human" = "agent";
+  let tier: AuthorityLevel = "member";
+  let role = "agent";
+  for (const tok of parts.slice(1)) {
+    const lc = tok.toLowerCase();
+    if (TYPE_TOKENS[lc]) {
+      type = TYPE_TOKENS[lc];
+      role = type;
+    } else if (TIER_TOKENS[lc]) {
+      tier = TIER_TOKENS[lc];
+    } else {
+      role = lc;
+    }
+  }
+  return { alias, type, tier, role };
 }
 
 function makePrompt(): Prompter {
@@ -282,11 +336,22 @@ const BEE_BANNER = [
  *
  * Returns true on success, false if the cwd doesn't exist or spawn fails.
  */
-function spawnAgentBackground(alias: string, cwd: string, runtime: string): boolean {
+function spawnAgentBackground(
+  alias: string,
+  cwd: string,
+  runtime: string,
+  tier: AuthorityLevel = "member",
+): boolean {
   const resolvedCwd = cwd.replace(/^~/, homedir());
   if (!existsSync(resolvedCwd)) return false;
+  // For agents at admin or product_owner tier, pass --admin so the local MCP
+  // server exposes the privileged tool set. The server still enforces the
+  // real tier via the share token; --admin only affects which tools the
+  // agent's process *advertises*.
+  const args = [process.argv[1], runtime, alias, "--background"];
+  if (tier === "admin" || tier === "product_owner") args.push("--admin");
   try {
-    const child = spawn(process.execPath, [process.argv[1], runtime, alias, "--background"], {
+    const child = spawn(process.execPath, args, {
       detached: true,
       stdio: "ignore",
       cwd: resolvedCwd,
@@ -296,6 +361,47 @@ function spawnAgentBackground(alias: string, cwd: string, runtime: string): bool
   } catch {
     return false;
   }
+}
+
+/**
+ * Mint share tokens for each non-member tier the wizard needs. Opens a single
+ * transient admin session, posts to `/share` once per tier, then disconnects.
+ *
+ * Returns a map { tier → join URL } for the tiers successfully minted. Tiers
+ * that fail to mint (network error, server rejects) are omitted; the caller
+ * falls back to the member URL.
+ */
+async function mintTierTokens(
+  serverUrl: string,
+  adminShareToken: string,
+  shareBase: string,
+  tiers: AuthorityLevel[],
+): Promise<Partial<Record<AuthorityLevel, string>>> {
+  const result: Partial<Record<AuthorityLevel, string>> = {};
+  const sessionToken = await httpJoin(serverUrl, adminShareToken, "[system]");
+  if (!sessionToken) return result;
+  try {
+    for (const tier of tiers) {
+      try {
+        const res = await fetch(`${serverUrl}/share`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+          body: JSON.stringify({ authority: tier }),
+        });
+        if (!res.ok) continue;
+        const data = await res.json() as { links?: Record<string, string>; token?: string };
+        // Some endpoints return a token; others a URL. Handle both.
+        const linkForTier = data.links?.[tier];
+        const token = linkForTier ? extractToken(linkForTier) : data.token;
+        if (token) result[tier] = buildShareUrl(shareBase, token);
+      } catch {
+        /* tier failed — skip; caller falls back to memberJoinUrl */
+      }
+    }
+  } finally {
+    await httpDisconnect(serverUrl, sessionToken);
+  }
+  return result;
 }
 
 // ── Print invite for one participant ─────────────────────────────────────────
@@ -347,7 +453,13 @@ export async function roomCreate(opts: {
     console.log(`\n  ${D}Runtime auto-detected: ${availableRuntimes[0]}${R}`);
   }
 
-  const participants: Array<{ alias: string; cwd: string; role: string; runtime?: string }> = [];
+  const participants: Array<{
+    alias: string;
+    cwd: string;
+    role: string;
+    runtime?: string;
+    tier: AuthorityLevel;
+  }> = [];
   const G = "\x1b[32m";
   const M = "\x1b[35m";
   const divider = `  ${D}${"─".repeat(56)}${R}`;
@@ -356,7 +468,9 @@ export async function roomCreate(opts: {
   while (true) {
     const n = participants.length + 1;
     console.log(`\n  🐝 ${M}${B}Participant ${n}${R}`);
-    const aliasInput = await ask(`     ${C}→${R} Alias ${D}(blank ↵ to finish · suffix :human for a person)${R}: `);
+    const aliasInput = await ask(
+      `     ${C}→${R} Alias ${D}(blank ↵ to finish · suffix :human, :owner, :admin, :guest)${R}: `,
+    );
     if (!aliasInput) {
       const count = participants.length;
       const summary = count === 0
@@ -365,19 +479,20 @@ export async function roomCreate(opts: {
       console.log(`  ${summary}`);
       break;
     }
-    // alias[:role] — default role is "agent". `:human` skips the runtime prompt.
-    const colon = aliasInput.indexOf(":");
-    const alias = colon === -1 ? aliasInput : aliasInput.slice(0, colon).trim();
-    const role = colon === -1 ? "agent" : aliasInput.slice(colon + 1).trim() || "agent";
-    if (!alias) continue;
+    const spec = parseAliasSpec(aliasInput);
+    if (!spec) continue;
+    const { alias, role, tier } = spec;
     const cwd = await askRepoPath({ alias, defaultPath: process.cwd(), ask });
     const runtime = role === "agent"
       ? await askRuntime({ alias, available: availableRuntimes, ask })
       : undefined;
-    participants.push({ alias, cwd, role, runtime });
+    participants.push({ alias, cwd, role, runtime, tier });
     const bug = role === "agent" ? agentEmoji(alias) : role === "human" ? "👤" : "✎";
     const runtimeBadge = runtime ? ` · ${C}${runtime}${R}` : "";
-    console.log(`  ${G}✅${R} ${bug} ${B}${alias}${R}  ${D}${role}${R}${runtimeBadge}  ${D}${shortenPath(cwd)}${R}`);
+    const tierBadge = tier !== "member" ? `  ${Y}[${tier === "product_owner" ? "owner" : tier}]${R}` : "";
+    console.log(
+      `  ${G}✅${R} ${bug} ${B}${alias}${R}${tierBadge}  ${D}${role}${R}${runtimeBadge}  ${D}${shortenPath(cwd)}${R}`,
+    );
     console.log(divider);
   }
 
@@ -418,6 +533,19 @@ export async function roomCreate(opts: {
   const shareBase = daemon.publicUrl !== daemon.serverUrl ? daemon.publicUrl : daemon.serverUrl;
   const memberJoinUrl = buildShareUrl(shareBase, daemon.memberToken);
 
+  // Mint per-tier share tokens for any participant whose tier isn't "member".
+  // The daemon's startup payload only includes adminToken + memberToken; we
+  // need a fresh token per non-default tier. POST /share with the admin
+  // session — once per distinct tier — covers every participant cheaply.
+  const tieredJoinUrls: Partial<Record<AuthorityLevel, string>> = { member: memberJoinUrl };
+  const nonMemberTiers = Array.from(
+    new Set(participants.map((p) => p.tier).filter((t) => t !== "member")),
+  );
+  if (nonMemberTiers.length > 0) {
+    const mintedUrls = await mintTierTokens(daemon.serverUrl, daemon.adminToken, shareBase, nonMemberTiers);
+    Object.assign(tieredJoinUrls, mintedUrls);
+  }
+
   const canSpawn = tmuxAvailable();
   if (participants.length > 0) {
     console.log(`\n  ${B}Invite links:${R}\n`);
@@ -428,9 +556,10 @@ export async function roomCreate(opts: {
     const allLocal = participants.every((p) => isLocalPath(p.cwd));
     for (const p of participants) {
       const sameHost = allLocal || isLocalPath(p.cwd);
-      printInvite(p.alias, memberJoinUrl, sameHost);
+      const joinUrl = tieredJoinUrls[p.tier] ?? memberJoinUrl;
+      printInvite(p.alias, joinUrl, sameHost);
       if (sameHost && canSpawn && p.runtime) {
-        const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime);
+        const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier);
         if (ok) {
           console.log(`    ${D}→ spawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}`);
         }

@@ -20,6 +20,7 @@ import { randomRoomName, randomName } from "../core/names.js";
 import { createEvent, type ActivityEvent, type AuthorityChangedEvent, type ParticipantKickedEvent, type RoomClearedEvent, type RoomEvent, type StatusChangedEvent, type WhisperNotifiedEvent } from "../core/events.js";
 import { AttachmentSchema } from "../core/types.js";
 import type { AuthorityLevel, Attachment } from "../core/types.js";
+import { can } from "../core/authority.js";
 import type { Channel } from "../core/channel.js";
 import { formatTimestamp } from "../agent/prompts.js";
 import { TokenManager, buildShareUrl } from "./auth.js";
@@ -84,7 +85,17 @@ export interface PersistedRoomSession {
   /** Unix timestamp of last TUI activity (set by room create/resume). */
   lastActive?: number;
   /** Participants recorded at create/resume time. */
-  participants?: Array<{ alias: string; cwd: string; role: string; runtime?: string }>;
+  participants?: Array<{
+    alias: string;
+    cwd: string;
+    role: string;
+    runtime?: string;
+    /**
+     * Authority tier this participant joined at. Set by `apiary room create`
+     * via alias-suffix grammar (e.g. `cane:owner`). Undefined = member.
+     */
+    tier?: AuthorityLevel;
+  }>;
 }
 
 function roomSessionPath(name: string): string {
@@ -652,7 +663,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       const attSessionToken = extractSessionToken(req, url);
       const attSession = getSession(attSessionToken);
       if (!attSession) return jsonError(res, 401, "Invalid session token");
-      if (attSession.authority === "guest") return jsonError(res, 403, "Guests cannot upload attachments");
+      if (!can(attSession.authority, "send_message")) return jsonError(res, 403, "Guests cannot upload attachments");
 
       // Raw body read (intentionally not parseBody — binary, not JSON).
       const chunks: Buffer[] = [];
@@ -797,7 +808,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           const msgCheck = messageLimiter.check(sessionToken);
           if (!msgCheck.allowed) return rateLimitError(res, msgCheck.retryAfter!);
         }
-        if (session.authority === "guest") return jsonError(res, 403, "Guests cannot send messages");
+        if (!can(session.authority, "send_message")) return jsonError(res, 403, "Guests cannot send messages");
         const content = String(body.content ?? "");
         const replyTo = body.replyTo ? String(body.replyTo) : undefined;
         if (!content) return jsonError(res, 400, "Empty message");
@@ -859,7 +870,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── POST /event ─────────────────────────────────────────────────────
       if (url.pathname === "/event") {
         if (!session) return jsonError(res, 401, "Invalid session token");
-        if (session.authority === "guest") return jsonError(res, 403, "Guests cannot emit events");
+        if (!can(session.authority, "send_message")) return jsonError(res, 403, "Guests cannot emit events");
         const event = body.event as RoomEvent | undefined;
         if (!event) return jsonError(res, 400, "Missing event");
 
@@ -879,7 +890,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         if (!mode) return jsonError(res, 400, "Missing mode");
 
         // Setting someone else's mode requires admin or product_owner
-        if (targetId !== session.id && session.authority !== "admin" && session.authority !== "product_owner") {
+        if (targetId !== session.id && !can(session.authority, "set_mode_for")) {
           return jsonError(res, 403, "Only admins and product owners can change other participants' modes");
         }
 
@@ -903,7 +914,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── POST /set-authority ──────────────────────────────────────────────
       if (url.pathname === "/set-authority") {
         if (!session) return jsonError(res, 401, "Invalid session token");
-        if (session.authority !== "admin" && session.authority !== "product_owner") {
+        if (!can(session.authority, "mute")) {
           return jsonError(res, 403, "Only admins and product owners can change authority");
         }
         const targetId = String(body.participantId ?? "");
@@ -962,7 +973,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── POST /ping ──────────────────────────────────────────────────────
       if (url.pathname === "/ping") {
         if (!session) return jsonError(res, 401, "Invalid session token");
-        if (session.authority === "guest") return jsonError(res, 403, "Guests cannot ping");
+        if (!can(session.authority, "ping")) return jsonError(res, 403, "Guests cannot ping");
         const targetId = String(body.participantId ?? "");
         if (!targetId) return jsonError(res, 400, "Missing participantId");
 
@@ -977,7 +988,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── POST /kick ──────────────────────────────────────────────────────
       if (url.pathname === "/kick") {
         if (!session) return jsonError(res, 401, "Invalid session token");
-        if (session.authority !== "admin") return jsonError(res, 403, "Only admins can kick");
+        if (!can(session.authority, "kick")) return jsonError(res, 403, "Only admins can kick");
         const targetId = String(body.participantId ?? "");
         if (!targetId) return jsonError(res, 400, "Missing participantId");
 
@@ -1033,7 +1044,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── POST /clear ──────────────────────────────────────────────────────
       if (url.pathname === "/clear") {
         if (!session) return jsonError(res, 401, "Invalid session token");
-        if (session.authority !== "admin") return jsonError(res, 403, "Only admins can clear");
+        if (!can(session.authority, "clear_history")) return jsonError(res, 403, "Only admins can clear");
 
         // Wipe storage and room-scoped attachments
         await storage.clearRoom(room.roomId);
@@ -1069,7 +1080,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           const shareCheck = shareLimiter.check(sessionToken);
           if (!shareCheck.allowed) return rateLimitError(res, shareCheck.retryAfter!);
         }
-        if (session.authority === "guest") return jsonError(res, 403, "Guests cannot create share links");
+        if (!can(session.authority, "create_share_link")) return jsonError(res, 403, "Guests cannot create share links");
 
         const targetAuthority = (body.authority as AuthorityLevel) ?? undefined;
 
@@ -1096,7 +1107,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // ── POST /tunnel ────────────────────────────────────────────────────
       if (url.pathname === "/tunnel") {
-        if (!session || session.authority !== "admin") return jsonError(res, 403, "Admin only");
+        if (!session || !can(session.authority, "start_tunnel")) return jsonError(res, 403, "Admin only");
 
         if (tunnelProcess) {
           res.writeHead(200, { "Content-Type": "application/json" });

@@ -22,7 +22,8 @@ import { SseMultiplexer } from "../agent/sse-multiplexer.js";
 import { EventProcessor } from "../agent/event-processor.js";
 import { createRuntimeMcpServer, type RuntimeMcpServer, type JoinRoomResult } from "../agent/mcp/runtime.js";
 import { buildCatchUpLines } from "../agent/tool-handlers.js";
-import type { Participant } from "../core/types.js";
+import type { Participant, AuthorityLevel } from "../core/types.js";
+import { can } from "../core/authority.js";
 import type { LabeledEvent } from "../agent/multiplexer.js";
 import type { ContentPart } from "../agent/types.js";
 
@@ -31,7 +32,20 @@ import type { ContentPart } from "../agent/types.js";
 export interface AgentRuntimeOptions {
   joinUrls?: string[];
   name?: string;
+  /**
+   * Legacy CLI surface flag. `true` is equivalent to `authority: "admin"` —
+   * exposes the full set of admin tools in the local MCP server. Prefer
+   * setting `authority` directly when the desired tier isn't admin.
+   */
   admin?: boolean;
+  /**
+   * Pre-declared authority this agent expects to operate at. Drives which
+   * privileged MCP tools the local server registers. The real authority is
+   * still discovered + enforced by the apiary server on join — this flag is
+   * only about tool exposure. Defaults to "admin" if `admin: true`,
+   * undefined otherwise.
+   */
+  authority?: AuthorityLevel;
   extraArgs?: string[];
   /** Skip tmux/UI — deliver events as plain text to stdout. MCP server still runs. */
   headless?: boolean;
@@ -69,6 +83,10 @@ export interface AgentRuntimeSetup {
 
 export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<AgentRuntimeSetup> {
   const agentName = options.name ?? randomName();
+  // Translate the legacy --admin flag into a tier; the new `authority` field
+  // is the canonical knob.
+  const authority: AuthorityLevel | undefined = options.authority
+    ?? (options.admin ? "admin" : undefined);
 
   // ── Pending join URLs (not joined yet — agent calls join_room) ─────────
 
@@ -98,7 +116,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
       assignRef: (id) => processor.assignRef(id),
       resolveRef: (ref) => processor.resolveRef(ref),
     },
-    admin: options.admin,
+    authority,
     onSetMode: async (room, mode) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
@@ -254,7 +272,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
       }
       return { success: true };
     },
-    onAdminSetModeFor: options.admin ? async (room, participant, mode) => {
+    onAdminSetModeFor: can(authority, "set_mode_for") ? async (room, participant, mode) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;
@@ -274,7 +292,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
         return { success: false, error: "Server unreachable." };
       }
     } : undefined,
-    onAdminMute: options.admin ? async (room, participant) => {
+    onAdminMute: can(authority, "mute") ? async (room, participant) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;
@@ -294,7 +312,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
         return { success: false, error: "Server unreachable." };
       }
     } : undefined,
-    onAdminUnmute: options.admin ? async (room, participant) => {
+    onAdminUnmute: can(authority, "unmute") ? async (room, participant) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;
@@ -314,7 +332,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
         return { success: false, error: "Server unreachable." };
       }
     } : undefined,
-    onAdminKick: options.admin ? async (room, participant) => {
+    onAdminKick: can(authority, "kick") ? async (room, participant) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;
@@ -334,7 +352,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
         return { success: false, error: "Server unreachable." };
       }
     } : undefined,
-    onAdminPromote: options.admin ? async (room, participant) => {
+    onAdminPromote: can(authority, "promote") ? async (room, participant) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;
@@ -354,7 +372,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
         return { success: false, error: "Server unreachable." };
       }
     } : undefined,
-    onAdminDemote: options.admin ? async (room, participant) => {
+    onAdminDemote: can(authority, "demote") ? async (room, participant) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;
