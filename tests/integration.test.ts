@@ -465,6 +465,60 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     expect(send3.ok).toBe(true);
   }, 15_000);
 
+  // ── 8b. product_owner can mute/unmute; cannot kick or promote ─────────
+
+  test("product_owner can mute/unmute members but cannot kick or promote", async () => {
+    const server = await startServer();
+    servers.push(server);
+
+    // Admin mints a product_owner share link, then someone joins with it.
+    const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
+    const shareRes = await fetch(`${server.serverUrl}/share`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.sessionToken}` },
+      body: JSON.stringify({}),
+    });
+    const ownerUrl = ((await shareRes.json()) as { links: Record<string, string> }).links.product_owner;
+    expect(ownerUrl).toBeTruthy();
+    const ownerToken = new URL(ownerUrl).searchParams.get("token")!;
+    const owner = await httpJoin(server.serverUrl, ownerToken, { name: "Owner" });
+    expect(owner.authority).toBe("product_owner");
+
+    const member = await httpJoin(server.serverUrl, server.memberToken, { name: "Member" });
+
+    // PO can mute a member.
+    const muteRes = await fetch(`${server.serverUrl}/set-authority`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${owner.sessionToken}` },
+      body: JSON.stringify({ participantId: member.participantId, authority: "guest" }),
+    });
+    expect(muteRes.ok).toBe(true);
+
+    // PO can unmute (restore to member).
+    const unmuteRes = await fetch(`${server.serverUrl}/set-authority`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${owner.sessionToken}` },
+      body: JSON.stringify({ participantId: member.participantId, authority: "member" }),
+    });
+    expect(unmuteRes.ok).toBe(true);
+
+    // PO CANNOT kick (admin-only).
+    const kickRes = await fetch(`${server.serverUrl}/kick`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${owner.sessionToken}` },
+      body: JSON.stringify({ participantId: member.participantId }),
+    });
+    expect(kickRes.status).toBe(403);
+
+    // PO CANNOT promote another to product_owner (admin-only via set-authority).
+    const promoteRes = await fetch(`${server.serverUrl}/set-authority`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${owner.sessionToken}` },
+      body: JSON.stringify({ participantId: member.participantId, authority: "product_owner" }),
+    });
+    expect(promoteRes.status).toBe(403);
+  }, 15_000);
+
   // ── 9. Multi-participant ──────────────────────────────────────────────
 
   test("multiple participants see each other", async () => {

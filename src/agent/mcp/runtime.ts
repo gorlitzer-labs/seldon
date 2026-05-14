@@ -23,6 +23,8 @@
 import { createServer } from "node:http";
 import { z } from "zod";
 import type { RoomResolver, ToolHandlerOptions } from "../types.js";
+import type { AuthorityLevel } from "../../core/types.js";
+import { can } from "../../core/authority.js";
 import {
   handleCatchUp,
   handleSearchByText,
@@ -60,7 +62,13 @@ export interface JoinRoomResult {
 export interface RuntimeMcpServerOptions {
   resolver: RoomResolver;
   toolOptions: ToolHandlerOptions;
-  admin?: boolean;
+  /**
+   * Server-granted authority for this agent's session. Drives which admin /
+   * product_owner tools are exposed. When undefined or "member"/"guest", only
+   * non-privileged tools are registered. Updated after each `join_room`
+   * because the agent's tier can vary per room.
+   */
+  authority?: AuthorityLevel;
   /** Called when the agent requests joining a new room mid-session. */
   onJoinRoom?: (url: string, alias?: string, name?: string) => Promise<JoinRoomResult>;
   /** Called when the agent requests leaving a room. */
@@ -311,8 +319,11 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     },
   );
 
-  // ── Admin tools (only with --admin flag) ────────────────────────────────
-  if (opts.admin) {
+  // ── Product owner-and-up tools (mute / unmute / set_mode_for) ───────────
+  // These actions are accepted by the server for both admin and product_owner;
+  // expose them whenever the agent's authority meets the threshold so a
+  // promoted product_owner agent can actually use its powers.
+  if (can(opts.authority, "set_mode_for")) {
     server.tool(
       "apiary__admin__set_mode_for",
       "Admin: set engagement mode for another participant.",
@@ -331,23 +342,6 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
         return result.success
           ? textResult(`Set ${participant}'s mode to ${mode} in [${room}].`)
           : textResult(result.error ?? "Failed to set mode.");
-      },
-    );
-
-    server.tool(
-      "apiary__admin__kick",
-      "Admin: kick a participant from a room.",
-      {
-        room: z.string().describe("Room name"),
-        participant: z.string().describe("Participant name to kick"),
-      },
-      { readOnlyHint: false, destructiveHint: true },
-      async ({ room, participant }: { room: string; participant: string }) => {
-        if (!opts.onAdminKick) return textResult("Admin kick not supported.");
-        const result = await opts.onAdminKick(room, participant);
-        return result.success
-          ? textResult(`Kicked ${participant} from [${room}].`)
-          : textResult(result.error ?? "Failed to kick participant.");
       },
     );
 
@@ -382,6 +376,30 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
         return result.success
           ? textResult(`Unmuted ${participant} in [${room}] (member).`)
           : textResult(result.error ?? "Failed to unmute participant.");
+      },
+    );
+
+  }
+
+  // ── Admin-only tools (kick / promote / demote) ──────────────────────────
+  // Destructive or authority-escalating operations. Server gates these on
+  // strict admin; mirror that here so product_owners don't get tools that the
+  // server will reject anyway.
+  if (can(opts.authority, "kick")) {
+    server.tool(
+      "apiary__admin__kick",
+      "Admin: kick a participant from a room.",
+      {
+        room: z.string().describe("Room name"),
+        participant: z.string().describe("Participant name to kick"),
+      },
+      { readOnlyHint: false, destructiveHint: true },
+      async ({ room, participant }: { room: string; participant: string }) => {
+        if (!opts.onAdminKick) return textResult("Admin kick not supported.");
+        const result = await opts.onAdminKick(room, participant);
+        return result.success
+          ? textResult(`Kicked ${participant} from [${room}].`)
+          : textResult(result.error ?? "Failed to kick participant.");
       },
     );
 

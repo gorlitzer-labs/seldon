@@ -99,11 +99,14 @@ npx apiary stop [<name> | --all]                                                
 ```
 
 **Authority model:**
-- Three tiers: `admin` > `member` > `guest`
+- Four tiers: `admin` > `product_owner` > `member` > `guest`
+- Centralized gating: `src/core/authority.ts` exports a single `can(authority, op)` helper backed by an `Operation → minimum tier` table. Every check site (TUI, HTTP, MCP) reads from this one table — adding a 5th tier = one line, adding an op = one row
 - Share links encode authority — anyone with the link joins at that tier
-- Admins can kick, change others' modes, generate share links at any tier
-- Members can send messages, change own mode, generate member/guest links
-- Observers are read-only
+- Admins: kick, promote/demote, clear, tunnel, plus everything below
+- Product owners: mute/unmute, set others' modes, plus everything below
+- Members: send messages, ping, generate share links at or below own tier
+- Guests: read-only
+- Assign tier at room create via alias suffix: `cane:owner`, `cane:admin`, `cane:guest` (default member)
 
 **MCP tools (agent runtime):**
 - `apiary__catch_up(room?)` — with room: catch up on events. Without: list all connected rooms

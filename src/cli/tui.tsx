@@ -8,6 +8,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { render, Box, Text, Static, useStdout, useInput } from "ink";
 
+import type { AuthorityLevel } from "../core/types.js";
+import { can, type Operation } from "../core/authority.js";
+
 // ── Palette (from apiary-app) ─────────────────────────────────────────────────
 
 const C = {
@@ -109,7 +112,8 @@ interface SlashParam {
 interface SlashCommand {
   name: string;
   description: string;
-  adminOnly?: boolean;
+  /** The operation this command performs — checked against the user's authority via `can()`. */
+  op?: Operation;
   params?: SlashParam[];
 }
 
@@ -122,26 +126,32 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/help",    description: "Show commands" },
   { name: "/who",     description: "List participants" },
   { name: "/leave",   description: "Disconnect and exit" },
-  { name: "/share",   description: "Generate share links" },
-  { name: "/kick",    description: "Remove a participant", adminOnly: true, params: [
+  { name: "/share",   description: "Generate share links", op: "create_share_link" },
+  { name: "/kick",    description: "Remove a participant", op: "kick", params: [
     { label: "name", completions: "participants" },
   ]},
-  { name: "/mute",    description: "Make read-only (guest)", adminOnly: true, params: [
+  { name: "/mute",    description: "Make read-only (guest)", op: "mute", params: [
     { label: "name", completions: "participants" },
   ]},
-  { name: "/unmute",  description: "Restore to member", adminOnly: true, params: [
+  { name: "/unmute",  description: "Restore to member", op: "unmute", params: [
     { label: "name", completions: "participants" },
   ]},
-  { name: "/setmode", description: "Set engagement mode", adminOnly: true, params: [
+  { name: "/setmode", description: "Set engagement mode", op: "set_mode_for", params: [
     { label: "name", completions: "participants" },
     { label: "mode", completions: ENGAGEMENT_MODES },
   ]},
-  { name: "/ping",   description: "Ping a participant", params: [
+  { name: "/promote", description: "Promote to product owner", op: "promote", params: [
     { label: "name", completions: "participants" },
   ]},
-  { name: "/clear",  description: "Wipe room history", adminOnly: true },
-  { name: "/tunnel", description: "Start a cloudflared tunnel", adminOnly: true },
-  { name: "/sound",  description: "Toggle notification sounds" },
+  { name: "/demote",  description: "Demote product owner to member", op: "demote", params: [
+    { label: "name", completions: "participants" },
+  ]},
+  { name: "/ping",    description: "Ping a participant", op: "ping", params: [
+    { label: "name", completions: "participants" },
+  ]},
+  { name: "/clear",   description: "Wipe room history", op: "clear_history" },
+  { name: "/tunnel",  description: "Start a cloudflared tunnel", op: "start_tunnel" },
+  { name: "/sound",   description: "Toggle notification sounds" },
 ];
 
 const CMD_DISPLAY_COL = 26; // width for command + params display column
@@ -180,7 +190,8 @@ export interface TUIOptions {
   onSend?(content: string): void;
   onCtrlC?(): void;
   readOnly?: boolean;
-  isAdmin?: boolean;
+  /** Server-granted authority. Drives which slash commands appear and run. */
+  authority?: AuthorityLevel;
   soundEnabled?: boolean;
 }
 
@@ -466,7 +477,7 @@ function App({
   onCtrlC,
   onReady,
   readOnly,
-  isAdmin,
+  authority,
   initialSound = true,
 }: {
   roomName: string;
@@ -474,7 +485,7 @@ function App({
   onCtrlC?: () => void;
   onReady: (handle: AppHandle) => void;
   readOnly?: boolean;
-  isAdmin?: boolean;
+  authority?: AuthorityLevel;
   initialSound?: boolean;
 }) {
   const [events,        setEvents]        = useState<DisplayEvent[]>([]);
@@ -647,7 +658,7 @@ function App({
       const prefix = input.toLowerCase();
       const items: SuggestionItem[] = SLASH_COMMANDS
         .filter((cmd) => {
-          if (cmd.adminOnly && !isAdmin) return false;
+          if (cmd.op && !can(authority, cmd.op)) return false;
           return cmd.name.startsWith(prefix);
         })
         .map((cmd) => ({
@@ -660,7 +671,7 @@ function App({
 
     // Phase 2: completing params
     const cmdName = input.slice(0, spaceIdx).toLowerCase();
-    const cmd = SLASH_COMMANDS.find((c) => c.name === cmdName && (!c.adminOnly || isAdmin));
+    const cmd = SLASH_COMMANDS.find((c) => c.name === cmdName && (!c.op || can(authority, c.op)));
     if (!cmd?.params) return { items: [], ghostHint: "" };
 
     const rest = input.slice(spaceIdx + 1);
@@ -700,7 +711,7 @@ function App({
     }));
 
     return { items, ghostHint };
-  }, [input, cursorPos, isAdmin, participants]);
+  }, [input, cursorPos, authority, participants]);
 
   const suggestions = suggestionState.items;
 
@@ -1055,7 +1066,7 @@ export function startTUI(opts: TUIOptions): TUIHandle {
       onCtrlC={opts.onCtrlC}
       onReady={onReady}
       readOnly={opts.readOnly}
-      isAdmin={opts.isAdmin}
+      authority={opts.authority}
       initialSound={opts.soundEnabled ?? true}
     />,
     { exitOnCtrlC: false },

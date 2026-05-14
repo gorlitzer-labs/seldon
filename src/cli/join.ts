@@ -22,6 +22,7 @@ function formatTimestamp(date: Date): string {
 }
 import { startTUI, type TUIHandle, type DisplayEvent } from "./tui.js";
 import { extractToken, buildShareUrl } from "./auth.js";
+import { can } from "../core/authority.js";
 
 export interface JoinOptions {
   server: string;
@@ -263,7 +264,7 @@ export async function join(options: JoinOptions): Promise<void> {
 
       // ── /kick <name> (admin only) ─────────────────────────────────
       case "kick": {
-        if (authority !== "admin") { systemEvent("Only admins can kick."); return; }
+        if (!can(authority, "kick")) { systemEvent("Only admins can kick."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /kick <name>"); return; }
 
@@ -290,7 +291,7 @@ export async function join(options: JoinOptions): Promise<void> {
 
       // ── /mute <name> (admin or product_owner) — demote to guest ─────
       case "mute": {
-        if (authority !== "admin" && authority !== "product_owner") { systemEvent("Only admins and product owners can mute."); return; }
+        if (!can(authority, "mute")) { systemEvent("Only admins and product owners can mute."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /mute <name>"); return; }
 
@@ -316,7 +317,7 @@ export async function join(options: JoinOptions): Promise<void> {
 
       // ── /unmute <name> (admin or product_owner) — restore to member ──
       case "unmute": {
-        if (authority !== "admin" && authority !== "product_owner") { systemEvent("Only admins and product owners can unmute."); return; }
+        if (!can(authority, "unmute")) { systemEvent("Only admins and product owners can unmute."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /unmute <name>"); return; }
 
@@ -342,7 +343,7 @@ export async function join(options: JoinOptions): Promise<void> {
 
       // ── /setmode <name> <mode> (admin or product_owner) ──────────
       case "setmode": {
-        if (authority !== "admin" && authority !== "product_owner") { systemEvent("Only admins and product owners can set modes."); return; }
+        if (!can(authority, "set_mode_for")) { systemEvent("Only admins and product owners can set modes."); return; }
         const targetName = args[0];
         const mode = args[1];
         if (!targetName || !mode) { systemEvent("Usage: /setmode <name> <mode>"); return; }
@@ -369,7 +370,7 @@ export async function join(options: JoinOptions): Promise<void> {
 
       // ── /promote <name> (admin only) — elevate to product_owner ──
       case "promote": {
-        if (authority !== "admin") { systemEvent("Only admins can promote."); return; }
+        if (!can(authority, "promote")) { systemEvent("Only admins can promote."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /promote <name>"); return; }
 
@@ -395,7 +396,7 @@ export async function join(options: JoinOptions): Promise<void> {
 
       // ── /demote <name> (admin only) — restore product_owner to member ──
       case "demote": {
-        if (authority !== "admin") { systemEvent("Only admins can demote."); return; }
+        if (!can(authority, "demote")) { systemEvent("Only admins can demote."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /demote <name>"); return; }
 
@@ -486,7 +487,7 @@ export async function join(options: JoinOptions): Promise<void> {
 
       // ── /clear — wipe room history (admin only) ─────────────────
       case "clear": {
-        if (authority !== "admin") { systemEvent("Only admins can clear."); return; }
+        if (!can(authority, "clear_history")) { systemEvent("Only admins can clear."); return; }
 
         try {
           const res = await fetch(`${serverUrl}/clear`, {
@@ -503,7 +504,7 @@ export async function join(options: JoinOptions): Promise<void> {
 
       // ── /tunnel — start cloudflared tunnel mid-session ────────────
       case "tunnel": {
-        if (authority !== "admin") { systemEvent("Only admins can start tunnels."); return; }
+        if (!can(authority, "start_tunnel")) { systemEvent("Only admins can start tunnels."); return; }
 
         try {
           const res = await fetch(`${serverUrl}/tunnel`, {
@@ -545,7 +546,7 @@ export async function join(options: JoinOptions): Promise<void> {
   const tui = startTUI({
     roomName,
     readOnly: isReadOnly,
-    isAdmin: authority === "admin",
+    authority,
     soundEnabled: config.sound ?? true,
     onSend: isReadOnly ? undefined : async (content: string) => {
       // Intercept slash commands

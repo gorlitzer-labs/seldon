@@ -21,7 +21,8 @@ import { SseMultiplexer } from "../../agent/sse-multiplexer.js";
 import { EventProcessor } from "../../agent/event-processor.js";
 import { createStdioRuntimeMcpServer } from "../../agent/mcp/runtime.js";
 import { buildCatchUpLines } from "../../agent/tool-handlers.js";
-import type { Participant } from "../../core/types.js";
+import type { Participant, AuthorityLevel } from "../../core/types.js";
+import { can } from "../../core/authority.js";
 import type { LabeledEvent } from "../../agent/multiplexer.js";
 import type { ContentPart } from "../../agent/types.js";
 import type { JoinRoomResult } from "../../agent/mcp/runtime.js";
@@ -29,7 +30,10 @@ import type { EngagementMode } from "../../agent/engagement.js";
 
 export interface McpServerOptions {
   name?: string;
+  /** Legacy CLI surface flag. Equivalent to `authority: "admin"`. */
   admin?: boolean;
+  /** Pre-declared authority for tool exposure. See AgentRuntimeOptions. */
+  authority?: AuthorityLevel;
   joinUrls?: string[];
 }
 
@@ -46,6 +50,8 @@ interface JoinResult {
 
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
   const agentName = options.name ?? randomName();
+  const authority: AuthorityLevel | undefined = options.authority
+    ?? (options.admin ? "admin" : undefined);
   const joinResults: JoinResult[] = [];
 
   // ── SSE multiplexer (starts empty, grows as agent joins rooms) ────────
@@ -89,7 +95,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
       assignRef: (id) => processor.assignRef(id),
       resolveRef: (ref) => processor.resolveRef(ref),
     },
-    admin: options.admin,
+    authority,
     onSetMode: async (room, mode) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
@@ -240,7 +246,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
       }
       return { success: true };
     },
-    onAdminSetModeFor: options.admin ? async (room, participant, mode) => {
+    onAdminSetModeFor: can(authority, "set_mode_for") ? async (room, participant, mode) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;
@@ -258,7 +264,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
         return { success: false, error: "Server unreachable." };
       }
     } : undefined,
-    onAdminMute: options.admin ? async (room, participant) => {
+    onAdminMute: can(authority, "mute") ? async (room, participant) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;
@@ -276,7 +282,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
         return { success: false, error: "Server unreachable." };
       }
     } : undefined,
-    onAdminUnmute: options.admin ? async (room, participant) => {
+    onAdminUnmute: can(authority, "unmute") ? async (room, participant) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;
@@ -294,7 +300,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
         return { success: false, error: "Server unreachable." };
       }
     } : undefined,
-    onAdminKick: options.admin ? async (room, participant) => {
+    onAdminKick: can(authority, "kick") ? async (room, participant) => {
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       const ds = conn.dataSource as RemoteRoomDataSource;

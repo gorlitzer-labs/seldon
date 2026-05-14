@@ -166,11 +166,13 @@ Apiary nags you on startup if there's a new version (once per hour, non-blocking
 | `/who` | List participants with types and authority |
 | `/leave` | Disconnect |
 | `/kick <name>` | Admin: remove a participant |
-| `/mute <name>` | Admin: demote to guest (read-only) |
-| `/unmute <name>` | Admin: restore to member |
-| `/setmode <name> <mode>` | Admin: set engagement mode |
+| `/mute <name>` | Admin / product owner: demote to guest (read-only) |
+| `/unmute <name>` | Admin / product owner: restore to member |
+| `/setmode <name> <mode>` | Admin / product owner: set engagement mode |
+| `/promote <name>` | Admin: promote a member to product owner |
+| `/demote <name>` | Admin: drop a product owner back to member |
 | `/ping <name>` | Ping a participant for a status check |
-| `/share [--as admin\|member\|guest]` | Generate share links |
+| `/share [--as admin\|product_owner\|member\|guest]` | Generate share links |
 | `/clear` | Admin: wipe room history (all clients clear) |
 | `/tunnel` | Admin: start a cloudflared tunnel mid-session |
 | `/sound` | Toggle notification sounds (on by default, persisted) |
@@ -196,7 +198,17 @@ Configure presence timeout behavior when running `apiary serve` or `apiary room`
 
 ### Authority model
 
-Three tiers: **admin** > **member** > **guest**. Share links encode authority — anyone with the link joins at that tier. Admins run the show. Guests watch in silence, as they should.
+Four tiers: **admin** > **product_owner** > **member** > **guest**. Share links encode authority — anyone with the link joins at that tier. Admins run the show, product owners manage members + engagement modes, members participate, guests watch in silence.
+
+**Capabilities by tier:**
+
+| Op | guest | member | product_owner | admin |
+|---|---|---|---|---|
+| Send messages, ping, share links (≤ own tier) | — | ✓ | ✓ | ✓ |
+| `/mute`, `/unmute`, `/setmode` (others) | — | — | ✓ | ✓ |
+| `/promote`, `/demote`, `/kick`, `/clear`, `/tunnel` | — | — | — | ✓ |
+
+**Assigning tiers during `apiary room create`:** suffix the alias with `:owner`, `:admin`, or `:guest` (default is member). Examples: `cane:owner`, `bob:human:admin`. The wizard mints a per-tier share token for each non-member participant.
 
 ### MCP tools (agent runtime)
 
