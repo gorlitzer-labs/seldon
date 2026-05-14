@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { randomName } from "../core/names.js";
-import { loadConfig, saveConfig, stableIndex } from "./config.js";
+import { loadConfig, saveConfig, roomEmoji } from "./config.js";
 import type { RoomEvent } from "../core/events.js";
 import type { AuthorityLevel } from "../core/types.js";
 import { formatTimestamp as formatTimestampUTC } from "../agent/prompts.js";
@@ -528,10 +528,8 @@ export async function join(options: JoinOptions): Promise<void> {
     }
   }
 
-  // Set terminal tab title
-  const hivePool = ["🍯", "🐝", "🏠", "🪺", "🌸"];
-  const hiveEmoji = hivePool[stableIndex(`${roomName}·${name}`, hivePool.length)];
-  process.stdout.write(`\x1b]0;${hiveEmoji} ${roomName} · ${name}\x07`);
+  // Set terminal tab title — hive emoji stable per (room, name) pair.
+  process.stdout.write(`\x1b]0;${roomEmoji(`${roomName}·${name}`)} ${roomName} · ${name}\x07`);
 
   // Print share info before Ink renders — plain text, fully selectable.
   if (options.shareUrl) {
@@ -586,40 +584,62 @@ export async function join(options: JoinOptions): Promise<void> {
   if (agentNames.length > 0) {
     tui.setAgentNames(agentNames);
 
-    // Determine initial busy/idle state from recent messages.
-    // Walk newest-first: agents that replied after the last human message are idle.
-    // If no human message found, leave all indicators off (unknown state).
+    // Determine initial agent state from recent messages.
+    //
+    // Walk newest-first to find the most recent human message:
+    //   - If older than INIT_FRESHNESS_MS → leave everyone "unknown" (don't fabricate
+    //     a busy/idle signal from stale context).
+    //   - Otherwise: agents that replied after that human message are idle.
+    //     Agents that didn't reply: if the human message was a whisper, only its
+    //     recipients are working; otherwise all silent agents are working.
+    const INIT_FRESHNESS_MS = 5 * 60_000;
     try {
       const msgRes = await fetch(`${serverUrl}/messages?count=20`, {
         headers: { Authorization: `Bearer ${sessionToken}` },
       });
       if (msgRes.ok) {
         const { items: messages } = (await msgRes.json()) as {
-          items: Array<{ sender_id: string; sender_name: string }>;
+          items: Array<{
+            sender_id: string;
+            sender_name: string;
+            timestamp?: string;
+            recipients?: string[];
+          }>;
         };
-        const idleAgents = new Set<string>();
         const agentSet = new Set(agentNames);
-        let foundHuman = false;
+        const idleAgents = new Set<string>();
+        let humanMsg: typeof messages[0] | null = null;
         for (const msg of messages) {
           const sType = participants.find((p) => p.id === msg.sender_id)?.type;
           if (sType === "agent" && agentSet.has(msg.sender_name)) {
             idleAgents.add(msg.sender_name);
           } else if (sType === "human") {
-            foundHuman = true;
+            humanMsg = msg;
             break;
           }
         }
-        if (foundHuman) {
-          // Human spoke — agents that replied since are idle, rest are busy
+        const fresh = humanMsg?.timestamp
+          ? (Date.now() - new Date(humanMsg.timestamp).getTime()) < INIT_FRESHNESS_MS
+          : false;
+        if (humanMsg && fresh) {
+          // Whisper? Only its recipients are candidates for "working".
+          const targetedAgents: Set<string> = humanMsg.recipients && humanMsg.recipients.length > 0
+            ? new Set(
+                participants
+                  .filter((p) => p.type === "agent" && humanMsg!.recipients!.includes(p.id))
+                  .map((p) => p.name),
+              )
+            : agentSet;
           for (const agent of agentSet) {
             if (idleAgents.has(agent)) {
-              tui.setIdle(agent);
-            } else {
-              tui.setBusy(agent);
+              tui.setAgentState(agent, "idle");
+            } else if (targetedAgents.has(agent)) {
+              tui.setAgentState(agent, "working");
             }
+            // else: leave at default "unknown" — agent wasn't addressed
           }
         }
-        // No human message in recent history → leave indicators off
+        // Stale or no human message → leave everyone at "unknown" default
       }
     } catch { /* non-critical — default to no indicator */ }
   }
@@ -636,10 +656,13 @@ export async function join(options: JoinOptions): Promise<void> {
 
   {
     const participantTypes = new Map<string, "human" | "agent">();
+    const participantNameById = new Map<string, string>();
     for (const p of participants) {
       participantTypes.set(p.id, p.type as "human" | "agent");
+      participantNameById.set(p.id, p.name);
     }
     const currentAgents = new Set(agentNames);
+    const PING_DECAY_MS = 10_000; // pings are status checks — much shorter
     let sseController: AbortController | null = null;
 
     cleanupStream = () => {
@@ -701,34 +724,67 @@ export async function join(options: JoinOptions): Promise<void> {
               }
 
               if (event.type === "ParticipantJoined") {
+                participantNameById.set(event.participant.id, event.participant.name);
                 if (event.participant.type === "agent") {
                   currentAgents.add(event.participant.name);
                   tui.setAgentNames([...currentAgents]);
+                  // A fresh agent that just connected — assume idle until proven otherwise.
+                  tui.setAgentState(event.participant.name, "idle");
                 }
                 if (event.participant.id !== participantId) {
                   participantNames.add(event.participant.name);
                   tui.setParticipants([...participantNames]);
                 }
               }
-              // Track agent busy/idle state
+
+              // ── Agent state transitions ───────────────────────────────────
               if (event.type === "MessageSent") {
                 const senderType = participantTypes.get(event.message.sender_id);
-                if (senderType === "agent") {
-                  tui.setIdle(event.message.sender_name);
+                if (senderType === "agent" && currentAgents.has(event.message.sender_name)) {
+                  // The agent spoke — definitively idle.
+                  tui.setAgentState(event.message.sender_name, "idle");
                 } else if (senderType === "human") {
-                  for (const agent of currentAgents) tui.setBusy(agent);
+                  // Whisper-aware: only mark agents addressed by this message as working.
+                  const recipients = (event.message as { recipients?: string[] }).recipients ?? [];
+                  if (recipients.length > 0) {
+                    // Whisper — only resolve recipients that are agents we know.
+                    for (const recipientId of recipients) {
+                      const name = participantNameById.get(recipientId);
+                      if (name && currentAgents.has(name)) {
+                        tui.setAgentState(name, "working");
+                      }
+                    }
+                  } else {
+                    // Public message — every agent is a candidate (engagement-unknown from here).
+                    for (const agent of currentAgents) tui.setAgentState(agent, "working");
+                  }
                 }
               }
               if (event.type === "Pinged") {
-                // Look up target name from participant_id
+                // Pings are status checks, not real work — short decay.
                 const pinged = event as RoomEvent & { participant_id?: string };
                 if (pinged.participant_id) {
-                  for (const p of participants) {
-                    if (p.id === pinged.participant_id && currentAgents.has(p.name)) {
-                      tui.setBusy(p.name);
-                      break;
-                    }
+                  const name = participantNameById.get(pinged.participant_id);
+                  if (name && currentAgents.has(name)) {
+                    tui.setAgentState(name, "working", { decayMs: PING_DECAY_MS });
                   }
+                }
+              }
+              if (event.type === "StatusChanged") {
+                // Server-driven presence. Use it as the source of truth for unresponsive/offline.
+                const sc = event as RoomEvent & {
+                  name: string;
+                  status: "online" | "unresponsive" | "offline";
+                  previous_status: "online" | "unresponsive" | "offline";
+                };
+                if (currentAgents.has(sc.name)) {
+                  if (sc.status === "unresponsive") {
+                    tui.setAgentState(sc.name, "unresponsive");
+                  } else if (sc.status === "online" && sc.previous_status === "unresponsive") {
+                    // Recovered — assume idle until next signal.
+                    tui.setAgentState(sc.name, "idle");
+                  }
+                  // status === "offline" is followed by ParticipantLeft/Kicked, handled below.
                 }
               }
 
@@ -738,6 +794,7 @@ export async function join(options: JoinOptions): Promise<void> {
                   tui.setAgentNames([...currentAgents]);
                 }
                 participantTypes.delete(event.participant.id);
+                participantNameById.delete(event.participant.id);
                 participantNames.delete(event.participant.name);
                 tui.setParticipants([...participantNames]);
               }

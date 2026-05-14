@@ -157,13 +157,19 @@ export type DisplayEvent =
   | { id: string; ts: string; kind: "ping";    pingerName: string }
   | { id: string; ts: string; kind: "system";  content: string };
 
+export type AgentState = "idle" | "working" | "unknown" | "unresponsive";
+
+export interface SetAgentStateOpts {
+  /** When `state === "working"`, auto-revert to "unknown" after this many ms. Default 60_000. */
+  decayMs?: number;
+}
+
 export interface TUIHandle {
   push(event: DisplayEvent): void;
   clear(): void;
   toggleSound(): boolean;
-  setBusy(name: string): void;
-  setIdle(name: string): void;
-  setStale(name: string): void;
+  /** Set one agent's state. `working` auto-decays to `unknown` after `opts.decayMs` (default 60s). */
+  setAgentState(name: string, state: AgentState, opts?: SetAgentStateOpts): void;
   setAgentNames(names: string[]): void;
   setParticipants(names: string[]): void;
   stop(): void;
@@ -447,9 +453,7 @@ interface AppHandle {
   setAgentNames: (names: string[]) => void;
   setParticipants: (names: string[]) => void;
   toggleSound: () => boolean;
-  setBusy: (name: string) => void;
-  setIdle: (name: string) => void;
-  setStale: (name: string) => void;
+  setAgentState: (name: string, state: AgentState, opts?: SetAgentStateOpts) => void;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -480,16 +484,12 @@ function App({
   const [cursorPos,     setCursorPos]     = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [soundEnabled,  setSoundEnabled]  = useState(initialSound);
-  const [busyAgents,    setBusyAgents]    = useState<Set<string>>(new Set());
-  const [staleAgents,   setStaleAgents]   = useState<Set<string>>(new Set());
-  const [idleAgents,    setIdleAgents]    = useState<Set<string>>(new Set());
+  const [agentStates,   setAgentStatesMap] = useState<Map<string, AgentState>>(new Map());
   const [fightMode,     setFightMode]     = useState(false);
   const fightModeRef = useRef(false);
   const soundRef = useRef(initialSound);
-  const busyRef  = useRef<Set<string>>(new Set());
-  const staleRef = useRef<Set<string>>(new Set());
-  const idleRef  = useRef<Set<string>>(new Set());
-  const busyTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const stateRef = useRef<Map<string, AgentState>>(new Map());
+  const decayTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
 
@@ -558,46 +558,38 @@ function App({
     return next;
   }, []);
 
-  const STALE_TIMEOUT = 5 * 60_000; // 5min before busy → stale
+  const DEFAULT_WORKING_DECAY_MS = 60_000;
 
-  const setBusy = useCallback((name: string) => {
-    busyRef.current.add(name);
-    staleRef.current.delete(name);
-    idleRef.current.delete(name);
-    setBusyAgents(new Set(busyRef.current));
-    setStaleAgents(new Set(staleRef.current));
-    setIdleAgents(new Set(idleRef.current));
-    // Clear existing timer and start a new one
-    const existing = busyTimers.current.get(name);
-    if (existing) clearTimeout(existing);
-    busyTimers.current.set(name, setTimeout(() => {
-      if (busyRef.current.has(name)) {
-        staleRef.current.add(name);
-        setStaleAgents(new Set(staleRef.current));
+  const setAgentState = useCallback(
+    (name: string, state: AgentState, opts?: SetAgentStateOpts) => {
+      // Cancel any existing decay timer — every state change is a fresh signal.
+      const existing = decayTimers.current.get(name);
+      if (existing) { clearTimeout(existing); decayTimers.current.delete(name); }
+
+      stateRef.current.set(name, state);
+      setAgentStatesMap(new Map(stateRef.current));
+
+      // Only "working" decays — idle/unknown/unresponsive are sticky until next signal.
+      if (state === "working") {
+        const ms = opts?.decayMs ?? DEFAULT_WORKING_DECAY_MS;
+        decayTimers.current.set(name, setTimeout(() => {
+          if (stateRef.current.get(name) === "working") {
+            stateRef.current.set(name, "unknown");
+            setAgentStatesMap(new Map(stateRef.current));
+          }
+          decayTimers.current.delete(name);
+        }, ms));
       }
-    }, STALE_TIMEOUT));
-  }, []);
-
-  const setIdle = useCallback((name: string) => {
-    busyRef.current.delete(name);
-    staleRef.current.delete(name);
-    idleRef.current.add(name);
-    setBusyAgents(new Set(busyRef.current));
-    setStaleAgents(new Set(staleRef.current));
-    setIdleAgents(new Set(idleRef.current));
-    const timer = busyTimers.current.get(name);
-    if (timer) { clearTimeout(timer); busyTimers.current.delete(name); }
-  }, []);
-
-  const setStale = useCallback((name: string) => {
-    staleRef.current.add(name);
-    setStaleAgents(new Set(staleRef.current));
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
-    onReady({ push, clear, setAgentNames, setParticipants, toggleSound, setBusy, setIdle, setStale });
+    onReady({ push, clear, setAgentNames, setParticipants, toggleSound, setAgentState });
     return () => {
       if (eventFlushTimer.current) clearTimeout(eventFlushTimer.current);
+      for (const t of decayTimers.current.values()) clearTimeout(t);
+      decayTimers.current.clear();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -902,15 +894,22 @@ function App({
         <Box paddingX={1} flexWrap="wrap">
           {agentNames.map((name, i) => {
             const { sigil } = identify(name);
-            const stale = staleAgents.has(name);
-            const busy = busyAgents.has(name);
-            const known = busy || stale || idleAgents.has(name);
-            const nameColor = stale ? C.muted : busy ? C.yellow : known ? C.green : C.secondary;
+            const state = agentStates.get(name) ?? "unknown";
+            // One source of truth: state → visual treatment.
+            const view = (() => {
+              switch (state) {
+                case "idle":         return { color: C.green,  suffix: "" };
+                case "working":      return { color: C.yellow, suffix: "" };
+                case "unresponsive": return { color: C.danger, suffix: " ⚠" };
+                case "unknown":
+                default:             return { color: C.muted,  suffix: " zzz" };
+              }
+            })();
             return (
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{" · "}</Text>}
-                <Text color={nameColor}>{sigil}{" "}{name}</Text>
-                {stale && <Text color={C.muted}>{" zzz"}</Text>}
+                <Text color={view.color}>{sigil}{" "}{name}</Text>
+                {view.suffix && <Text color={C.muted}>{view.suffix}</Text>}
               </React.Fragment>
             );
           })}
@@ -1071,14 +1070,8 @@ export function startTUI(opts: TUIOptions): TUIHandle {
     toggleSound() {
       return handle?.toggleSound() ?? false;
     },
-    setBusy(name) {
-      handle?.setBusy(name);
-    },
-    setIdle(name) {
-      handle?.setIdle(name);
-    },
-    setStale(name) {
-      handle?.setStale(name);
+    setAgentState(name, state, opts) {
+      handle?.setAgentState(name, state, opts);
     },
     stop() {
       unmount();
