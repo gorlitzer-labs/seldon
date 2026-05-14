@@ -36,12 +36,17 @@ function getAllFlags(name: string, arr: string[] = args): string[] {
 }
 
 function getVersion(): string {
+  return readPackageField("version") ?? process.env.npm_package_version ?? "unknown";
+}
+
+/** Read a top-level field from this package's package.json. Null on failure. */
+function readPackageField(field: string): string | null {
   try {
     const dir = dirname(fileURLToPath(import.meta.url));
     const pkg = JSON.parse(readFileSync(resolve(dir, "../../package.json"), "utf-8"));
-    return pkg.version ?? "unknown";
+    return typeof pkg[field] === "string" ? pkg[field] : null;
   } catch {
-    return process.env.npm_package_version ?? "unknown";
+    return null;
   }
 }
 
@@ -180,7 +185,8 @@ async function main(): Promise<void> {
 
   // ── apiary update — redirect to npm ──────────────────────────────────
   if (args[0] === "update") {
-    console.log("To update apiary, run:  npm update -g @gorlitzer/apiary");
+    const pkgName = readPackageField("name") ?? "apiary";
+    console.log(`To update apiary, run:  npm update -g ${pkgName}`);
     return;
   }
 
