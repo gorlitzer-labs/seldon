@@ -512,6 +512,11 @@ function App({
   const eventBuffer = useRef<DisplayEvent[]>([]);
   const eventFlushTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // Hard cap on retained events — long-running TUIs (days of uptime) would
+  // otherwise accumulate tens of thousands of DisplayEvents in React state and
+  // make every render measurably slower. The oldest are dropped when full.
+  const MAX_EVENTS = 5_000;
+
   const push = useCallback((event: DisplayEvent) => {
     // Bell for incoming messages (not self) and pings
     const shouldBell =
@@ -532,7 +537,10 @@ function App({
         eventFlushTimer.current = null;
         const batch = eventBuffer.current.splice(0);
         if (batch.length > 0) {
-          setEvents((prev) => [...prev, ...batch]);
+          setEvents((prev) => {
+            const next = [...prev, ...batch];
+            return next.length > MAX_EVENTS ? next.slice(next.length - MAX_EVENTS) : next;
+          });
         }
       }, 80);
     }

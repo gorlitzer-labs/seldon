@@ -249,7 +249,11 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   // ── Attachment storage ───────────────────────────────────────────────────
   // In-memory, room-scoped. Cleared when the room is cleared or server restarts.
 
-  const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MB
+  const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MB per upload
+  // Hard cap on the in-memory store. When uploads would push us over, evict
+  // the oldest attachments (FIFO by upload timestamp) until there is room.
+  // Without this, a long-running room with image uploads OOMs the daemon.
+  const MAX_ATTACHMENT_STORE_BYTES = 256 * 1024 * 1024; // 256 MB total
 
   interface StoredAttachment {
     id: string;
@@ -258,9 +262,24 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     size: number;
     roomId: string;
     bytes: Buffer;
+    uploadedAt: number; // ms epoch — used for FIFO eviction
   }
 
+  // Map preserves insertion order — iteration yields oldest-first, which is
+  // exactly what we want for FIFO eviction.
   const attachmentStore = new Map<string, StoredAttachment>();
+  let attachmentStoreBytes = 0;
+
+  function evictAttachmentsToFit(neededBytes: number): void {
+    if (neededBytes > MAX_ATTACHMENT_STORE_BYTES) return; // caller will reject — no point evicting everything
+    while (attachmentStoreBytes + neededBytes > MAX_ATTACHMENT_STORE_BYTES) {
+      const oldest = attachmentStore.entries().next();
+      if (oldest.done) break;
+      const [oldestId, oldestAtt] = oldest.value;
+      attachmentStore.delete(oldestId);
+      attachmentStoreBytes -= oldestAtt.size;
+    }
+  }
 
   function attachmentUrl(id: string): string {
     return `${publicUrl}/attachment/${id}`;
@@ -338,9 +357,18 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
   class RateLimiter {
     private _buckets = new Map<string, { count: number; resetAt: number }>();
+    private _opsSincePrune = 0;
     constructor(private _max: number, private _windowMs: number) {}
     check(key: string): { allowed: boolean; retryAfter?: number } {
       const now = Date.now();
+      // Opportunistic prune: every 256 ops, drop expired buckets so the map
+      // can't grow forever from one-off keys (rotating IPs, dead sessions).
+      if (++this._opsSincePrune >= 256) {
+        this._opsSincePrune = 0;
+        for (const [k, b] of this._buckets) {
+          if (now >= b.resetAt) this._buckets.delete(k);
+        }
+      }
       const bucket = this._buckets.get(key);
       if (!bucket || now >= bucket.resetAt) {
         this._buckets.set(key, { count: 1, resetAt: now + this._windowMs });
@@ -449,8 +477,26 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // Heartbeat every 30s to keep the connection alive through
       // proxies, firewalls, and OS-level TCP idle timeouts.
+      //
+      // If the write fails (broken socket, client crashed, network died), the
+      // OS may not have surfaced the close event yet — treat the failure as a
+      // disconnect so the entry isn't left dangling in sseConnections forever.
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        clearInterval(heartbeat);
+        sseConnections.delete(session.id);
+        try { res.end(); } catch { /* already gone */ }
+      };
       const heartbeat = setInterval(() => {
-        res.write(":heartbeat\n\n");
+        try {
+          const ok = res.write(":heartbeat\n\n");
+          if (!ok && res.destroyed) { cleanup(); return; }
+        } catch {
+          cleanup();
+          return;
+        }
         // SSE heartframe counts as proof of life — prevents false-positive
         // unresponsive for read-only agents that have no HTTP activity.
         if (session.kind === "participant") touchParticipant(session.id);
@@ -486,11 +532,9 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       };
       streamEvents();
 
-      // Cleanup on client disconnect
-      req.on("close", () => {
-        clearInterval(heartbeat);
-        sseConnections.delete(session.id);
-      });
+      // Cleanup on client disconnect (covers the normal-close path; abnormal
+      // disconnects are handled by the heartbeat catch above).
+      req.on("close", cleanup);
       return;
     }
 
@@ -637,7 +681,12 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       }
 
       const id = randomUUID();
-      attachmentStore.set(id, { id, name, mimeType, size: bytes.length, roomId: room.roomId, bytes });
+      evictAttachmentsToFit(bytes.length);
+      attachmentStore.set(id, {
+        id, name, mimeType, size: bytes.length, roomId: room.roomId, bytes,
+        uploadedAt: Date.now(),
+      });
+      attachmentStoreBytes += bytes.length;
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ id, url: attachmentUrl(id), name, mime_type: mimeType, size: bytes.length }));
@@ -989,7 +1038,10 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         // Wipe storage and room-scoped attachments
         await storage.clearRoom(room.roomId);
         for (const [id, att] of attachmentStore) {
-          if (att.roomId === room.roomId) attachmentStore.delete(id);
+          if (att.roomId === room.roomId) {
+            attachmentStore.delete(id);
+            attachmentStoreBytes -= att.size;
+          }
         }
 
         // Broadcast RoomCleared to all connected clients via SSE
@@ -1166,10 +1218,15 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const pruneInterval = setInterval(() => tokens.pruneExpired(), 5 * 60 * 1000);
   pruneInterval.unref();
 
+  // After this long offline, garbage-collect all per-participant state.
+  // Without this, lastSeenAt / presenceStatus / participants / idToSession /
+  // sseConnections retain entries for crashed clients forever.
+  const OFFLINE_GC_MS = 24 * 60 * 60 * 1000; // 24h
+
   // Periodic presence checker — runs every 30s
   const presenceInterval = setInterval(() => {
     const now = Date.now();
-    for (const [, p] of participants) {
+    for (const [sessionToken, p] of participants) {
       const last = lastSeenAt.get(p.id) ?? now;
       const elapsed = now - last;
       const current = presenceStatus.get(p.id) ?? "online";
@@ -1181,6 +1238,16 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         presenceStatus.set(p.id, "offline");
         broadcastStatusChange(p.id, p.name, "offline", "unresponsive", "ping_timeout");
         log(`${p.name} offline (timeout)`);
+      } else if (current === "offline" && elapsed > OFFLINE_GC_MS) {
+        // Long-offline participant — purge all state. They can rejoin fresh.
+        participants.delete(sessionToken);
+        idToSession.delete(p.id);
+        tokens.revokeSessionToken(sessionToken);
+        const sse = sseConnections.get(p.id);
+        if (sse) { try { sse.end(); } catch { /* socket already dead */ } sseConnections.delete(p.id); }
+        lastSeenAt.delete(p.id);
+        presenceStatus.delete(p.id);
+        log(`${p.name} purged after ${Math.round(elapsed / 60_000)}min offline`);
       }
     }
   }, PRESENCE_CHECK_INTERVAL_MS);
@@ -1274,6 +1341,27 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  // Last-ditch tunnel reaper — runs synchronously on any process exit
+  // (including process.exit() and natural termination), but NOT on SIGKILL.
+  // Without this, an unexpected crash leaves cloudflared running indefinitely,
+  // pinning the parent's port and blocking restart.
+  const reapTunnel = () => {
+    if (tunnelProcess && !tunnelProcess.killed) {
+      try { tunnelProcess.kill("SIGTERM"); } catch { /* already dead */ }
+    }
+  };
+  process.on("exit", reapTunnel);
+  process.on("uncaughtException", (err) => {
+    log(`fatal: uncaughtException — ${err.message}`);
+    reapTunnel();
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    log(`fatal: unhandledRejection — ${reason instanceof Error ? reason.message : String(reason)}`);
+    reapTunnel();
+    process.exit(1);
+  });
 
   return { serverUrl, publicUrl, roomName, adminToken, memberToken };
 }
