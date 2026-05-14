@@ -195,7 +195,23 @@ async function main(): Promise<void> {
     // Positional name or --name flag
     const positional = rest.find((a) => !a.startsWith("--"));
     const name = getFlag("name", rest) ?? positional;
-    await stopClaude(name, all);
+
+    const { roomStop } = await import("./room.js");
+    if (all) {
+      // Stop all rooms first (each roomStop also kills its agent tmux sessions)
+      for (const r of listRoomSessions()) {
+        try { await roomStop(r.roomName); } catch { /* keep going */ }
+      }
+      // Then stop any remaining Claude tmux sessions not owned by a stopped room
+      await stopClaude(undefined, true);
+      return;
+    }
+    if (name) {
+      // If the name matches a room, stop the room (agents + server). Otherwise treat as agent name.
+      const room = listRoomSessions().find((s) => s.roomName === name);
+      if (room) { await roomStop(name); return; }
+    }
+    await stopClaude(name, false);
     return;
   }
 
@@ -293,17 +309,23 @@ async function main(): Promise<void> {
       }
 
       // Daemon-backed so Ctrl+C only kills TUI
-      const { spawnDaemonServer } = await import("./room.js");
-      const daemon = await spawnDaemonServer({
+      const { spawnDaemonServer, isDaemonResult } = await import("./room.js");
+      const daemonRes = await spawnDaemonServer({
         room: roomName,
         port,
         share: allRoomArgs.includes("--share"),
         expose: allRoomArgs.includes("--expose"),
       });
-      if (!daemon) {
-        console.error("Failed to start server.");
+      if (!isDaemonResult(daemonRes)) {
+        console.error(`Failed to start server: ${daemonRes.reason}`);
+        if (daemonRes.portInUse) {
+          console.error(`Tip: a previous room daemon is bound. Run 'apiary ps' to inspect, 'apiary stop --all' to free it.`);
+        } else if (daemonRes.stderr?.trim()) {
+          console.error(daemonRes.stderr);
+        }
         process.exit(1);
       }
+      const daemon = daemonRes;
       const adminJoinUrl = buildShareUrl(daemon.serverUrl, daemon.adminToken);
       const participantShareUrl = buildShareUrl(
         daemon.publicUrl !== daemon.serverUrl ? daemon.publicUrl : daemon.serverUrl,

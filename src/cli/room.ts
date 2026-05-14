@@ -15,6 +15,8 @@ import { join as pathJoin } from "node:path";
 import { createInterface } from "node:readline";
 
 import { buildShareUrl } from "./auth.js";
+import { agentEmoji, roomEmoji } from "./config.js";
+import { askRepoPath, askRuntime, shortenPath } from "./repoPicker.js";
 import {
   listRoomSessions, saveRoomSession, removeRoomSession, INVITES_DIR,
   type PersistedRoomSession,
@@ -34,10 +36,18 @@ interface Prompter {
 }
 
 function makePrompt(): Prompter {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  // Per-question readline: open → ask → close. Lets the repo picker (which
+  // toggles raw mode on stdin) own input cleanly between questions, with no
+  // listener contention from a long-lived readline interface.
   return {
-    ask: (q: string) => new Promise((res) => rl.question(q, (a) => res(a.trim()))),
-    close: () => rl.close(),
+    ask: (q: string) => new Promise((res) => {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      rl.question(q, (a) => {
+        rl.close();
+        res(a.trim());
+      });
+    }),
+    close: () => {},
   };
 }
 
@@ -53,13 +63,19 @@ interface DaemonResult {
   pid: number;
 }
 
+export interface DaemonSpawnFailure {
+  reason: string;          // human-readable summary
+  stderr?: string;         // raw child stderr if captured
+  portInUse?: boolean;     // EADDRINUSE on the requested port
+}
+
 export async function spawnDaemonServer(opts: {
   room?: string;
   port?: number;
   share?: boolean;
   expose?: boolean;
   shareTtlMs?: number;
-}): Promise<DaemonResult | null> {
+}): Promise<DaemonResult | DaemonSpawnFailure> {
   const scriptPath = process.argv[1];
   const ttl = opts.shareTtlMs ?? DAEMON_SHARE_TTL_MS;
 
@@ -75,26 +91,51 @@ export async function spawnDaemonServer(opts: {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
-    let output = "";
+    let stdoutBuf = "";
+    let stderrBuf = "";
+    let settled = false;
+    const settle = (v: DaemonResult | DaemonSpawnFailure) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
 
     child.stdout!.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-      const line = output.split("\n").find((l) => l.trim().startsWith("{"));
+      stdoutBuf += chunk.toString();
+      const line = stdoutBuf.split("\n").find((l) => l.trim().startsWith("{"));
       if (line) {
         try {
           const result = JSON.parse(line.trim());
           child.unref();
-          resolve({ ...result, pid: child.pid! });
+          settle({ ...result, pid: child.pid! });
         } catch {
-          // keep buffering
+          /* keep buffering */
         }
       }
     });
 
-    child.on("error", () => resolve(null));
-    child.on("exit", (code) => { if (code !== 0) resolve(null); });
-    setTimeout(() => resolve(null), 15_000);
+    child.stderr!.on("data", (chunk: Buffer) => { stderrBuf += chunk.toString(); });
+
+    child.on("error", (err) => settle({ reason: err.message, stderr: stderrBuf }));
+    child.on("exit", (code) => {
+      if (code !== 0) {
+        const portInUse = /EADDRINUSE|already in use/i.test(stderrBuf);
+        settle({
+          reason: portInUse
+            ? `port ${opts.port ?? 7890} already in use`
+            : `daemon exited with code ${code}`,
+          stderr: stderrBuf,
+          portInUse,
+        });
+      }
+    });
+    setTimeout(() => settle({ reason: "timed out waiting for daemon startup", stderr: stderrBuf }), 15_000);
   });
+}
+
+/** Type guard — `true` if spawnDaemonServer returned a successful DaemonResult. */
+export function isDaemonResult(v: DaemonResult | DaemonSpawnFailure): v is DaemonResult {
+  return "serverUrl" in v;
 }
 
 // ── Invite file helpers ───────────────────────────────────────────────────────
@@ -319,37 +360,61 @@ export async function roomCreate(opts: {
   }
 
   const participants: Array<{ alias: string; cwd: string; role: string; runtime?: string }> = [];
-  console.log(`\n  Invite participants ${D}(leave alias blank to finish)${R}:`);
+  const G = "\x1b[32m";
+  const M = "\x1b[35m";
+  const divider = `  ${D}${"─".repeat(56)}${R}`;
+  console.log(`\n  ${B}Invite participants${R}`);
+  console.log(divider);
   while (true) {
-    const alias = await ask(`  → Alias: `);
-    if (!alias) break;
-    const cwd = (await ask(`    Repo path ${D}[${process.cwd()}]${R}: `)) || process.cwd();
-    const role = (await ask(`    Role ${D}[agent]${R}: `)) || "agent";
-    let runtime: string | undefined;
-    if (availableRuntimes.length >= 2) {
-      const runtimeInput = (await ask(`    Runtime ${D}[claude]${R} ${D}(claude/codex)${R}: `)) || "claude";
-      runtime = ["claude", "codex"].includes(runtimeInput) ? runtimeInput : "claude";
-    } else if (availableRuntimes.length === 1) {
-      runtime = availableRuntimes[0];
+    const n = participants.length + 1;
+    console.log(`\n  🐝 ${M}${B}Participant ${n}${R}`);
+    const aliasInput = await ask(`     ${C}→${R} Alias ${D}(blank ↵ to finish · suffix :human for a person)${R}: `);
+    if (!aliasInput) {
+      const count = participants.length;
+      const summary = count === 0
+        ? `${D}no participants — starting an empty room${R}`
+        : `${G}✓${R} ${B}${count}${R} participant${count === 1 ? "" : "s"} ready — starting room…`;
+      console.log(`  ${summary}`);
+      break;
     }
+    // alias[:role] — default role is "agent". `:human` skips the runtime prompt.
+    const colon = aliasInput.indexOf(":");
+    const alias = colon === -1 ? aliasInput : aliasInput.slice(0, colon).trim();
+    const role = colon === -1 ? "agent" : aliasInput.slice(colon + 1).trim() || "agent";
+    if (!alias) continue;
+    const cwd = await askRepoPath({ alias, defaultPath: process.cwd(), ask });
+    const runtime = role === "agent"
+      ? await askRuntime({ alias, available: availableRuntimes, ask })
+      : undefined;
     participants.push({ alias, cwd, role, runtime });
+    const bug = role === "agent" ? agentEmoji(alias) : role === "human" ? "👤" : "✎";
+    const runtimeBadge = runtime ? ` · ${C}${runtime}${R}` : "";
+    console.log(`  ${G}✅${R} ${bug} ${B}${alias}${R}  ${D}${role}${R}${runtimeBadge}  ${D}${shortenPath(cwd)}${R}`);
+    console.log(divider);
   }
 
   close();
 
   console.log(`\n  Starting server in background...`);
 
-  const daemon = await spawnDaemonServer({
+  const daemonRes = await spawnDaemonServer({
     room: roomName,
     port: opts.port,
     share: opts.share,
     expose: opts.expose,
     shareTtlMs,
   });
-  if (!daemon) {
-    console.error("  Failed to start server.");
+  if (!isDaemonResult(daemonRes)) {
+    console.error(`\n  ${Y}✗${R} Failed to start server: ${B}${daemonRes.reason}${R}`);
+    if (daemonRes.portInUse) {
+      console.error(`  ${D}A previous room daemon is probably still bound. Inspect with:${R}  ${C}apiary ps${R}`);
+      console.error(`  ${D}Stop it with:${R}  ${C}apiary stop --all${R}  ${D}(or ${R}${C}apiary stop <room>${R}${D})${R}`);
+    } else if (daemonRes.stderr?.trim()) {
+      console.error(`  ${D}stderr:${R}\n${daemonRes.stderr.split("\n").map((l) => "    " + l).join("\n")}`);
+    }
     process.exit(1);
   }
+  const daemon = daemonRes;
 
   saveRoomSession({
     roomName: daemon.roomName,
@@ -394,7 +459,7 @@ export async function roomCreate(opts: {
   const adminJoinUrl = buildShareUrl(daemon.serverUrl, daemon.adminToken);
   await join({ server: adminJoinUrl });
 
-  console.log(`\n  Server still running (room: ${Y}${daemon.roomName}${R})`);
+  console.log(`\n  Server still running ${roomEmoji(daemon.roomName)} ${Y}${daemon.roomName}${R}`);
   console.log(`  Rejoin: ${C}apiary room resume ${daemon.roomName}${R}\n`);
 }
 
@@ -441,11 +506,17 @@ export async function roomResume(name: string): Promise<void> {
   } else {
     console.log(`\n  ${Y}${B}${name}${R}  ${D}server stopped — restarting...${R}\n`);
 
-    const daemon = await spawnDaemonServer({ room: name });
-    if (!daemon) {
-      console.error("  Failed to restart server.");
+    const daemonRes = await spawnDaemonServer({ room: name });
+    if (!isDaemonResult(daemonRes)) {
+      console.error(`\n  ${W}✗${R} Failed to restart server: ${B}${daemonRes.reason}${R}`);
+      if (daemonRes.portInUse) {
+        console.error(`  ${D}Inspect:${R}  ${C}apiary ps${R}    ${D}Stop:${R}  ${C}apiary stop --all${R}`);
+      } else if (daemonRes.stderr?.trim()) {
+        console.error(`  ${D}stderr:${R}\n${daemonRes.stderr.split("\n").map((l) => "    " + l).join("\n")}`);
+      }
       process.exit(1);
     }
+    const daemon = daemonRes;
 
     serverUrl = daemon.serverUrl;
     adminToken = daemon.adminToken;

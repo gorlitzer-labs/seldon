@@ -25,7 +25,8 @@ import {
 import { TmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
 import { contentPartsToString } from "../../agent/prompts.js";
-import { stableIndex } from "../config.js";
+import { agentEmoji } from "../config.js";
+import { consumeInvite } from "../invites.js";
 
 export { type AgentRuntimeOptions as RunClaudeOptions };
 
@@ -200,13 +201,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   const home = homedir();
   const cwdFull = process.cwd();
   const cwdShort = cwdFull.startsWith(home) ? "~" + cwdFull.slice(home.length) : cwdFull;
-  const bees = [
-    "🐝", "🐛", "🦋", "🐞", "🪲", "🐜", "🦗", "🪳", "🦂", "🕷️",
-    "🪰", "🦟", "🐌", "🐙", "🦑", "🦀", "🪱", "🦠", "🧬", "🔬",
-  ];
-  // Stable per agent name — reduces duplicates but collisions are possible
-  const bee = bees[stableIndex(setup.agentName, bees.length)];
-  const tabTitle = `${bee} ${setup.agentName} · ${cwdShort}`;
+  const tabTitle = `${agentEmoji(setup.agentName)} ${setup.agentName} · ${cwdShort}`;
 
   console.log("Launching Claude Code...");
   tmuxCreateSession(tmuxSession, tabTitle);
@@ -236,6 +231,17 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
       resetTerminal();
       return;
     }
+  }
+
+  // ── Consume queued invite (auto-join) ─────────────────────────────────
+  // If the wizard background-spawned this agent, ~/.apiary/invites/<name>
+  // holds the room's join URL. Inject a prompt asking the agent to join.
+  const inviteUrl = consumeInvite(setup.agentName);
+  if (inviteUrl) {
+    await bridge.deliver([{
+      type: "text",
+      text: `Please join the apiary room you were invited to by calling the join_room tool with this URL: ${inviteUrl}`,
+    }]);
   }
 
   // ── Save session state for resume ──────────────────────────────────────
@@ -371,6 +377,8 @@ async function resumeClaude(options: AgentRuntimeOptions): Promise<void> {
 export async function stopClaude(name?: string, all?: boolean): Promise<void> {
   const sessions = listClaudeSessions();
   if (sessions.length === 0) {
+    // --all is allowed to no-op (rooms may have already cleaned up everything)
+    if (all) return;
     console.error("No active Claude sessions.");
     process.exit(1);
   }

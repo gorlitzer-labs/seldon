@@ -37,3 +37,22 @@ export function stableIndex(seed: string, poolSize: number): number {
   for (const c of seed) hash = ((hash << 5) - hash + c.charCodeAt(0)) | 0;
   return ((hash % poolSize) + poolSize) % poolSize;
 }
+
+/** Stable per-agent insect/bug emoji pool. Used in tmux tab titles + wizard summary. */
+export const BUG_POOL: readonly string[] = [
+  "🐝", "🐛", "🦋", "🐞", "🪲", "🐜", "🦗", "🪳", "🦂", "🕷️",
+  "🪰", "🦟", "🐌", "🐙", "🦑", "🦀", "🪱", "🦠", "🧬", "🔬",
+];
+
+/** Stable per-room hive emoji pool. Used in terminal tab titles for `serve` and `join`. */
+export const HIVE_POOL: readonly string[] = ["🍯", "🐝", "🏠", "🪺", "🌸"];
+
+/** Stable bug emoji for an agent — same name always gets the same bug. */
+export function agentEmoji(agentName: string): string {
+  return BUG_POOL[stableIndex(agentName, BUG_POOL.length)];
+}
+
+/** Stable hive emoji for a room — same room name always gets the same hive. */
+export function roomEmoji(roomName: string): string {
+  return HIVE_POOL[stableIndex(roomName, HIVE_POOL.length)];
+}
