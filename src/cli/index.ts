@@ -352,8 +352,8 @@ async function main(): Promise<void> {
     // Check for a pending invite dropped by `apiary room resume`
     const pendingUrls = [...joinUrls];
     if (name) {
-      const { readAndConsumeInvite } = await import("./room.js");
-      const inviteUrl = readAndConsumeInvite(name);
+      const { consumeInvite } = await import("./invites.js");
+      const inviteUrl = consumeInvite(name);
       if (inviteUrl) pendingUrls.push(inviteUrl);
     }
 

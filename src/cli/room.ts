@@ -8,7 +8,7 @@
 
 import { spawn, execFileSync } from "node:child_process";
 import {
-  existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync,
+  existsSync, mkdirSync, writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join as pathJoin } from "node:path";
@@ -143,18 +143,6 @@ export function isDaemonResult(v: DaemonResult | DaemonSpawnFailure): v is Daemo
 export function writeInvite(alias: string, joinUrl: string): void {
   mkdirSync(INVITES_DIR, { recursive: true });
   writeFileSync(pathJoin(INVITES_DIR, alias), joinUrl, { mode: 0o600 });
-}
-
-export function readAndConsumeInvite(alias: string): string | null {
-  const p = pathJoin(INVITES_DIR, alias);
-  if (!existsSync(p)) return null;
-  try {
-    const url = readFileSync(p, "utf-8").trim();
-    unlinkSync(p);
-    return url;
-  } catch {
-    return null;
-  }
 }
 
 function isLocalPath(p: string): boolean {
