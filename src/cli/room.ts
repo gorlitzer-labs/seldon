@@ -443,6 +443,8 @@ export async function roomCreate(opts: {
 
   const roomName = opts.room ?? ((await ask(`  Room name ${D}[random]${R}: `)) || undefined);
 
+  const hostName = (await ask(`  Your name ${D}[random]${R}: `)) || undefined;
+
   const ttlInput = await ask(`  Session duration ${D}[7d]${R}: `);
   const shareTtlMs = parseDuration(ttlInput) ?? DAEMON_SHARE_TTL_MS;
 
@@ -578,7 +580,13 @@ export async function roomCreate(opts: {
 
   const { join } = await import("./join.js");
   const adminJoinUrl = buildShareUrl(daemon.serverUrl, daemon.adminToken);
-  await join({ server: adminJoinUrl });
+  // Agents the wizard spawned in tmux but who haven't joined the room yet —
+  // surface them in the TUI footer as `⏳ booting` so the user knows we're
+  // waiting on them, instead of staring at an empty footer for 5–15s.
+  const expectedAgents = participants
+    .filter((p) => p.role === "agent")
+    .map((p) => p.alias);
+  await join({ server: adminJoinUrl, name: hostName, expectedAgents });
 
   console.log(`\n  Server still running ${roomEmoji(daemon.roomName)} ${Y}${daemon.roomName}${R}`);
   console.log(`  Rejoin: ${C}apiary room resume ${daemon.roomName}${R}\n`);

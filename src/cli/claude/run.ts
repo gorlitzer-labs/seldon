@@ -206,9 +206,14 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   console.log("Launching Claude Code...");
   tmuxCreateSession(tmuxSession, tabTitle);
 
-  // Launch claude with MCP config + any passthrough args
+  // Launch claude with MCP config + any passthrough args.
+  // Background-spawned agents (wizard auto-join) skip the permission prompt so
+  // they can call apiary__join_room without a human pressing "Yes" in each tmux.
   const extraArgs = options.extraArgs ?? [];
-  const claudeCmd = [`claude --mcp-config ${mcpConfigPath}`, ...extraArgs].join(" ");
+  const baseFlags = options.background
+    ? `claude --mcp-config ${mcpConfigPath} --dangerously-skip-permissions`
+    : `claude --mcp-config ${mcpConfigPath}`;
+  const claudeCmd = [baseFlags, ...extraArgs].join(" ");
   tmuxSendCommand(tmuxSession, claudeCmd);
 
   // ── Start event loop + attach ──────────────────────────────────────────
