@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { render, Box, Text, Static, useStdout, useInput } from "ink";
+import { exec } from "node:child_process";
 
 import type { AuthorityLevel } from "../core/types.js";
 import { can, type Operation } from "../core/authority.js";
@@ -150,6 +151,9 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/ping",    description: "Ping a participant", op: "ping", params: [
     { label: "name", completions: "participants" },
   ]},
+  { name: "/peek",    description: "Show tmux command to view an agent's session", params: [
+    { label: "name", completions: "participants" },
+  ]},
   { name: "/clear",   description: "Wipe room history", op: "clear_history" },
   { name: "/tunnel",  description: "Start a cloudflared tunnel", op: "start_tunnel" },
   { name: "/sound",   description: "Toggle notification sounds" },
@@ -168,7 +172,7 @@ export type DisplayEvent =
   | { id: string; ts: string; kind: "ping";    pingerName: string }
   | { id: string; ts: string; kind: "system";  content: string };
 
-export type AgentState = "idle" | "working" | "unknown" | "unresponsive";
+export type AgentState = "pending" | "stalled" | "idle" | "working" | "unknown" | "unresponsive";
 
 export interface SetAgentStateOpts {
   /** When `state === "working"`, auto-revert to "unknown" after this many ms. Default 60_000. */
@@ -205,18 +209,51 @@ function seedHash(s: string): number {
 }
 
 function makeIdentityAssigner(): (name: string) => { color: string; sigil: string } {
+  // Color + sigil both derive from the name hash so the same person always
+  // shows up the same way — across sessions, across surfaces (footer, message
+  // border, @mentions), and regardless of the order they first appear.
   const map = new Map<string, { color: string; sigil: string }>();
-  let colorIdx = 0;
   return (name: string) => {
     if (!map.has(name)) {
       const h = seedHash(name);
       map.set(name, {
-        color: AGENT_COLORS[colorIdx++ % AGENT_COLORS.length],
-        sigil: SIGILS[h % SIGILS.length],
+        color: AGENT_COLORS[h % AGENT_COLORS.length],
+        sigil: SIGILS[Math.floor(h / AGENT_COLORS.length) % SIGILS.length],
       });
     }
     return map.get(name)!;
   };
+}
+
+// ── Local shell `!` ───────────────────────────────────────────────────────────
+
+const SHELL_MAX_OUTPUT_BYTES = 64 * 1024;
+const SHELL_TIMEOUT_MS = 60_000;
+
+function runLocalShell(cmd: string, push: (e: DisplayEvent) => void): void {
+  const ts = new Date().toISOString().slice(11, 19);
+  const startId = `sh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  push({ id: `${startId}-cmd`, ts, kind: "system", content: `$ ${cmd}` });
+
+  exec(cmd, {
+    maxBuffer: SHELL_MAX_OUTPUT_BYTES,
+    timeout: SHELL_TIMEOUT_MS,
+    shell: process.env.SHELL || "/bin/sh",
+  }, (err, stdout, stderr) => {
+    const doneTs = new Date().toISOString().slice(11, 19);
+    const out = (stdout || "").toString().replace(/\s+$/, "");
+    const errOut = (stderr || "").toString().replace(/\s+$/, "");
+    if (out) push({ id: `${startId}-out`, ts: doneTs, kind: "system", content: out });
+    if (errOut) push({ id: `${startId}-err`, ts: doneTs, kind: "system", content: errOut });
+    if (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      const exitCode = (err as { code?: number | string }).code;
+      const tag = code === "ETIMEDOUT" ? "timeout" : `exit ${exitCode ?? "?"}`;
+      push({ id: `${startId}-end`, ts: doneTs, kind: "system", content: `↳ ${tag}` });
+    } else if (!out && !errOut) {
+      push({ id: `${startId}-end`, ts: doneTs, kind: "system", content: "↳ (no output)" });
+    }
+  });
 }
 
 // ── Word wrap ─────────────────────────────────────────────────────────────────
@@ -514,11 +551,6 @@ function App({
   // Clamp cursor when input changes externally
   useEffect(() => { setCursorPos(p => Math.min(p, input.length)); }, [input]);
 
-  // Paste batching — buffer rapid chars and flush as one insert
-  const pasteBuffer = useRef({ chars: "", timer: null as NodeJS.Timeout | null, pos: 0 });
-  // Track last char time for paste-vs-submit heuristic
-  const lastCharTime = useRef(0);
-
   // Event batching — buffer incoming events and flush as a single state update
   // to prevent render thrashing that corrupts the input area mid-keystroke.
   const eventBuffer = useRef<DisplayEvent[]>([]);
@@ -578,7 +610,8 @@ function App({
     return next;
   }, []);
 
-  const DEFAULT_WORKING_DECAY_MS = 60_000;
+  const DEFAULT_WORKING_DECAY_MS = 300_000;
+  const PENDING_STALL_MS = 30_000;
 
   const setAgentState = useCallback(
     (name: string, state: AgentState, opts?: SetAgentStateOpts) => {
@@ -589,7 +622,10 @@ function App({
       stateRef.current.set(name, state);
       setAgentStatesMap(new Map(stateRef.current));
 
-      // Only "working" decays — idle/unknown/unresponsive are sticky until next signal.
+      // Decay rules:
+      //   working → unknown after DEFAULT_WORKING_DECAY_MS (5min)
+      //   pending → stalled after PENDING_STALL_MS (30s, agent never showed up)
+      // idle/unknown/unresponsive/stalled are sticky until the next signal.
       if (state === "working") {
         const ms = opts?.decayMs ?? DEFAULT_WORKING_DECAY_MS;
         decayTimers.current.set(name, setTimeout(() => {
@@ -599,6 +635,14 @@ function App({
           }
           decayTimers.current.delete(name);
         }, ms));
+      } else if (state === "pending") {
+        decayTimers.current.set(name, setTimeout(() => {
+          if (stateRef.current.get(name) === "pending") {
+            stateRef.current.set(name, "stalled");
+            setAgentStatesMap(new Map(stateRef.current));
+          }
+          decayTimers.current.delete(name);
+        }, PENDING_STALL_MS));
       }
     },
     [],
@@ -792,31 +836,23 @@ function App({
       return;
     }
 
-    // Enter → submit (with paste heuristic: if <10ms since last char, treat as pasted newline)
+    // Enter → submit. (Pastes containing newlines arrive as one multi-char
+    // event with `\n` inside `char`, so they never reach this branch — no
+    // paste/Enter race to disambiguate.)
     if (key.return) {
-      const now = Date.now();
-      if (now - lastCharTime.current < 10) {
-        // Likely a pasted newline — insert instead of submitting
-        setInputAt(input.slice(0, cursorPos) + "\n" + input.slice(cursorPos), cursorPos + 1);
-        lastCharTime.current = now;
+      const content = input.trim();
+      if (!content) { setInputAt("", 0); return; }
+
+      // `! <cmd>` — run locally, render output as system lines. Output stays
+      // in your TUI only; agents and other participants see nothing.
+      if (content.startsWith("!")) {
+        const cmd = content.slice(1).trim();
+        setInputAt("", 0);
+        if (cmd) runLocalShell(cmd, push);
         return;
       }
-      // Flush any pending paste buffer before submit
-      if (pasteBuffer.current.timer) {
-        clearTimeout(pasteBuffer.current.timer);
-        const batch = pasteBuffer.current.chars;
-        const bPos = pasteBuffer.current.pos;
-        pasteBuffer.current = { chars: "", timer: null, pos: 0 };
-        if (batch) {
-          const newInput = input.slice(0, bPos) + batch + input.slice(bPos);
-          const content = newInput.trim();
-          if (content) onSend(content);
-          setInputAt("", 0);
-          return;
-        }
-      }
-      const content = input.trim();
-      if (content) onSend(content);
+
+      onSend(content);
       setInputAt("", 0);
       return;
     }
@@ -835,25 +871,14 @@ function App({
       return;
     }
 
-    // Regular character — batch for paste performance
+    // Regular character or multi-char paste. ink batches paste into one event,
+    // so `char` may be many characters with embedded newlines — insert as-is.
     if (char) {
-      lastCharTime.current = Date.now();
-      const buf = pasteBuffer.current;
-      if (buf.timer === null) {
-        buf.pos = cursorPos;
-      }
-      buf.chars += char;
-      if (buf.timer) clearTimeout(buf.timer);
-      buf.timer = setTimeout(() => {
-        const batch = buf.chars;
-        const bPos = buf.pos;
-        pasteBuffer.current = { chars: "", timer: null, pos: 0 };
-        setInput((prev) => {
-          const newInput = prev.slice(0, bPos) + batch + prev.slice(bPos);
-          setCursorPos(bPos + batch.length);
-          return newInput;
-        });
-      }, 5);
+      const normalized = char.replace(/\r\n?/g, "\n");
+      setInputAt(
+        input.slice(0, cursorPos) + normalized + input.slice(cursorPos),
+        cursorPos + normalized.length,
+      );
     }
   });
 
@@ -913,23 +938,26 @@ function App({
       {agentNames.length > 0 && (
         <Box paddingX={1} flexWrap="wrap">
           {agentNames.map((name, i) => {
-            const { sigil } = identify(name);
+            const { color, sigil } = identify(name);
             const state = agentStates.get(name) ?? "unknown";
-            // One source of truth: state → visual treatment.
-            const view = (() => {
+            // Color is locked to identity (same color in footer, borders, @mentions).
+            // State is communicated by a suffix icon — never by changing the color.
+            const stateSuffix = (() => {
               switch (state) {
-                case "idle":         return { color: C.green,  suffix: "" };
-                case "working":      return { color: C.yellow, suffix: "" };
-                case "unresponsive": return { color: C.danger, suffix: " ⚠" };
+                case "pending":      return { glyph: " ⏳ booting",  color: C.yellow };
+                case "stalled":      return { glyph: " ⚠ stalled",  color: C.danger };
+                case "idle":         return { glyph: " ✓",          color: C.green  };
+                case "working":      return { glyph: " …",          color: C.yellow };
+                case "unresponsive": return { glyph: " ⚠",          color: C.danger };
                 case "unknown":
-                default:             return { color: C.muted,  suffix: " zzz" };
+                default:             return { glyph: " zzz",        color: C.muted  };
               }
             })();
             return (
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{" · "}</Text>}
-                <Text color={view.color}>{sigil}{" "}{name}</Text>
-                {view.suffix && <Text color={C.muted}>{view.suffix}</Text>}
+                <Text color={color}>{sigil}{" "}{name}</Text>
+                <Text color={stateSuffix.color}>{stateSuffix.glyph}</Text>
               </React.Fragment>
             );
           })}
