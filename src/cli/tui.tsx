@@ -151,6 +151,9 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/ping",    description: "Ping a participant", op: "ping", params: [
     { label: "name", completions: "participants" },
   ]},
+  { name: "/peek",    description: "Show tmux command to view an agent's session", params: [
+    { label: "name", completions: "participants" },
+  ]},
   { name: "/clear",   description: "Wipe room history", op: "clear_history" },
   { name: "/tunnel",  description: "Start a cloudflared tunnel", op: "start_tunnel" },
   { name: "/sound",   description: "Toggle notification sounds" },

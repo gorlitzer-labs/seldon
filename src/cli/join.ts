@@ -211,6 +211,7 @@ export async function join(options: JoinOptions): Promise<void> {
         const lines = [
           "/who              list participants",
           "/ping <name>      ping for a status check",
+          "/peek <name>      show how to view an agent's tmux session",
           "/share            generate share links",
           "/sound            toggle notification sounds",
           "/leave            disconnect",
@@ -255,6 +256,23 @@ export async function join(options: JoinOptions): Promise<void> {
         } catch {
           systemEvent("Failed to reach server.");
         }
+        return;
+      }
+
+      // ── /peek ─────────────────────────────────────────────────────
+      // Print the tmux command to view an agent's Claude Code/Codex session.
+      // Doesn't switch terminals (that would fight ink's render loop) — the
+      // user runs it themselves after detaching from apiary (Ctrl+C).
+      case "peek": {
+        const name = args[0];
+        if (!name) { systemEvent("Usage: /peek <name>"); return; }
+        systemEvent(
+          `Peek at ${name}:\n` +
+          `  1. Ctrl+C to leave apiary (server keeps running)\n` +
+          `  2. tmux attach -t apiary_${name}\n` +
+          `  3. Ctrl+B then D to detach from the agent\n` +
+          `  4. apiary room resume <room>  to come back`,
+        );
         return;
       }
 
