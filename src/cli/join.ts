@@ -608,11 +608,23 @@ export async function join(options: JoinOptions): Promise<void> {
         // Server may be down — silently fail
       }
     },
-    onCtrlC: async () => {
-      await disconnect();
-      tui.stop();
-      process.exit(0);
-    },
+    onCtrlC: (() => {
+      // Two-step exit: single Ctrl+C shows a hint, second within 2s actually
+      // leaves. Prevents the "I closed it by mistake and lost my admin
+      // identity" scenario when the user just wanted to interrupt something.
+      let lastPress = 0;
+      const CONFIRM_MS = 2000;
+      return async () => {
+        const now = Date.now();
+        if (now - lastPress < CONFIRM_MS) {
+          await disconnect();
+          tui.stop();
+          process.exit(0);
+        }
+        lastPress = now;
+        systemEvent("Press Ctrl+C again within 2s to leave (server keeps running).");
+      };
+    })(),
   });
 
   // Welcome note
@@ -829,6 +841,17 @@ export async function join(options: JoinOptions): Promise<void> {
                   if (name && currentAgents.has(name)) {
                     tui.setAgentState(name, "working", { decayMs: PING_DECAY_MS });
                   }
+                }
+              }
+              if (event.type === "Activity" && (event as { action?: string }).action === "status_label") {
+                // Live activity label from agent runtime (e.g. "Sautéed for 12s",
+                // "Compacting conversation… 23%"). Updates the participant strip
+                // so user can see real progress instead of guessing "is it stuck?".
+                const detail = (event as { detail?: Record<string, unknown> }).detail ?? {};
+                const name = typeof detail.participant_name === "string" ? detail.participant_name : undefined;
+                const label = typeof detail.label === "string" ? detail.label : null;
+                if (name && currentAgents.has(name)) {
+                  tui.setAgentActivity(name, label);
                 }
               }
               if (event.type === "StatusChanged") {

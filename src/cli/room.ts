@@ -51,6 +51,11 @@ interface Prompter {
 //   `cane:owner`        → agent / product_owner ("the agent in charge")
 //   `bob:human:admin`   → human / admin
 //   `cane:owner:human`  → human / product_owner (order doesn't matter)
+//   `bf:opus`           → agent / member, claude --model opus
+//   `anvil:sonnet:owner`→ agent / product_owner, claude --model sonnet
+//
+// Model tokens: short aliases (opus, sonnet, haiku) map to the latest of each
+// family — claude resolves them. Full model ids also pass through verbatim.
 
 const TIER_TOKENS: Record<string, AuthorityLevel> = {
   owner: "product_owner",
@@ -63,12 +68,23 @@ const TYPE_TOKENS: Record<string, "agent" | "human"> = {
   agent: "agent",
   human: "human",
 };
+const MODEL_TOKENS = new Set([
+  "opus", "sonnet", "haiku",
+  // also accept full model ids verbatim
+]);
+function isModelToken(tok: string): boolean {
+  const lc = tok.toLowerCase();
+  if (MODEL_TOKENS.has(lc)) return true;
+  // Full model id pattern: claude-{opus|sonnet|haiku}-N-M[(...)]
+  return /^claude-(opus|sonnet|haiku)-\d/.test(lc);
+}
 
 function parseAliasSpec(input: string): {
   alias: string;
   type: "agent" | "human";
   tier: AuthorityLevel;
   role: string;
+  model?: string;
 } | null {
   const parts = input.split(":").map((p) => p.trim()).filter(Boolean);
   if (parts.length === 0) return null;
@@ -76,6 +92,7 @@ function parseAliasSpec(input: string): {
   let type: "agent" | "human" = "agent";
   let tier: AuthorityLevel = "member";
   let role = "agent";
+  let model: string | undefined;
   for (const tok of parts.slice(1)) {
     const lc = tok.toLowerCase();
     if (TYPE_TOKENS[lc]) {
@@ -83,11 +100,13 @@ function parseAliasSpec(input: string): {
       role = type;
     } else if (TIER_TOKENS[lc]) {
       tier = TIER_TOKENS[lc];
+    } else if (isModelToken(tok)) {
+      model = lc;
     } else {
       role = lc;
     }
   }
-  return { alias, type, tier, role };
+  return { alias, type, tier, role, model };
 }
 
 function makePrompt(): Prompter {
@@ -342,6 +361,7 @@ function spawnAgentBackground(
   cwd: string,
   runtime: string,
   tier: AuthorityLevel = "member",
+  model?: string,
 ): boolean {
   const resolvedCwd = cwd.replace(/^~/, homedir());
   if (!existsSync(resolvedCwd)) return false;
@@ -351,6 +371,7 @@ function spawnAgentBackground(
   // agent's process *advertises*.
   const args = [process.argv[1], runtime, alias, "--background"];
   if (tier === "admin" || tier === "product_owner") args.push("--admin");
+  if (model) args.push("--model", model);
   try {
     const child = spawn(process.execPath, args, {
       detached: true,
@@ -462,6 +483,7 @@ export async function roomCreate(opts: {
     role: string;
     runtime?: string;
     tier: AuthorityLevel;
+    model?: string;
   }> = [];
   const G = "\x1b[32m";
   const M = "\x1b[35m";
@@ -484,17 +506,18 @@ export async function roomCreate(opts: {
     }
     const spec = parseAliasSpec(aliasInput);
     if (!spec) continue;
-    const { alias, role, tier } = spec;
+    const { alias, role, tier, model } = spec;
     const cwd = await askRepoPath({ alias, defaultPath: process.cwd(), ask });
     const runtime = role === "agent"
       ? await askRuntime({ alias, available: availableRuntimes, ask })
       : undefined;
-    participants.push({ alias, cwd, role, runtime, tier });
+    participants.push({ alias, cwd, role, runtime, tier, model });
     const bug = role === "agent" ? agentEmoji(alias) : role === "human" ? "👤" : "✎";
     const runtimeBadge = runtime ? ` · ${C}${runtime}${R}` : "";
+    const modelBadge = model ? `  ${Y}[${model}]${R}` : "";
     const tierBadge = tier !== "member" ? `  ${Y}[${tier === "product_owner" ? "owner" : tier}]${R}` : "";
     console.log(
-      `  ${G}✅${R} ${bug} ${B}${alias}${R}${tierBadge}  ${D}${role}${R}${runtimeBadge}  ${D}${shortenPath(cwd)}${R}`,
+      `  ${G}✅${R} ${bug} ${B}${alias}${R}${tierBadge}${modelBadge}  ${D}${role}${R}${runtimeBadge}  ${D}${shortenPath(cwd)}${R}`,
     );
     console.log(divider);
   }
@@ -530,6 +553,7 @@ export async function roomCreate(opts: {
     memberToken: daemon.memberToken,
     pid: daemon.pid,
     lastActive: Date.now(),
+    hostName,
     participants,
   });
 
@@ -562,7 +586,7 @@ export async function roomCreate(opts: {
       const joinUrl = tieredJoinUrls[p.tier] ?? memberJoinUrl;
       printInvite(p.alias, joinUrl, sameHost);
       if (sameHost && canSpawn && p.runtime) {
-        const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier);
+        const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model);
         if (ok) {
           console.log(`    ${D}→ spawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}`);
         }
@@ -695,7 +719,7 @@ export async function roomResume(name: string): Promise<void> {
         const sameHost = allLocal || isLocalPath(p.cwd);
         printInvite(p.alias, memberJoinUrl, sameHost);
         if (sameHost && tmuxAvailable() && p.runtime && !tmuxSessionExists(`apiary_${p.alias}`)) {
-          const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime);
+          const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model);
           if (ok) {
             console.log(`    ${D}→ respawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}`);
           }
@@ -714,11 +738,26 @@ export async function roomResume(name: string): Promise<void> {
     console.log("");
   }
 
+  // Restore the original host display name so admin identity survives reconnect.
+  // Without this the user gets a random name (e.g. Roux-9321) and agents lose
+  // the continuity needed to recognize them as the same admin.
+  // Older sessions (pre-hostName persistence) won't have it — ask once and
+  // persist for next time.
+  let resumeHostName = session.hostName;
+  if (!resumeHostName) {
+    const { ask, close } = makePrompt();
+    resumeHostName = (await ask(`  Your name ${D}[random]${R}: `)) || undefined;
+    close();
+    if (resumeHostName) {
+      saveRoomSession({ ...session, hostName: resumeHostName, lastActive: Date.now() });
+    }
+  }
+
   console.log(`  Press Ctrl+C to leave — server keeps running.\n`);
 
   const { join } = await import("./join.js");
   const adminJoinUrl = buildShareUrl(serverUrl, adminToken);
-  await join({ server: adminJoinUrl });
+  await join({ server: adminJoinUrl, name: resumeHostName });
 
   console.log(`\n  Server still running (room: ${Y}${name}${R})`);
   console.log(`  Rejoin: ${C}apiary room resume ${name}${R}\n`);

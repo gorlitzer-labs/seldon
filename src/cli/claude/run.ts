@@ -264,12 +264,16 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   pretrustCwd(process.cwd());
 
   // Launch claude with MCP config + any passthrough args.
+  // --strict-mcp-config so we ignore the user's global MCP servers (playwright,
+  // project .mcp.json, etc.). Otherwise the agent pays tool-schema tax on
+  // every request for tools it will never call — measured 17K tokens of
+  // unused schema vs 24K of actual conversation in one real session.
   // Background-spawned agents (wizard auto-join) skip the permission prompt so
   // they can call apiary__join_room without a human pressing "Yes" in each tmux.
   const extraArgs = options.extraArgs ?? [];
   const baseFlags = options.background
-    ? `claude --mcp-config ${mcpConfigPath} --dangerously-skip-permissions`
-    : `claude --mcp-config ${mcpConfigPath}`;
+    ? `claude --mcp-config ${mcpConfigPath} --strict-mcp-config --dangerously-skip-permissions`
+    : `claude --mcp-config ${mcpConfigPath} --strict-mcp-config`;
   const claudeCmd = [baseFlags, ...extraArgs].join(" ");
   tmuxSendCommand(tmuxSession, claudeCmd);
 
@@ -282,11 +286,27 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   const eventLoopPromise = setup.processor.run(bridge.deliver.bind(bridge), setup.wrappedSource)
     .catch(() => {}); // Prevent unhandled rejection from crashing the process
 
+  // Activity heartbeat — every ~1.5s, scrape claude's status line ("Sautéed
+  // for 12s", "Compacting…", etc.) and push to all connected rooms when it
+  // changes. Gives the room TUI live "is the agent stuck or working?" signal
+  // instead of just a static green dot.
+  let lastActivityLabel: string | null = null;
+  const activityTimer: NodeJS.Timeout = setInterval(() => {
+    let label: string | null;
+    try { label = bridge.getActivityLabel(); }
+    catch { return; }
+    if (label === lastActivityLabel) return;
+    lastActivityLabel = label;
+    setup.processor.broadcastActivity(label).catch(() => { /* best-effort */ });
+  }, 1500);
+  activityTimer.unref(); // don't keep the process alive on its own
+
   // Wait for Claude to start, checking the session is still alive
   for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if (!tmuxSessionExists(tmuxSession)) {
       console.error("Error: Claude Code exited during startup. Try running again.");
+      clearInterval(activityTimer);
       bridge.stop();
       await setup.cleanup();
       try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
@@ -326,6 +346,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
       process.on("SIGTERM", resolve);
       process.on("SIGINT", resolve);
     });
+    clearInterval(activityTimer);
     bridge.stop();
     await setup.cleanup();
     if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
@@ -365,6 +386,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
 
   // ── Full cleanup (session ended or process killed) ─────────────────────
 
+  clearInterval(activityTimer);
   bridge.stop();
   await setup.cleanup();
   if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);

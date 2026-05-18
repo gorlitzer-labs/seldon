@@ -86,6 +86,12 @@ export interface PersistedRoomSession {
   pid: number;
   /** Unix timestamp of last TUI activity (set by room create/resume). */
   lastActive?: number;
+  /**
+   * Display name the host used at create time (e.g. "Franco"). roomResume
+   * restores this so the admin keeps a consistent identity across reconnects —
+   * otherwise the human gets a random name and agents can't recognize them.
+   */
+  hostName?: string;
   /** Participants recorded at create/resume time. */
   participants?: Array<{
     alias: string;
@@ -97,6 +103,11 @@ export interface PersistedRoomSession {
      * via alias-suffix grammar (e.g. `cane:owner`). Undefined = member.
      */
     tier?: AuthorityLevel;
+    /**
+     * Model id passed to the runtime (`--model` for claude). Set by alias-suffix
+     * grammar (e.g. `bf:opus`, `anvil:sonnet`). Undefined = runtime default.
+     */
+    model?: string;
   }>;
 }
 
@@ -954,6 +965,35 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         if (!p) return jsonError(res, 403, "Not a participant");
 
         await p.channel.emit(event);
+        jsonOk(res);
+        return;
+      }
+
+      // ── POST /activity ──────────────────────────────────────────────────
+      //
+      // Agent-runtime heartbeat that surfaces what claude is actually doing
+      // (e.g. "Sautéed for 12s", "Compacting conversation… 23%") so the room
+      // TUI can render real activity next to the participant glyph instead of
+      // a static green dot. Body: { label: string|null }. Null clears.
+      //
+      // Broadcasts an ActivityEvent with action="status_label" so other
+      // participants' channels see the update. The agent's own channel skips
+      // it (no self-echo needed).
+      if (url.pathname === "/activity") {
+        if (!session) return jsonError(res, 401, "Invalid session token");
+        const p = participants.get(sessionToken);
+        if (!p) return jsonError(res, 403, "Not a participant");
+        const label = body.label === null || body.label === undefined
+          ? null
+          : String(body.label).slice(0, 120);
+        await p.channel.emit(createEvent<ActivityEvent>({
+          type: "Activity",
+          category: "ACTIVITY",
+          room_id: room.roomId,
+          participant_id: p.id,
+          action: "status_label",
+          detail: { label, participant_name: p.name },
+        }));
         jsonOk(res);
         return;
       }

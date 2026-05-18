@@ -185,6 +185,13 @@ export interface TUIHandle {
   toggleSound(): boolean;
   /** Set one agent's state. `working` auto-decays to `unknown` after `opts.decayMs` (default 60s). */
   setAgentState(name: string, state: AgentState, opts?: SetAgentStateOpts): void;
+  /**
+   * Set a free-form live activity label for an agent (e.g. "Sautéed for 12s",
+   * "Compacting…"). Pushed by the agent-runtime poll loop scraping claude's
+   * status line so the user can see real progress instead of guessing.
+   * Pass null to clear.
+   */
+  setAgentActivity(name: string, label: string | null): void;
   setAgentNames(names: string[]): void;
   setParticipants(names: string[]): void;
   stop(): void;
@@ -503,6 +510,7 @@ interface AppHandle {
   setParticipants: (names: string[]) => void;
   toggleSound: () => boolean;
   setAgentState: (name: string, state: AgentState, opts?: SetAgentStateOpts) => void;
+  setAgentActivity: (name: string, label: string | null) => void;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -534,10 +542,12 @@ function App({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [soundEnabled,  setSoundEnabled]  = useState(initialSound);
   const [agentStates,   setAgentStatesMap] = useState<Map<string, AgentState>>(new Map());
+  const [agentActivities, setAgentActivitiesMap] = useState<Map<string, string>>(new Map());
   const [fightMode,     setFightMode]     = useState(false);
   const fightModeRef = useRef(false);
   const soundRef = useRef(initialSound);
   const stateRef = useRef<Map<string, AgentState>>(new Map());
+  const activityRef = useRef<Map<string, string>>(new Map());
   const decayTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
@@ -648,8 +658,19 @@ function App({
     [],
   );
 
+  // Live activity label (e.g. "Sautéed for 12s", "Compacting…") pushed by the
+  // agent runtime poll loop. Free-form string; null/empty clears.
+  const setAgentActivity = useCallback((name: string, label: string | null) => {
+    if (label && label.trim()) {
+      activityRef.current.set(name, label.trim());
+    } else {
+      activityRef.current.delete(name);
+    }
+    setAgentActivitiesMap(new Map(activityRef.current));
+  }, []);
+
   useEffect(() => {
-    onReady({ push, clear, setAgentNames, setParticipants, toggleSound, setAgentState });
+    onReady({ push, clear, setAgentNames, setParticipants, toggleSound, setAgentState, setAgentActivity });
     return () => {
       if (eventFlushTimer.current) clearTimeout(eventFlushTimer.current);
       for (const t of decayTimers.current.values()) clearTimeout(t);
@@ -940,6 +961,7 @@ function App({
           {agentNames.map((name, i) => {
             const { color, sigil } = identify(name);
             const state = agentStates.get(name) ?? "unknown";
+            const activity = agentActivities.get(name);
             // Color is locked to identity (same color in footer, borders, @mentions).
             // State is communicated by a suffix icon — never by changing the color.
             const stateSuffix = (() => {
@@ -953,11 +975,16 @@ function App({
                 default:             return { glyph: " zzz",        color: C.muted  };
               }
             })();
+            // Live activity label from agent runtime (e.g. "Sautéed for 12s",
+            // "Compacting…") — when present, it overrides the static state
+            // glyph because it carries more signal ("am I stuck?").
             return (
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{" · "}</Text>}
                 <Text color={color}>{sigil}{" "}{name}</Text>
-                <Text color={stateSuffix.color}>{stateSuffix.glyph}</Text>
+                {activity
+                  ? <Text color={C.yellow}>{" "}{activity}</Text>
+                  : <Text color={stateSuffix.color}>{stateSuffix.glyph}</Text>}
               </React.Fragment>
             );
           })}
@@ -1120,6 +1147,9 @@ export function startTUI(opts: TUIOptions): TUIHandle {
     },
     setAgentState(name, state, opts) {
       handle?.setAgentState(name, state, opts);
+    },
+    setAgentActivity(name, label) {
+      handle?.setAgentActivity(name, label);
     },
     stop() {
       unmount();

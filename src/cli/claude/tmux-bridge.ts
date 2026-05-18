@@ -98,6 +98,19 @@ export class TmuxBridge {
   }
 
   /**
+   * Extract claude's live status label from the pane (the "Sautéed for 12s",
+   * "Compacting conversation… 23%" lines under the prompt). Returns null when
+   * the agent is idle / no status visible.
+   *
+   * The room TUI calls this through the agent runtime's poll loop to surface
+   * "is the agent actually working or stuck?" without making the user attach
+   * to each tmux pane.
+   */
+  getActivityLabel(): string | null {
+    return extractActivityLabel(this.captureScreen());
+  }
+
+  /**
    * Try to inject text, choosing strategy based on TUI state.
    * If the state is unsafe, queues the text and starts polling.
    *
@@ -242,6 +255,41 @@ export class TmuxBridge {
     if (ms <= 0) return;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
   }
+}
+
+// ── Activity label extraction ────────────────────────────────────────────────
+
+/**
+ * Pull claude's status string out of a captured pane.
+ *
+ * Claude's TUI shows these markers above the input prompt while it's working:
+ *   ✻ Sautéed for 12s
+ *   ✻ Cooked for 4s
+ *   ✻ Baked for 13s
+ *   ✻ Churned for 3s
+ *   ✻ Compacting conversation… 23%
+ *   ✻ Thinking…
+ *
+ * Two patterns:
+ *   - COOK: cooking-verb + "for Ns" (claude's cute spinner text). Matches
+ *     unicode letters (Sautéed) by allowing the Latin-1 supplement range.
+ *   - PROG: a known long-op verb (Compacting/Thinking/Loading/Connecting)
+ *     followed by an optional description and optional N%. Stops at the
+ *     first `(` so we don't capture the trailing metadata blob like
+ *     "(2m 9s · ↑ 3.3k tokens)".
+ *
+ * Scan the last ~25 lines, return the newest match. Null when none → idle.
+ */
+const ACTIVITY_COOK = /([A-Za-zÀ-ÿ]+ed\s+for\s+\d+s)/;
+const ACTIVITY_PROG = /((?:Compacting|Thinking|Loading|Connecting)[^()]*?(?:\s+\d+%)?)(?=\s*[(\n]|\s*$)/;
+export function extractActivityLabel(lines: string[]): string | null {
+  if (lines.length === 0) return null;
+  let best: string | null = null;
+  for (const line of lines.slice(-25)) {
+    const m = line.match(ACTIVITY_COOK) ?? line.match(ACTIVITY_PROG);
+    if (m) best = m[1].trim();
+  }
+  return best;
 }
 
 // ── State detection heuristics ──────────────────────────────────────────────

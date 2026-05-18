@@ -23,6 +23,7 @@ import { type EngagementMode, type EventDisposition, type EngagementStrategy, St
 import type { ContentPart, RoomConnection, RoomResolver } from "./types.js";
 import { LocalRoomDataSource } from "./room-data-source.js";
 import type { RoomDataSource } from "./room-data-source.js";
+import { RemoteRoomDataSource } from "./remote-room-data-source.js";
 import { formatEvent } from "./prompts.js";
 import { buildCatchUpLines } from "./tool-handlers.js";
 import { EventMultiplexer, type LabeledEvent } from "./multiplexer.js";
@@ -193,6 +194,32 @@ export class EventProcessor implements RoomResolver {
     lastMessage?: string;
   }> {
     return this._registry.listAll((roomId) => this.getModeForRoom(roomId));
+  }
+
+  /**
+   * Push a live status label ("Sautéed for 12s", "Compacting…", null=idle)
+   * to every connected REMOTE room (i.e. CLI-path agents talking to an
+   * apiary HTTP server). Local app-path connections are skipped — they don't
+   * have a /activity HTTP endpoint to hit.
+   *
+   * Called from the CLI runtime's tmux poll loop. Best-effort: failures are
+   * swallowed so a flaky network never crashes the agent.
+   */
+  async broadcastActivity(label: string | null): Promise<void> {
+    for (const conn of this._registry.values()) {
+      const ds = conn.dataSource;
+      if (!(ds instanceof RemoteRoomDataSource)) continue;
+      try {
+        await fetch(`${ds.serverUrl}/activity`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${ds.sessionToken}`,
+          },
+          body: JSON.stringify({ label }),
+        });
+      } catch { /* best-effort */ }
+    }
   }
 
   // ── Room connection management ──────────────────────────────────────────────
