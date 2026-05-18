@@ -1,5 +1,5 @@
 /**
- * Read live token usage + cost out of claude's per-session JSONL log.
+ * Read live token usage out of claude's per-session JSONL log.
  *
  * Claude writes one event per line to
  *   ~/.claude/projects/<cwd-encoded>/<sessionId>.jsonl
@@ -12,88 +12,11 @@
  * accumulate ~300KB over an hour — re-reading every 10s is wasteful and
  * scales badly with N agents. Cache is keyed by path so rotation (a new
  * session starts → newest jsonl changes) resets cleanly.
- *
- * NOTE — pricing values come from src/cli/claude/pricing.json. Verify
- * against https://www.anthropic.com/pricing for billing-grade numbers.
- * For relative comparisons across agents/turns in the same session they're
- * fine — the cache-vs-input ratio is what really moves cost.
  */
 
-import { readdirSync, readFileSync, statSync, existsSync, openSync, readSync, closeSync } from "node:fs";
+import { readdirSync, statSync, existsSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import bundledPricing from "./pricing.json" with { type: "json" };
-
-// ── Pricing table ────────────────────────────────────────────────────────────
-
-export interface ModelPrices {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-}
-
-interface PricingFile {
-  opus: ModelPrices;
-  sonnet: ModelPrices;
-  haiku: ModelPrices;
-  _oneMMultiplier?: number;
-}
-
-const DEFAULT_PRICING: PricingFile = {
-  opus:   { input: 15.00, output: 75.00, cacheRead: 1.50, cacheWrite: 18.75 },
-  sonnet: { input:  3.00, output: 15.00, cacheRead: 0.30, cacheWrite:  3.75 },
-  haiku:  { input:  0.80, output:  4.00, cacheRead: 0.08, cacheWrite:  1.00 },
-  _oneMMultiplier: 2,
-};
-
-/**
- * Pricing is inlined at build time from src/cli/claude/pricing.json (esbuild
- * handles JSON imports natively). At runtime we ALSO check for a user override
- * at ~/.apiary/pricing.json — if present, it shallow-merges over the bundled
- * defaults so admins can update prices without rebuilding apiary.
- */
-let pricingCache: PricingFile | null = null;
-function loadPricing(): PricingFile {
-  if (pricingCache) return pricingCache;
-  let merged: PricingFile = { ...DEFAULT_PRICING, ...(bundledPricing as Partial<PricingFile>) };
-  try {
-    const override = join(homedir(), ".apiary", "pricing.json");
-    if (existsSync(override)) {
-      const data = JSON.parse(readFileSync(override, "utf-8"));
-      merged = { ...merged, ...data };
-    }
-  } catch { /* user override is best-effort */ }
-  pricingCache = merged;
-  return pricingCache;
-}
-
-/**
- * Resolve a model id to its price block. Family inferred from substring
- * (haiku → cheapest, sonnet → mid, opus → priciest; default opus to
- * over-estimate rather than under). `[1m]` / `-1m` variants multiply
- * input + cache (output unchanged) by the configured factor.
- *
- * Exported for testing.
- */
-export function priceFor(modelId: string): ModelPrices {
-  const prices = loadPricing();
-  const lower = modelId.toLowerCase();
-  let base: ModelPrices = prices.opus;
-  if (lower.includes("haiku")) base = prices.haiku;
-  else if (lower.includes("sonnet")) base = prices.sonnet;
-  else if (lower.includes("opus")) base = prices.opus;
-  if (lower.includes("[1m]") || lower.includes("-1m")) {
-    const m = prices._oneMMultiplier ?? 2;
-    return {
-      input: base.input * m,
-      output: base.output,
-      cacheRead: base.cacheRead * m,
-      cacheWrite: base.cacheWrite * m,
-    };
-  }
-  return base;
-}
 
 // ── Path resolution ──────────────────────────────────────────────────────────
 
@@ -132,7 +55,6 @@ interface TailState {
     outputTokens: number;
     cacheReadTokens: number;
     cacheCreateTokens: number;
-    costUsd: number;
   };
   /** Last-seen values (for per-turn fields like context size). */
   lastTurnContextTokens: number;
@@ -148,7 +70,7 @@ function freshState(path: string): TailState {
   return {
     path,
     offset: 0,
-    totals: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0, costUsd: 0 },
+    totals: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0 },
     lastTurnContextTokens: 0,
     lastModel: "",
     carry: "",
@@ -162,7 +84,6 @@ export interface AgentMetrics {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreateTokens: number;
-  costUsd: number;
   /** Approximate input-context size on the last turn (in + cache_read + cache_create). */
   lastTurnContextTokens: number;
   /** Last sample's model id (the one used by the latest assistant message). */
@@ -261,13 +182,7 @@ export function consumeLine(state: {
   state.totals.cacheReadTokens += cr;
   state.totals.cacheCreateTokens += cw;
 
-  const model = typeof msg.model === "string" ? msg.model : state.lastModel;
-  if (model) {
-    const p = priceFor(model);
-    state.totals.costUsd +=
-      (inp * p.input + out * p.output + cr * p.cacheRead + cw * p.cacheWrite) / 1_000_000;
-    state.lastModel = model;
-  }
+  if (typeof msg.model === "string") state.lastModel = msg.model;
 
   state.lastTurnContextTokens = inp + cr + cw;
 }
@@ -275,5 +190,4 @@ export function consumeLine(state: {
 /** Reset all in-memory tail state. For tests. */
 export function _resetForTest(): void {
   tailStates.clear();
-  pricingCache = null;
 }

@@ -186,7 +186,6 @@ export class ClaudeSession implements ILLMSession {
             const contextWindow = MODEL_CONTEXT_WINDOWS[this._model] ?? 200_000;
             const contextPct = Math.max(0, Math.min(100, Math.round(((inputTokens + cacheReadInputTokens) / contextWindow) * 100)));
             this._options.onQueryComplete({
-              totalCostUsd: msg.total_cost_usd ?? 0,
               durationMs: msg.duration_ms ?? 0,
               durationApiMs: msg.duration_api_ms ?? 0,
               numTurns: msg.num_turns ?? 0,
@@ -206,7 +205,6 @@ export class ClaudeSession implements ILLMSession {
     } catch (err) {
       if (this._options.onQueryComplete) {
         this._options.onQueryComplete({
-          totalCostUsd: 0,
           durationMs: 0,
           durationApiMs: 0,
           numTurns: 0,

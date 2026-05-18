@@ -193,16 +193,11 @@ export interface TUIHandle {
    */
   setAgentActivity(name: string, label: string | null): void;
   /**
-   * Set live cost + context-size numbers for an agent. Pushed by the
-   * agent-runtime jsonl-stats poll loop. The TUI shows per-agent values in
-   * the participant strip and rolls up a room total in the status bar.
+   * Set live context-size for an agent. Pushed by the agent-runtime
+   * jsonl-stats poll loop. The TUI shows per-agent values in the
+   * participant strip and rolls up a room total in the status bar.
    */
-  setAgentMetrics(name: string, m: { costUsd: number; ctxTokens: number; model?: string }): void;
-  /**
-   * Set the room cost-alert threshold ($USD). When the rolled-up sum across
-   * all agents crosses this, the status bar turns red. Default $10.
-   */
-  setBudget(usd: number): void;
+  setAgentMetrics(name: string, m: { ctxTokens: number; model?: string }): void;
   setAgentNames(names: string[]): void;
   setParticipants(names: string[]): void;
   stop(): void;
@@ -525,7 +520,6 @@ function EventLine({
 // ── Internal bridge ───────────────────────────────────────────────────────────
 
 interface AgentMetricsRow {
-  costUsd: number;
   ctxTokens: number;
   model?: string;
 }
@@ -539,7 +533,6 @@ interface AppHandle {
   setAgentState: (name: string, state: AgentState, opts?: SetAgentStateOpts) => void;
   setAgentActivity: (name: string, label: string | null) => void;
   setAgentMetrics: (name: string, m: AgentMetricsRow) => void;
-  setBudget: (usd: number) => void;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -573,7 +566,6 @@ function App({
   const [agentStates,   setAgentStatesMap] = useState<Map<string, AgentState>>(new Map());
   const [agentActivities, setAgentActivitiesMap] = useState<Map<string, { label: string; updatedAt: number }>>(new Map());
   const [agentMetrics,   setAgentMetricsMap]    = useState<Map<string, AgentMetricsRow>>(new Map());
-  const [budget,         setBudgetUsd]          = useState<number>(10);
   // Tick every 5s so activity-staleness rendering refreshes even when no
   // events arrive (otherwise a frozen "Cooked for 8s" stays bright forever).
   const [, setStaleTick] = useState(0);
@@ -712,19 +704,14 @@ function App({
     setAgentActivitiesMap(new Map(activityRef.current));
   }, []);
 
-  // Cost + context numbers (from claude jsonl, broadcast by agent runtime).
+  // Last-turn context size (from claude jsonl, broadcast by agent runtime).
   const setAgentMetrics = useCallback((name: string, m: AgentMetricsRow) => {
     metricsRef.current.set(name, m);
     setAgentMetricsMap(new Map(metricsRef.current));
   }, []);
 
-  const setBudget = useCallback((usd: number) => {
-    if (!Number.isFinite(usd) || usd < 0) return;
-    setBudgetUsd(usd);
-  }, []);
-
   useEffect(() => {
-    onReady({ push, clear, setAgentNames, setParticipants, toggleSound, setAgentState, setAgentActivity, setAgentMetrics, setBudget });
+    onReady({ push, clear, setAgentNames, setParticipants, toggleSound, setAgentState, setAgentActivity, setAgentMetrics });
     return () => {
       if (eventFlushTimer.current) clearTimeout(eventFlushTimer.current);
       for (const t of decayTimers.current.values()) clearTimeout(t);
@@ -1011,24 +998,16 @@ function App({
         </Box>
       )}
       {agentMetrics.size > 0 && (() => {
-        // Roll up cost across all known agents (not just currently-visible
-        // ones — a disconnected agent's spend still counts).
-        let totalCost = 0;
+        // Roll up context across all known agents (not just currently-
+        // visible ones — a disconnected agent's last context still counts).
         let totalCtx = 0;
         for (const m of agentMetrics.values()) {
-          totalCost += m.costUsd;
           totalCtx += m.ctxTokens;
         }
-        const overBudget = totalCost > budget;
         return (
           <Box paddingX={1}>
             <Text color={C.muted}>{"  room  "}</Text>
-            <Text color={overBudget ? C.danger : C.muted} bold={overBudget}>
-              {`$${totalCost.toFixed(2)}`}
-            </Text>
-            <Text color={C.muted}>{` / $${budget.toFixed(0)} budget · `}</Text>
             <Text color={C.muted}>{`${formatTokens(totalCtx)} ctx total`}</Text>
-            {overBudget && <Text color={C.danger} bold>{"  ⚠ OVER BUDGET"}</Text>}
           </Box>
         );
       })()}
@@ -1060,7 +1039,7 @@ function App({
             const isStale = activity ? Date.now() - activity.updatedAt > STALE_MS : false;
             const activityColor = isStale ? C.muted : C.yellow;
             const metricsText = metrics
-              ? ` $${metrics.costUsd.toFixed(2)}·${formatTokens(metrics.ctxTokens)}`
+              ? ` ${formatTokens(metrics.ctxTokens)}`
               : "";
             return (
               <React.Fragment key={name}>
@@ -1237,9 +1216,6 @@ export function startTUI(opts: TUIOptions): TUIHandle {
     },
     setAgentMetrics(name, m) {
       handle?.setAgentMetrics(name, m);
-    },
-    setBudget(usd) {
-      handle?.setBudget(usd);
     },
     stop() {
       unmount();

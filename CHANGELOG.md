@@ -6,14 +6,13 @@ Orchestrator-grade release. Every change is in service of the same theme: less g
 
 **Live activity surface** — the participant strip now shows what each agent is doing in real time, scraped from claude's own status line: `★ anvil Sautéed for 12s`, `■ bf Compacting conversation… 23%`. No more "is it stuck?" guessing — if claude is working, you see it.
 
-**Per-agent cost + context counter** — every agent's session is parsed from `~/.claude/projects/<cwd>/<sid>.jsonl` every 10s. Per-agent strip shows `$2.30 · 87k ctx`, and the TUI rolls up a room total `$4.20 / $10 budget · 245k ctx total`. Set the threshold with `/budget <N>` — when exceeded, the bar goes red.
+**Per-agent context counter** — every agent's session is parsed from `~/.claude/projects/<cwd>/<sid>.jsonl` every 10s. Per-agent strip shows `87k`, and the TUI rolls up a room total `245k ctx total`.
 
 **Model picker in the wizard** — `apiary room create` now accepts model in the alias suffix grammar: `bf:opus`, `anvil:sonnet`, `husk:haiku` (or full IDs like `claude-sonnet-4-6`). Persisted across resume.
 
 **Mid-session agent controls** (admin slash commands):
 - `/clear <name>` — inject `/clear` into an agent's claude tmux so it dumps its context without restart
 - `/model <name> <id>` — inject claude's `/model` command to swap models mid-conversation
-- `/budget <amount>` — set the cost-alert threshold for this room
 
 **Identity survives reconnect** — `apiary room resume` previously dropped your display name (you became `Roux-XXXX` and lost the `(admin)` tag). Now your hostname is persisted at create-time and restored on resume — agents continue to recognize you.
 

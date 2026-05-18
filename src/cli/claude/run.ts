@@ -303,22 +303,20 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   activityTimer.unref();
 
   // Metrics heartbeat — every ~10s, re-parse claude's session jsonl to
-  // compute $ + token usage + last-turn context size. Broadcast only when
-  // cost moves by at least 1 cent (avoid spamming the room with sub-cent
-  // deltas during cache-hit-heavy idle turns).
-  let lastBroadcastCost = -1;
+  // pull last-turn context size. Broadcast only when the context number
+  // actually changes (avoid spamming the room on idle ticks).
+  let lastBroadcastCtx = -1;
   const metricsTimer: NodeJS.Timeout = setInterval(() => {
     try {
       const m = readAgentMetrics(process.cwd());
       if (!m) return;
-      if (Math.abs(m.costUsd - lastBroadcastCost) < 0.01) return;
-      lastBroadcastCost = m.costUsd;
+      if (m.lastTurnContextTokens === lastBroadcastCtx) return;
+      lastBroadcastCtx = m.lastTurnContextTokens;
       setup.processor.broadcastMetrics({
         input_tokens: m.inputTokens,
         output_tokens: m.outputTokens,
         cache_read_tokens: m.cacheReadTokens,
         cache_create_tokens: m.cacheCreateTokens,
-        cost_usd: m.costUsd,
         last_ctx_tokens: m.lastTurnContextTokens,
         model: m.lastModel,
       }).catch(() => { /* best-effort */ });

@@ -80,7 +80,6 @@ export interface QueryTurn {
  * Reported via `LLMSessionOptions.onQueryComplete` after every evaluation.
  */
 export interface LLMQueryStats {
-  totalCostUsd: number;
   durationMs: number;
   durationApiMs: number;
   numTurns: number;

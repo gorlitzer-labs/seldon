@@ -223,16 +223,15 @@ export class EventProcessor implements RoomResolver {
   }
 
   /**
-   * Push token usage + cost numbers to every connected REMOTE room so the
-   * room TUI can show per-agent $$$ + context size and roll up a room total.
-   * Mirrors broadcastActivity — same best-effort semantics.
+   * Push token usage + last-turn context size to every connected REMOTE
+   * room so the room TUI can show per-agent context size and roll up a
+   * room total. Mirrors broadcastActivity — same best-effort semantics.
    */
   async broadcastMetrics(metrics: {
     input_tokens: number;
     output_tokens: number;
     cache_read_tokens: number;
     cache_create_tokens: number;
-    cost_usd: number;
     last_ctx_tokens: number;
     model: string;
   }): Promise<void> {

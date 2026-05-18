@@ -266,7 +266,6 @@ export async function join(options: JoinOptions): Promise<void> {
             "/clear            wipe room history",
             "/clear <name>     clear an agent's claude context",
             "/model <n> <id>   swap an agent's model (sonnet/opus/haiku)",
-            "/budget <amount>  set room cost-alert threshold (e.g. 10)",
             "/tunnel           start cloudflared tunnel",
           );
         }
@@ -620,18 +619,6 @@ export async function join(options: JoinOptions): Promise<void> {
         return;
       }
 
-      // ── /budget — set room cost-alert threshold ($USD) ──────────────
-      // Local-only: applies to this TUI's view. Doesn't broadcast to others.
-      case "budget": {
-        if (!can(authority, "clear_history")) { systemEvent("Only admins can set budget."); return; }
-        const raw = args[0];
-        const usd = raw ? parseFloat(raw.replace(/^\$/, "")) : NaN;
-        if (!Number.isFinite(usd) || usd < 0) { systemEvent("Usage: /budget <amount> (e.g. /budget 10)"); return; }
-        tui.setBudget(usd);
-        systemEvent(`Room budget set to $${usd.toFixed(0)} (alert when total cost exceeds).`);
-        return;
-      }
-
       // ── /model — swap an agent's claude model mid-session ───────────
       // /model <agent-name> <model-id>  e.g. /model bf sonnet
       // Injects claude's built-in /model command into the agent's tmux. No
@@ -968,13 +955,12 @@ export async function join(options: JoinOptions): Promise<void> {
                 }
               }
               if (event.type === "Activity" && (event as { action?: string }).action === "metrics") {
-                // Cost + context numbers from the agent's jsonl. Used by the
-                // TUI to show per-agent $$$ and roll up a room total.
+                // Last-turn context size from the agent's jsonl. Used by
+                // the TUI to show per-agent context and a room total.
                 const detail = (event as { detail?: Record<string, unknown> }).detail ?? {};
                 const name = typeof detail.participant_name === "string" ? detail.participant_name : undefined;
                 if (name && currentAgents.has(name)) {
                   tui.setAgentMetrics(name, {
-                    costUsd: Number(detail.cost_usd) || 0,
                     ctxTokens: Number(detail.last_ctx_tokens) || 0,
                     model: typeof detail.model === "string" ? detail.model : undefined,
                   });

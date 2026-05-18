@@ -971,13 +971,13 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // ── POST /metrics ───────────────────────────────────────────────────
       //
-      // Agent-runtime heartbeat with cost + context size from claude's local
-      // jsonl. Broadcast as an ActivityEvent so the room TUI can show
-      // `bf · $2.30 · 87k ctx` next to each agent and roll up totals.
+      // Agent-runtime heartbeat with token + context size from claude's
+      // local jsonl. Broadcast as an ActivityEvent so the room TUI can
+      // show `bf · 87k ctx` next to each agent and roll up totals.
       //
       // Body: {
       //   input_tokens, output_tokens, cache_read_tokens, cache_create_tokens,
-      //   cost_usd, last_ctx_tokens, model
+      //   last_ctx_tokens, model
       // }
       if (url.pathname === "/metrics") {
         if (!session) return jsonError(res, 401, "Invalid session token");
@@ -988,7 +988,6 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           output_tokens: Number(body.output_tokens) || 0,
           cache_read_tokens: Number(body.cache_read_tokens) || 0,
           cache_create_tokens: Number(body.cache_create_tokens) || 0,
-          cost_usd: Number(body.cost_usd) || 0,
           last_ctx_tokens: Number(body.last_ctx_tokens) || 0,
           model: typeof body.model === "string" ? body.model : "",
           participant_name: p.name,

@@ -9,23 +9,6 @@ import type { RoomResolver, LangGraphSessionOptions, ILLMSession, ContentPart, Q
 import { contentPartsToString } from "../agent/prompts.js";
 import { createFullMcpServer, type StoopsMcpServer } from "../agent/mcp/index.js";
 
-// ── Token pricing table (approximate, USD per 1M tokens) ─────────────────────
-// Last updated: 2026-02. Add new models as they launch.
-// Unknown models return cost 0 — callers should not rely on this for billing.
-
-const TOKEN_PRICING: Record<string, { input: number; output: number }> = {
-  "claude-sonnet-4-5-20250929": { input: 3.0,  output: 15.0 },
-  "claude-haiku-4-5-20251001":  { input: 0.8,  output: 4.0 },
-  "claude-opus-4-5-20250918":   { input: 15.0, output: 75.0 },
-  "claude-opus-4-5-20250929":   { input: 15.0, output: 75.0 },
-  "gpt-4o":                     { input: 2.5,  output: 10.0 },
-  "gpt-4o-mini":                { input: 0.15, output: 0.6 },
-  "o3":                         { input: 10.0, output: 40.0 },
-  "o3-mini":                    { input: 1.1,  output: 4.4 },
-  "gemini-2.0-flash":           { input: 0.1,  output: 0.4 },
-  "gemini-2.5-pro":             { input: 1.25, output: 10.0 },
-};
-
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-haiku-4-5-20251001":  200_000,
   "claude-sonnet-4-5-20250929": 200_000,
@@ -38,13 +21,6 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "gemini-2.0-flash": 1_000_000,
   "gemini-2.5-pro":   1_000_000,
 };
-
-function estimateCost(modelName: string, inputTokens: number, outputTokens: number): number {
-  const bare = modelName.includes(":") ? modelName.split(":").pop()! : modelName;
-  const pricing = TOKEN_PRICING[bare];
-  if (!pricing) return 0;
-  return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
-}
 
 function getContextWindow(modelName: string): number {
   const bare = modelName.includes(":") ? modelName.split(":").pop()! : modelName;
@@ -267,7 +243,6 @@ export class LangGraphSession implements ILLMSession {
       if (this._options.onQueryComplete) {
         const durationMs = Date.now() - startTime;
         this._options.onQueryComplete({
-          totalCostUsd: estimateCost(this._model, totalInputTokens, totalOutputTokens),
           durationMs,
           durationApiMs: durationMs,
           numTurns,
@@ -284,7 +259,6 @@ export class LangGraphSession implements ILLMSession {
     } catch (err) {
       if (this._options.onQueryComplete) {
         this._options.onQueryComplete({
-          totalCostUsd: 0,
           durationMs: Date.now() - startTime,
           durationApiMs: 0,
           numTurns: 0,
