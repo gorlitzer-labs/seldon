@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.4.0
+
+Orchestrator-grade release. Every change is in service of the same theme: less guessing, fewer footguns, more visibility into what your agents are actually doing.
+
+**Live activity surface** — the participant strip now shows what each agent is doing in real time, scraped from claude's own status line: `★ anvil Sautéed for 12s`, `■ bf Compacting conversation… 23%`. No more "is it stuck?" guessing — if claude is working, you see it.
+
+**Per-agent cost + context counter** — every agent's session is parsed from `~/.claude/projects/<cwd>/<sid>.jsonl` every 10s. Per-agent strip shows `$2.30 · 87k ctx`, and the TUI rolls up a room total `$4.20 / $10 budget · 245k ctx total`. Set the threshold with `/budget <N>` — when exceeded, the bar goes red.
+
+**Model picker in the wizard** — `apiary room create` now accepts model in the alias suffix grammar: `bf:opus`, `anvil:sonnet`, `husk:haiku` (or full IDs like `claude-sonnet-4-6`). Persisted across resume.
+
+**Mid-session agent controls** (admin slash commands):
+- `/clear <name>` — inject `/clear` into an agent's claude tmux so it dumps its context without restart
+- `/model <name> <id>` — inject claude's `/model` command to swap models mid-conversation
+- `/budget <amount>` — set the cost-alert threshold for this room
+
+**Identity survives reconnect** — `apiary room resume` previously dropped your display name (you became `Roux-XXXX` and lost the `(admin)` tag). Now your hostname is persisted at create-time and restored on resume — agents continue to recognize you.
+
+**Double Ctrl+C to leave** — single Ctrl+C used to disconnect immediately (easy to do by mistake). Now first press shows `Press Ctrl+C again within 2s to leave`; second press disconnects. Server keeps running.
+
+**`/peek <name>` shows an inline snapshot** — used to be a 4-step recipe ("Ctrl+C apiary, tmux attach, Ctrl+B D, then resume"). Now it's one keystroke: a 25-line quoted snapshot of the agent's pane appears inline.
+
+**Spawned claudes ignore global MCP servers** — `--strict-mcp-config` is now passed automatically, so agents don't pay the tool-schema tax for the user's interactive-claude MCPs (measured: 17k tokens of unused playwright + project-mcp schema vs 24k of actual conversation in one real session — 70% per-turn waste, eliminated).
+
+**Pre-accept claude trust + onboarding dialogs** — background-spawned agents used to hang forever at claude's "do you trust this folder?" dialog (with no human attached to the tmux pane to click "Yes"). Apiary now writes the trust + onboarding flags into `~/.claude.json` before spawn, so claude renders its TUI instead of waiting on a click.
+
+**`apiary update` actually updates** — used to print "run `npm update -g @gorlitzer/apiary`". Now it runs `git pull --ff-only && npm run build` for symlinked git checkouts, or `npm update -g` for real npm installs. Also fixes the `REPO_ROOT` walk for tsup-bundled output.
+
+**`apiary stop --all` covers codex + opencode** — previously only handled the claude runtime, so codex/opencode standalone agents survived `stop --all`. Now there's a shared `agent-session.ts` registry, `apiary ps` lists all runtimes, and `stop --all` tears them all down. Also fixes O(N²) session-file scans that made `stop --all` feel stuck on machines with many stale rooms.
+
+**Misc:**
+- `checkForUpdate()` no longer holds the event loop open past CLI completion (the spawned `git ls-remote` child's stdout pipe is now unref'd, not just the process handle)
+- `resetTerminal()` no-ops when stdin isn't a TTY (drops the `stty: stdin isn't a terminal` noise from backgrounded runs)
+
 ## v1.3.0
 
 - **`name` parameter on `join_room`** — agents can now set their display name when joining a room via `join_room(url, name: "QueenBee")`. Falls back to the CLI-provided name if omitted
