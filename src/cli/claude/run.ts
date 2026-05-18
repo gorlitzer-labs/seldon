@@ -9,7 +9,7 @@
  * The agent joins rooms by calling join_room() — no auto-injection needed.
  */
 
-import { writeFileSync, mkdtempSync, mkdirSync, rmSync, chmodSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { writeFileSync, mkdtempSync, mkdirSync, rmSync, chmodSync, existsSync, readFileSync, readdirSync, realpathSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 
@@ -67,6 +67,58 @@ function loadSession(name: string): PersistedSession | null {
 function clearSession(name: string): void {
   const path = sessionFilePath(name);
   try { rmSync(path); } catch { /* ok */ }
+}
+
+/**
+ * Pre-accept Claude Code's first-run onboarding dialogs for this cwd so a
+ * background-spawned agent (no human attached to the tmux pane) doesn't hang
+ * forever at a blocking prompt.
+ *
+ * Claude shows two blocking screens during `showSetupScreens()`:
+ *
+ *   1. "Quick safety check: is this a project you trust?" — gated on
+ *      `projects[<realpath>].hasTrustDialogAccepted`. Neither
+ *      `--dangerously-skip-permissions` nor `--permission-mode bypassPermissions`
+ *      bypasses it (those gate tool calls, not workspace trust).
+ *   2. Per-project onboarding hints — gated on `hasCompletedProjectOnboarding`
+ *      and `projectOnboardingSeenCount`.
+ *
+ * Pre-writing these three keys is what claude itself does after the user
+ * clicks through. Best-effort: if claude.json is missing or unparseable we
+ * silently skip rather than create/corrupt the file. The key MUST be the
+ * realpath because claude resolves symlinks before lookup (`/tmp` →
+ * `/private/tmp` on macOS).
+ */
+function pretrustCwd(cwd: string): void {
+  try {
+    const path = join(homedir(), ".claude.json");
+    if (!existsSync(path)) return;
+    const real = realpathSync(cwd);
+    const raw = readFileSync(path, "utf-8");
+    const data = JSON.parse(raw);
+    if (typeof data !== "object" || data === null) return;
+    const projects = (data.projects ??= {});
+    const entry = (projects[real] ??= {});
+
+    const needsWrite =
+      entry.hasTrustDialogAccepted !== true ||
+      entry.hasCompletedProjectOnboarding !== true ||
+      !(typeof entry.projectOnboardingSeenCount === "number" && entry.projectOnboardingSeenCount >= 1);
+    if (!needsWrite) return;
+
+    entry.hasTrustDialogAccepted = true;
+    entry.hasCompletedProjectOnboarding = true;
+    if (!(typeof entry.projectOnboardingSeenCount === "number" && entry.projectOnboardingSeenCount >= 1)) {
+      entry.projectOnboardingSeenCount = 1;
+    }
+
+    // Atomic write so a concurrent claude reading the file never sees partial JSON
+    const tmpPath = `${path}.apiary-${process.pid}.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+    renameSync(tmpPath, path);
+  } catch {
+    // Don't block agent spawn on a settings hiccup
+  }
 }
 
 /** List all active Claude sessions. */
@@ -205,6 +257,11 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
 
   console.log("Launching Claude Code...");
   tmuxCreateSession(tmuxSession, tabTitle);
+
+  // Pre-accept claude's workspace-trust dialog for this cwd. Otherwise
+  // background-spawned agents (no human attached to the tmux pane) hang
+  // forever at the dialog and never reach the MCP-load step.
+  pretrustCwd(process.cwd());
 
   // Launch claude with MCP config + any passthrough args.
   // Background-spawned agents (wizard auto-join) skip the permission prompt so
