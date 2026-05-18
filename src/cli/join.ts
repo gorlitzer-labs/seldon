@@ -24,6 +24,22 @@ import { startTUI, type TUIHandle, type DisplayEvent } from "./tui.js";
 import { extractToken, buildShareUrl } from "./auth.js";
 import { can } from "../core/authority.js";
 import { tmuxSessionExists, tmuxCapturePane, tmuxInjectText, tmuxSendEnter } from "./tmux.js";
+import { listRoomSessions, saveRoomSession } from "./serve.js";
+
+/**
+ * Update one participant's persisted model in ~/.apiary/sessions/room_X.json.
+ * Used by /model so the swap survives `apiary room resume`. No-op when the
+ * room or participant isn't found locally (e.g. user is joined to a remote
+ * room they didn't create).
+ */
+function persistAgentModel(roomName: string, alias: string, model: string): void {
+  const session = listRoomSessions().find((s) => s.roomName === roomName);
+  if (!session?.participants) return;
+  const p = session.participants.find((x) => x.alias === alias);
+  if (!p) return;
+  p.model = model;
+  saveRoomSession(session);
+}
 
 /**
  * Send a slash command (e.g. "/clear", "/model sonnet") into an agent's
@@ -632,7 +648,10 @@ export async function join(options: JoinOptions): Promise<void> {
         }
         try {
           sendSlashToAgent(session, `/model ${modelId}`);
-          systemEvent(`Sent /model ${modelId} to ${targetName}.`);
+          // Persist so `apiary room resume` respawns at the swapped model.
+          // Falls through silently if this client isn't the room owner.
+          persistAgentModel(roomName, targetName, modelId);
+          systemEvent(`Sent /model ${modelId} to ${targetName} (will persist on resume).`);
         } catch (err) {
           systemEvent(`Failed to swap model: ${(err as Error).message}`);
         }

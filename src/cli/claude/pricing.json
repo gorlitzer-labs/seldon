@@ -1,0 +1,7 @@
+{
+  "_comment": "Per-million-token USD prices, approximate. Edit when Anthropic updates pricing or new models ship. Verify against https://www.anthropic.com/pricing for billing-grade numbers. Family is detected by substring match on the model id (haiku/sonnet/opus). The `1m` block multiplies input + cache for the [1m] context variants — output is unchanged.",
+  "opus":   { "input": 15.00, "output": 75.00, "cacheRead": 1.50, "cacheWrite": 18.75 },
+  "sonnet": { "input":  3.00, "output": 15.00, "cacheRead": 0.30, "cacheWrite":  3.75 },
+  "haiku":  { "input":  0.80, "output":  4.00, "cacheRead": 0.08, "cacheWrite":  1.00 },
+  "_oneMMultiplier": 2
+}

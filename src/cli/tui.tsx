@@ -571,14 +571,21 @@ function App({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [soundEnabled,  setSoundEnabled]  = useState(initialSound);
   const [agentStates,   setAgentStatesMap] = useState<Map<string, AgentState>>(new Map());
-  const [agentActivities, setAgentActivitiesMap] = useState<Map<string, string>>(new Map());
+  const [agentActivities, setAgentActivitiesMap] = useState<Map<string, { label: string; updatedAt: number }>>(new Map());
   const [agentMetrics,   setAgentMetricsMap]    = useState<Map<string, AgentMetricsRow>>(new Map());
   const [budget,         setBudgetUsd]          = useState<number>(10);
+  // Tick every 5s so activity-staleness rendering refreshes even when no
+  // events arrive (otherwise a frozen "Cooked for 8s" stays bright forever).
+  const [, setStaleTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setStaleTick((n) => n + 1), 5000);
+    return () => clearInterval(t);
+  }, []);
   const [fightMode,     setFightMode]     = useState(false);
   const fightModeRef = useRef(false);
   const soundRef = useRef(initialSound);
   const stateRef = useRef<Map<string, AgentState>>(new Map());
-  const activityRef = useRef<Map<string, string>>(new Map());
+  const activityRef = useRef<Map<string, { label: string; updatedAt: number }>>(new Map());
   const metricsRef = useRef<Map<string, AgentMetricsRow>>(new Map());
   const decayTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const { stdout } = useStdout();
@@ -691,10 +698,14 @@ function App({
   );
 
   // Live activity label (e.g. "Sautéed for 12s", "Compacting…") pushed by the
-  // agent runtime poll loop. Free-form string; null/empty clears.
+  // agent runtime poll loop. Free-form string; null/empty clears. We stash
+  // updatedAt alongside so render can dim the label when it goes stale (the
+  // bridge sends only when the label CHANGES, so a long-running "Cooked for
+  // 8s" can sit forever — if claude has died or the bridge stopped we'd
+  // otherwise show frozen state forever).
   const setAgentActivity = useCallback((name: string, label: string | null) => {
     if (label && label.trim()) {
-      activityRef.current.set(name, label.trim());
+      activityRef.current.set(name, { label: label.trim(), updatedAt: Date.now() });
     } else {
       activityRef.current.delete(name);
     }
@@ -1041,6 +1052,13 @@ function App({
                 default:             return { glyph: " zzz",        color: C.muted  };
               }
             })();
+            // Activity label rendered ALONGSIDE the state glyph, not instead
+            // of. If the activity hasn't updated in >30s (bridge sends only
+            // on change, so a long Cooked/Compacting can look fresh forever),
+            // dim it so the user knows the spinner data is stale.
+            const STALE_MS = 30_000;
+            const isStale = activity ? Date.now() - activity.updatedAt > STALE_MS : false;
+            const activityColor = isStale ? C.muted : C.yellow;
             const metricsText = metrics
               ? ` $${metrics.costUsd.toFixed(2)}·${formatTokens(metrics.ctxTokens)}`
               : "";
@@ -1048,9 +1066,8 @@ function App({
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{" · "}</Text>}
                 <Text color={color}>{sigil}{" "}{name}</Text>
-                {activity
-                  ? <Text color={C.yellow}>{" "}{activity}</Text>
-                  : <Text color={stateSuffix.color}>{stateSuffix.glyph}</Text>}
+                <Text color={stateSuffix.color}>{stateSuffix.glyph}</Text>
+                {activity && <Text color={activityColor}>{" "}{activity.label}</Text>}
                 {metricsText && <Text color={C.muted}>{metricsText}</Text>}
               </React.Fragment>
             );

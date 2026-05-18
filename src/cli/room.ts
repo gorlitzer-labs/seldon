@@ -79,7 +79,7 @@ function isModelToken(tok: string): boolean {
   return /^claude-(opus|sonnet|haiku)-\d/.test(lc);
 }
 
-function parseAliasSpec(input: string): {
+export function parseAliasSpec(input: string): {
   alias: string;
   type: "agent" | "human";
   tier: AuthorityLevel;
