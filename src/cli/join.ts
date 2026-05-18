@@ -23,7 +23,20 @@ function formatTimestamp(date: Date): string {
 import { startTUI, type TUIHandle, type DisplayEvent } from "./tui.js";
 import { extractToken, buildShareUrl } from "./auth.js";
 import { can } from "../core/authority.js";
-import { tmuxSessionExists, tmuxCapturePane } from "./tmux.js";
+import { tmuxSessionExists, tmuxCapturePane, tmuxInjectText, tmuxSendEnter } from "./tmux.js";
+
+/**
+ * Send a slash command (e.g. "/clear", "/model sonnet") into an agent's
+ * claude tmux pane. Uses inject-then-Enter with a second Enter as a safety
+ * net for claude's paste detection (same pattern as TmuxBridge.injectIdle).
+ */
+function sendSlashToAgent(session: string, slashCommand: string): void {
+  tmuxInjectText(session, slashCommand);
+  tmuxSendEnter(session);
+  // Sleep ~80ms then re-send Enter — see tmux-bridge.ts injectIdle for why
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+  tmuxSendEnter(session);
+}
 
 export interface JoinOptions {
   server: string;
@@ -235,6 +248,9 @@ export async function join(options: JoinOptions): Promise<void> {
             "/unmute <name>    restore to member",
             "/setmode <n> <m>  set engagement mode",
             "/clear            wipe room history",
+            "/clear <name>     clear an agent's claude context",
+            "/model <n> <id>   swap an agent's model (sonnet/opus/haiku)",
+            "/budget <amount>  set room cost-alert threshold (e.g. 10)",
             "/tunnel           start cloudflared tunnel",
           );
         }
@@ -547,9 +563,33 @@ export async function join(options: JoinOptions): Promise<void> {
         return;
       }
 
-      // ── /clear — wipe room history (admin only) ─────────────────
+      // ── /clear — wipe room history OR a specific agent's claude context
+      // /clear              → admin: wipe room history (storage + all clients)
+      // /clear <agent-name> → admin: inject /clear into the agent's tmux pane,
+      //                        clearing claude's local conversation. Frees
+      //                        token budget mid-session without restart.
       case "clear": {
         if (!can(authority, "clear_history")) { systemEvent("Only admins can clear."); return; }
+
+        const targetName = args[0];
+        if (targetName) {
+          // Per-agent claude /clear injection — local tmux only.
+          const session = `apiary_${targetName}`;
+          if (!tmuxSessionExists(session)) {
+            systemEvent(
+              `No local tmux session for "${targetName}". /clear <name> only ` +
+              `works for same-host agents.`,
+            );
+            return;
+          }
+          try {
+            sendSlashToAgent(session, "/clear");
+            systemEvent(`Sent /clear to ${targetName}.`);
+          } catch (err) {
+            systemEvent(`Failed to send /clear: ${(err as Error).message}`);
+          }
+          return;
+        }
 
         try {
           const res = await fetch(`${serverUrl}/clear`, {
@@ -560,6 +600,41 @@ export async function join(options: JoinOptions): Promise<void> {
           // Server broadcasts RoomCleared — TUI clear happens in SSE handler
         } catch {
           systemEvent("Failed to reach server.");
+        }
+        return;
+      }
+
+      // ── /budget — set room cost-alert threshold ($USD) ──────────────
+      // Local-only: applies to this TUI's view. Doesn't broadcast to others.
+      case "budget": {
+        if (!can(authority, "clear_history")) { systemEvent("Only admins can set budget."); return; }
+        const raw = args[0];
+        const usd = raw ? parseFloat(raw.replace(/^\$/, "")) : NaN;
+        if (!Number.isFinite(usd) || usd < 0) { systemEvent("Usage: /budget <amount> (e.g. /budget 10)"); return; }
+        tui.setBudget(usd);
+        systemEvent(`Room budget set to $${usd.toFixed(0)} (alert when total cost exceeds).`);
+        return;
+      }
+
+      // ── /model — swap an agent's claude model mid-session ───────────
+      // /model <agent-name> <model-id>  e.g. /model bf sonnet
+      // Injects claude's built-in /model command into the agent's tmux. No
+      // restart — conversation continues at the new model.
+      case "model": {
+        if (!can(authority, "clear_history")) { systemEvent("Only admins can swap models."); return; }
+        const targetName = args[0];
+        const modelId = args[1];
+        if (!targetName || !modelId) { systemEvent("Usage: /model <agent> <model-id>"); return; }
+        const session = `apiary_${targetName}`;
+        if (!tmuxSessionExists(session)) {
+          systemEvent(`No local tmux session for "${targetName}".`);
+          return;
+        }
+        try {
+          sendSlashToAgent(session, `/model ${modelId}`);
+          systemEvent(`Sent /model ${modelId} to ${targetName}.`);
+        } catch (err) {
+          systemEvent(`Failed to swap model: ${(err as Error).message}`);
         }
         return;
       }
@@ -871,6 +946,19 @@ export async function join(options: JoinOptions): Promise<void> {
                 const label = typeof detail.label === "string" ? detail.label : null;
                 if (name && currentAgents.has(name)) {
                   tui.setAgentActivity(name, label);
+                }
+              }
+              if (event.type === "Activity" && (event as { action?: string }).action === "metrics") {
+                // Cost + context numbers from the agent's jsonl. Used by the
+                // TUI to show per-agent $$$ and roll up a room total.
+                const detail = (event as { detail?: Record<string, unknown> }).detail ?? {};
+                const name = typeof detail.participant_name === "string" ? detail.participant_name : undefined;
+                if (name && currentAgents.has(name)) {
+                  tui.setAgentMetrics(name, {
+                    costUsd: Number(detail.cost_usd) || 0,
+                    ctxTokens: Number(detail.last_ctx_tokens) || 0,
+                    model: typeof detail.model === "string" ? detail.model : undefined,
+                  });
                 }
               }
               if (event.type === "StatusChanged") {

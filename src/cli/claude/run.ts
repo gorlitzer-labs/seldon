@@ -27,6 +27,7 @@ import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js
 import { contentPartsToString } from "../../agent/prompts.js";
 import { agentEmoji } from "../config.js";
 import { consumeInvite } from "../invites.js";
+import { readAgentMetrics } from "./jsonl-stats.js";
 
 export { type AgentRuntimeOptions as RunClaudeOptions };
 
@@ -299,14 +300,38 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     lastActivityLabel = label;
     setup.processor.broadcastActivity(label).catch(() => { /* best-effort */ });
   }, 1500);
-  activityTimer.unref(); // don't keep the process alive on its own
+  activityTimer.unref();
+
+  // Metrics heartbeat — every ~10s, re-parse claude's session jsonl to
+  // compute $ + token usage + last-turn context size. Broadcast only when
+  // cost moves by at least 1 cent (avoid spamming the room with sub-cent
+  // deltas during cache-hit-heavy idle turns).
+  let lastBroadcastCost = -1;
+  const metricsTimer: NodeJS.Timeout = setInterval(() => {
+    try {
+      const m = readAgentMetrics(process.cwd());
+      if (!m) return;
+      if (Math.abs(m.costUsd - lastBroadcastCost) < 0.01) return;
+      lastBroadcastCost = m.costUsd;
+      setup.processor.broadcastMetrics({
+        input_tokens: m.inputTokens,
+        output_tokens: m.outputTokens,
+        cache_read_tokens: m.cacheReadTokens,
+        cache_create_tokens: m.cacheCreateTokens,
+        cost_usd: m.costUsd,
+        last_ctx_tokens: m.lastTurnContextTokens,
+        model: m.lastModel,
+      }).catch(() => { /* best-effort */ });
+    } catch { /* never crash the runtime on a metrics read */ }
+  }, 10_000);
+  metricsTimer.unref();
 
   // Wait for Claude to start, checking the session is still alive
   for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if (!tmuxSessionExists(tmuxSession)) {
       console.error("Error: Claude Code exited during startup. Try running again.");
-      clearInterval(activityTimer);
+      clearInterval(activityTimer); clearInterval(metricsTimer);
       bridge.stop();
       await setup.cleanup();
       try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
@@ -346,7 +371,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
       process.on("SIGTERM", resolve);
       process.on("SIGINT", resolve);
     });
-    clearInterval(activityTimer);
+    clearInterval(activityTimer); clearInterval(metricsTimer);
     bridge.stop();
     await setup.cleanup();
     if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
@@ -386,7 +411,7 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
 
   // ── Full cleanup (session ended or process killed) ─────────────────────
 
-  clearInterval(activityTimer);
+  clearInterval(activityTimer); clearInterval(metricsTimer);
   bridge.stop();
   await setup.cleanup();
   if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);

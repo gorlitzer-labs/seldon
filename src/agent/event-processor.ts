@@ -222,6 +222,36 @@ export class EventProcessor implements RoomResolver {
     }
   }
 
+  /**
+   * Push token usage + cost numbers to every connected REMOTE room so the
+   * room TUI can show per-agent $$$ + context size and roll up a room total.
+   * Mirrors broadcastActivity — same best-effort semantics.
+   */
+  async broadcastMetrics(metrics: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_create_tokens: number;
+    cost_usd: number;
+    last_ctx_tokens: number;
+    model: string;
+  }): Promise<void> {
+    for (const conn of this._registry.values()) {
+      const ds = conn.dataSource;
+      if (!(ds instanceof RemoteRoomDataSource)) continue;
+      try {
+        await fetch(`${ds.serverUrl}/metrics`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${ds.sessionToken}`,
+          },
+          body: JSON.stringify(metrics),
+        });
+      } catch { /* best-effort */ }
+    }
+  }
+
   // ── Room connection management ──────────────────────────────────────────────
 
   async connectRoom(

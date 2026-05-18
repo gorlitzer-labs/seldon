@@ -192,6 +192,17 @@ export interface TUIHandle {
    * Pass null to clear.
    */
   setAgentActivity(name: string, label: string | null): void;
+  /**
+   * Set live cost + context-size numbers for an agent. Pushed by the
+   * agent-runtime jsonl-stats poll loop. The TUI shows per-agent values in
+   * the participant strip and rolls up a room total in the status bar.
+   */
+  setAgentMetrics(name: string, m: { costUsd: number; ctxTokens: number; model?: string }): void;
+  /**
+   * Set the room cost-alert threshold ($USD). When the rolled-up sum across
+   * all agents crosses this, the status bar turns red. Default $10.
+   */
+  setBudget(usd: number): void;
   setAgentNames(names: string[]): void;
   setParticipants(names: string[]): void;
   stop(): void;
@@ -205,6 +216,16 @@ export interface TUIOptions {
   /** Server-granted authority. Drives which slash commands appear and run. */
   authority?: AuthorityLevel;
   soundEnabled?: boolean;
+}
+
+// ── Number formatters ────────────────────────────────────────────────────────
+
+/** "47" / "12k" / "1.3M" — tight token-count formatting for status strips. */
+function formatTokens(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "0";
+  if (n < 1000) return String(Math.round(n));
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
 }
 
 // ── Identity (seed → color + sigil) ──────────────────────────────────────────
@@ -503,6 +524,12 @@ function EventLine({
 
 // ── Internal bridge ───────────────────────────────────────────────────────────
 
+interface AgentMetricsRow {
+  costUsd: number;
+  ctxTokens: number;
+  model?: string;
+}
+
 interface AppHandle {
   push: (event: DisplayEvent) => void;
   clear: () => void;
@@ -511,6 +538,8 @@ interface AppHandle {
   toggleSound: () => boolean;
   setAgentState: (name: string, state: AgentState, opts?: SetAgentStateOpts) => void;
   setAgentActivity: (name: string, label: string | null) => void;
+  setAgentMetrics: (name: string, m: AgentMetricsRow) => void;
+  setBudget: (usd: number) => void;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -543,11 +572,14 @@ function App({
   const [soundEnabled,  setSoundEnabled]  = useState(initialSound);
   const [agentStates,   setAgentStatesMap] = useState<Map<string, AgentState>>(new Map());
   const [agentActivities, setAgentActivitiesMap] = useState<Map<string, string>>(new Map());
+  const [agentMetrics,   setAgentMetricsMap]    = useState<Map<string, AgentMetricsRow>>(new Map());
+  const [budget,         setBudgetUsd]          = useState<number>(10);
   const [fightMode,     setFightMode]     = useState(false);
   const fightModeRef = useRef(false);
   const soundRef = useRef(initialSound);
   const stateRef = useRef<Map<string, AgentState>>(new Map());
   const activityRef = useRef<Map<string, string>>(new Map());
+  const metricsRef = useRef<Map<string, AgentMetricsRow>>(new Map());
   const decayTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const { stdout } = useStdout();
   const identify   = useMemo(makeIdentityAssigner, []);
@@ -669,8 +701,19 @@ function App({
     setAgentActivitiesMap(new Map(activityRef.current));
   }, []);
 
+  // Cost + context numbers (from claude jsonl, broadcast by agent runtime).
+  const setAgentMetrics = useCallback((name: string, m: AgentMetricsRow) => {
+    metricsRef.current.set(name, m);
+    setAgentMetricsMap(new Map(metricsRef.current));
+  }, []);
+
+  const setBudget = useCallback((usd: number) => {
+    if (!Number.isFinite(usd) || usd < 0) return;
+    setBudgetUsd(usd);
+  }, []);
+
   useEffect(() => {
-    onReady({ push, clear, setAgentNames, setParticipants, toggleSound, setAgentState, setAgentActivity });
+    onReady({ push, clear, setAgentNames, setParticipants, toggleSound, setAgentState, setAgentActivity, setAgentMetrics, setBudget });
     return () => {
       if (eventFlushTimer.current) clearTimeout(eventFlushTimer.current);
       for (const t of decayTimers.current.values()) clearTimeout(t);
@@ -956,12 +999,35 @@ function App({
           <Text color={C.yellow}>{"─"}</Text>
         </Box>
       )}
+      {agentMetrics.size > 0 && (() => {
+        // Roll up cost across all known agents (not just currently-visible
+        // ones — a disconnected agent's spend still counts).
+        let totalCost = 0;
+        let totalCtx = 0;
+        for (const m of agentMetrics.values()) {
+          totalCost += m.costUsd;
+          totalCtx += m.ctxTokens;
+        }
+        const overBudget = totalCost > budget;
+        return (
+          <Box paddingX={1}>
+            <Text color={C.muted}>{"  room  "}</Text>
+            <Text color={overBudget ? C.danger : C.muted} bold={overBudget}>
+              {`$${totalCost.toFixed(2)}`}
+            </Text>
+            <Text color={C.muted}>{` / $${budget.toFixed(0)} budget · `}</Text>
+            <Text color={C.muted}>{`${formatTokens(totalCtx)} ctx total`}</Text>
+            {overBudget && <Text color={C.danger} bold>{"  ⚠ OVER BUDGET"}</Text>}
+          </Box>
+        );
+      })()}
       {agentNames.length > 0 && (
         <Box paddingX={1} flexWrap="wrap">
           {agentNames.map((name, i) => {
             const { color, sigil } = identify(name);
             const state = agentStates.get(name) ?? "unknown";
             const activity = agentActivities.get(name);
+            const metrics = agentMetrics.get(name);
             // Color is locked to identity (same color in footer, borders, @mentions).
             // State is communicated by a suffix icon — never by changing the color.
             const stateSuffix = (() => {
@@ -975,9 +1041,9 @@ function App({
                 default:             return { glyph: " zzz",        color: C.muted  };
               }
             })();
-            // Live activity label from agent runtime (e.g. "Sautéed for 12s",
-            // "Compacting…") — when present, it overrides the static state
-            // glyph because it carries more signal ("am I stuck?").
+            const metricsText = metrics
+              ? ` $${metrics.costUsd.toFixed(2)}·${formatTokens(metrics.ctxTokens)}`
+              : "";
             return (
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{" · "}</Text>}
@@ -985,6 +1051,7 @@ function App({
                 {activity
                   ? <Text color={C.yellow}>{" "}{activity}</Text>
                   : <Text color={stateSuffix.color}>{stateSuffix.glyph}</Text>}
+                {metricsText && <Text color={C.muted}>{metricsText}</Text>}
               </React.Fragment>
             );
           })}
@@ -1150,6 +1217,12 @@ export function startTUI(opts: TUIOptions): TUIHandle {
     },
     setAgentActivity(name, label) {
       handle?.setAgentActivity(name, label);
+    },
+    setAgentMetrics(name, m) {
+      handle?.setAgentMetrics(name, m);
+    },
+    setBudget(usd) {
+      handle?.setBudget(usd);
     },
     stop() {
       unmount();
