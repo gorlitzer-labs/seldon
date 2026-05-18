@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import { serve, listRoomSessions } from "./serve.js";
 import { join } from "./join.js";
 import { runClaude, stopClaude, listClaudeSessions } from "./claude/run.js";
-import { runOpencode } from "./opencode/run.js";
-import { runCodex } from "./codex/run.js";
+import { runOpencode, stopOpencode, listOpencodeSessions } from "./opencode/run.js";
+import { runCodex, stopCodex, listCodexSessions } from "./codex/run.js";
 import { buildShareUrl } from "./auth.js";
 import { printUpdateNotice, checkForUpdate } from "./update.js";
 
@@ -204,18 +204,29 @@ async function main(): Promise<void> {
 
     const { roomStop } = await import("./room.js");
     if (all) {
-      // Stop all rooms first (each roomStop also kills its agent tmux sessions)
+      // Stop all rooms first (each roomStop also kills its agent tmux sessions).
+      // Pass the pre-loaded session to avoid O(N²) disk scans.
       for (const r of listRoomSessions()) {
-        try { await roomStop(r.roomName); } catch { /* keep going */ }
+        try { await roomStop(r.roomName, { session: r, quietIfDead: true }); } catch { /* keep going */ }
       }
-      // Then stop any remaining Claude tmux sessions not owned by a stopped room
+      // Then stop any remaining standalone agent runtimes (claude, codex, opencode).
       await stopClaude(undefined, true);
+      await stopCodex(undefined, true);
+      await stopOpencode(undefined, true);
       return;
     }
     if (name) {
       // If the name matches a room, stop the room (agents + server). Otherwise treat as agent name.
       const room = listRoomSessions().find((s) => s.roomName === name);
-      if (room) { await roomStop(name); return; }
+      if (room) { await roomStop(name, { session: room }); return; }
+
+      // Match against agent runtimes by name.
+      if (listCodexSessions().some((s) => s.agentName === name)) {
+        await stopCodex(name, false); return;
+      }
+      if (listOpencodeSessions().some((s) => s.agentName === name)) {
+        await stopOpencode(name, false); return;
+      }
     }
     await stopClaude(name, false);
     return;
@@ -224,7 +235,11 @@ async function main(): Promise<void> {
   // ── apiary ps ────────────────────────────────────────────────────────────
   if (args[0] === "ps") {
     const rooms = listRoomSessions();
-    const agents = listClaudeSessions();
+    const claudeAgents = listClaudeSessions().map((s) => ({ runtime: "claude", agentName: s.agentName, pid: s.pid }));
+    const codexAgents = listCodexSessions().map((s) => ({ runtime: "codex", agentName: s.agentName, pid: s.pid }));
+    const opencodeAgents = listOpencodeSessions().map((s) => ({ runtime: "opencode", agentName: s.agentName, pid: s.pid }));
+    const agents = [...claudeAgents, ...codexAgents, ...opencodeAgents];
+
     if (rooms.length === 0 && agents.length === 0) {
       console.log("No active sessions.");
       return;
@@ -246,7 +261,7 @@ async function main(): Promise<void> {
       let alive = false;
       try { process.kill(s.pid, 0); alive = true; } catch { /* dead */ }
       const status = alive ? "running" : "stale";
-      console.log(`  ${s.agentName}  (pid ${s.pid}, ${status})`);
+      console.log(`  ${s.agentName}  (${s.runtime}, pid ${s.pid}, ${status})`);
     }
     return;
   }

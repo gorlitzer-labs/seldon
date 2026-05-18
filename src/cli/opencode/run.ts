@@ -14,8 +14,19 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { contentPartsToString } from "../../agent/prompts.js";
 import type { ContentPart } from "../../agent/types.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
+import {
+  saveAgentSession,
+  clearAgentSession,
+  listAgentSessions,
+  isAgentAlive,
+  type AgentSession,
+} from "../agent-session.js";
 
 export { type AgentRuntimeOptions as RunOpencodeOptions };
+
+export function listOpencodeSessions(): AgentSession[] {
+  return listAgentSessions("opencode");
+}
 
 export async function runOpencode(options: AgentRuntimeOptions): Promise<void> {
   // ── Pick a port for OpenCode ────────────────────────────────────────────
@@ -128,6 +139,14 @@ export async function runOpencode(options: AgentRuntimeOptions): Promise<void> {
 
   console.log(`  OpenCode running on ${opencodeUrl}`);
 
+  // Register session so `apiary ps` / `apiary stop` can see it.
+  saveAgentSession({
+    runtime: "opencode",
+    agentName: setup.agentName,
+    pid: process.pid,
+    childPid: child.pid,
+  });
+
   // ── Build deliver callback ──────────────────────────────────────────────
   //
   // OpenCode's POST /session/:id/message uses Hono stream() — headers (200)
@@ -193,8 +212,55 @@ export async function runOpencode(options: AgentRuntimeOptions): Promise<void> {
     child.kill();
   }
   await setup.cleanup();
+  clearAgentSession("opencode", setup.agentName);
 
   console.log("Disconnected.");
+}
+
+// ── Stop ────────────────────────────────────────────────────────────────────
+
+export async function stopOpencode(name?: string, all?: boolean): Promise<void> {
+  const sessions = listOpencodeSessions();
+  if (sessions.length === 0) {
+    if (all) return;
+    console.error("No active OpenCode sessions.");
+    process.exit(1);
+  }
+
+  if (all) {
+    for (const s of sessions) stopOpencodeSession(s);
+    return;
+  }
+
+  let session: AgentSession | undefined;
+  if (name) {
+    session = sessions.find((s) => s.agentName === name);
+    if (!session) {
+      console.error(`No active OpenCode session named "${name}". Active sessions:`);
+      for (const s of sessions) console.error(`  - ${s.agentName}`);
+      process.exit(1);
+    }
+  } else if (sessions.length === 1) {
+    session = sessions[0];
+  } else {
+    console.error("Multiple active OpenCode sessions. Use --name or --all:");
+    for (const s of sessions) console.error(`  - ${s.agentName}`);
+    process.exit(1);
+  }
+
+  stopOpencodeSession(session);
+}
+
+function stopOpencodeSession(session: AgentSession): void {
+  // Kill the opencode child first so it doesn't outlive its parent runtime.
+  if (session.childPid) {
+    try { process.kill(session.childPid, "SIGTERM"); } catch { /* ok */ }
+  }
+  if (isAgentAlive(session)) {
+    try { process.kill(session.pid, "SIGTERM"); } catch { /* ok */ }
+  }
+  clearAgentSession("opencode", session.agentName);
+  console.log(`Stopped "${session.agentName}".`);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

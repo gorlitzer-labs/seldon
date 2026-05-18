@@ -111,6 +111,11 @@ export function checkForUpdate(): void {
       writeCache({ checkedAt: Date.now(), localHead, remoteHead });
     });
 
+    // unref() on the process handle doesn't unref the stdio pipe streams —
+    // an open stdout pipe will keep Node's event loop alive after the CLI
+    // command is otherwise done. Unref both so the CLI can exit promptly.
+    // child.stdout is typed Readable but is a Socket at runtime.
+    (child.stdout as unknown as { unref?: () => void }).unref?.();
     child.unref();
   } catch { /* never break the CLI */ }
 }

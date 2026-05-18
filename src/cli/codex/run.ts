@@ -28,8 +28,19 @@ import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js
 import { contentPartsToString } from "../../agent/prompts.js";
 import { agentEmoji } from "../config.js";
 import { consumeInvite } from "../invites.js";
+import {
+  saveAgentSession,
+  clearAgentSession,
+  listAgentSessions,
+  isAgentAlive,
+  type AgentSession,
+} from "../agent-session.js";
 
 export { type AgentRuntimeOptions as RunCodexOptions };
+
+export function listCodexSessions(): AgentSession[] {
+  return listAgentSessions("codex");
+}
 
 /** Check if codex CLI is installed and available. */
 function codexAvailable(): boolean {
@@ -150,6 +161,15 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
     }
   }
 
+  // Register session so `apiary ps` / `apiary stop` can see it.
+  saveAgentSession({
+    runtime: "codex",
+    agentName: setup.agentName,
+    pid: process.pid,
+    tmuxSession,
+    tmpDir,
+  });
+
   // ── Consume queued invite (auto-join) ─────────────────────────────────
   // If the wizard background-spawned this agent, ~/.apiary/invites/<name>
   // holds the room's join URL. Inject a prompt asking the agent to join.
@@ -175,7 +195,7 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
     await setup.cleanup();
     if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
     try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
-    // No clearSession here: codex has no session registry (unlike claude/run.ts).
+    clearAgentSession("codex", setup.agentName);
     return;
   }
 
@@ -193,7 +213,57 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
   await setup.cleanup();
   tmuxKillSession(tmuxSession);
   try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
+  clearAgentSession("codex", setup.agentName);
   resetTerminal();
 
   console.log("Disconnected.");
+}
+
+// ── Stop ────────────────────────────────────────────────────────────────────
+
+export async function stopCodex(name?: string, all?: boolean): Promise<void> {
+  const sessions = listCodexSessions();
+  if (sessions.length === 0) {
+    if (all) return;
+    console.error("No active Codex sessions.");
+    process.exit(1);
+  }
+
+  if (all) {
+    for (const s of sessions) stopCodexSession(s);
+    return;
+  }
+
+  let session: AgentSession | undefined;
+  if (name) {
+    session = sessions.find((s) => s.agentName === name);
+    if (!session) {
+      console.error(`No active Codex session named "${name}". Active sessions:`);
+      for (const s of sessions) console.error(`  - ${s.agentName}`);
+      process.exit(1);
+    }
+  } else if (sessions.length === 1) {
+    session = sessions[0];
+  } else {
+    console.error("Multiple active Codex sessions. Use --name or --all:");
+    for (const s of sessions) console.error(`  - ${s.agentName}`);
+    process.exit(1);
+  }
+
+  stopCodexSession(session);
+}
+
+function stopCodexSession(session: AgentSession): void {
+  if (session.tmuxSession && tmuxSessionExists(session.tmuxSession)) {
+    tmuxKillSession(session.tmuxSession);
+  }
+  if (isAgentAlive(session)) {
+    try { process.kill(session.pid, "SIGTERM"); } catch { /* ok */ }
+  }
+  if (session.tmpDir) {
+    try { rmSync(session.tmpDir, { recursive: true }); } catch { /* ok */ }
+  }
+  clearAgentSession("codex", session.agentName);
+  resetTerminal();
+  console.log(`Stopped "${session.agentName}".`);
 }

@@ -770,20 +770,32 @@ export function roomList(): void {
 
 // ── apiary room stop ──────────────────────────────────────────────────────────
 
-export async function roomStop(name: string): Promise<void> {
+export interface RoomStopOptions {
+  /** Pre-loaded session record (avoids re-reading every session file). */
+  session?: PersistedRoomSession;
+  /** When true, silently remove the session record if the server is already dead. */
+  quietIfDead?: boolean;
+}
+
+export async function roomStop(name: string, options: RoomStopOptions = {}): Promise<void> {
   const Y = "\x1b[33m";
   const B = "\x1b[1m";
   const G = "\x1b[32m";
   const D = "\x1b[2m";
   const R = "\x1b[0m";
 
-  const sessions = listRoomSessions();
-  const session = sessions.find((s) => s.roomName === name);
+  const session = options.session ?? listRoomSessions().find((s) => s.roomName === name);
 
   if (!session) {
     console.error(`  No saved session for room "${name}".`);
     console.error(`  Run: apiary room list  to see saved rooms.`);
     process.exit(1);
+  }
+
+  const alive = isServerAlive(session);
+  if (!alive && options.quietIfDead) {
+    removeRoomSession(name);
+    return;
   }
 
   console.log(`\n  Stopping ${Y}${B}${name}${R}...\n`);
@@ -800,7 +812,7 @@ export async function roomStop(name: string): Promise<void> {
   }
 
   // Stop server daemon
-  if (isServerAlive(session)) {
+  if (alive) {
     try {
       process.kill(session.pid, "SIGTERM");
       console.log(`  ${G}✓${R} server  ${D}(PID ${session.pid}) stopped${R}`);

@@ -142,10 +142,13 @@ export function tmuxKillSession(session: string): void {
  * tmux teardown that might affect the user's terminal.
  */
 export function resetTerminal(): void {
+  // No-op when stdin isn't a tty (headless, piped, backgrounded). Calling
+  // stty in that case prints "stdin isn't a terminal" to stderr for no gain.
+  if (!process.stdin.isTTY) return;
   try {
     // stty sane restores line discipline (echo, cooked mode, signals)
     execFileSync("stty", ["sane"], { stdio: "inherit" });
   } catch {
-    // Best effort — may fail if stdin isn't a tty (headless, piped)
+    // Best effort
   }
 }
