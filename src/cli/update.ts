@@ -15,7 +15,28 @@ import { fileURLToPath } from "node:url";
 // ── Paths ───────────────────────────────────────────────────────────────────
 
 const __filename = fileURLToPath(import.meta.url);
-const REPO_ROOT = resolve(dirname(__filename), "../..");
+
+/**
+ * Walk up from this file's location until we find a package.json.
+ *
+ * `src/cli/update.ts` (3 levels deep) and `dist/cli/update.js` (3 levels deep)
+ * both correctly resolve via `../..`. But tsup hoists modules into shared
+ * chunks at `dist/chunk-<hash>.js` (2 levels deep), so a fixed `../..` would
+ * point at the project's PARENT directory instead. Walking up by package.json
+ * works regardless of where the bundler stashes us.
+ */
+function findRepoRoot(start: string): string {
+  let dir = dirname(start);
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return dirname(start);
+}
+
+const REPO_ROOT = findRepoRoot(__filename);
 const APIARY_DIR = join(homedir(), ".apiary");
 const CACHE_PATH = join(APIARY_DIR, "version-check.json");
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -63,6 +84,15 @@ function getLocalVersion(): string {
     return pkg.version ?? "unknown";
   } catch {
     return "unknown";
+  }
+}
+
+function readPackageName(): string | null {
+  try {
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf-8"));
+    return typeof pkg.name === "string" ? pkg.name : null;
+  } catch {
+    return null;
   }
 }
 
@@ -124,8 +154,18 @@ export function checkForUpdate(): void {
 
 export async function runUpdate(targetVersion?: string): Promise<void> {
   if (!isGitRepo()) {
-    console.error("apiary update requires a git checkout.");
-    process.exit(1);
+    // Real npm install (not a symlinked git checkout) — run npm update directly.
+    const pkgName = readPackageName() ?? "@gorlitzer/apiary";
+    console.log(`\x1b[36m  Running: npm update -g ${pkgName}\x1b[0m`);
+    try {
+      execFileSync("npm", ["update", "-g", pkgName], { stdio: "inherit" });
+    } catch {
+      console.error("\n\x1b[31m  npm update failed.\x1b[0m");
+      process.exit(1);
+    }
+    try { unlinkSync(CACHE_PATH); } catch { /* fine */ }
+    console.log("\n\x1b[32m  Updated apiary.\x1b[0m");
+    return;
   }
 
   const fromVersion = getLocalVersion();

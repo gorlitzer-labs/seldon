@@ -183,10 +183,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── apiary update — redirect to npm ──────────────────────────────────
+  // ── apiary update — git pull + build (or npm fallback) ──────────────
   if (args[0] === "update") {
-    const pkgName = readPackageField("name") ?? "apiary";
-    console.log(`To update apiary, run:  npm update -g ${pkgName}`);
+    const { runUpdate } = await import("./update.js");
+    const targetVersion = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
+    await runUpdate(targetVersion);
     return;
   }
 
