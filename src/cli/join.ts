@@ -23,6 +23,7 @@ function formatTimestamp(date: Date): string {
 import { startTUI, type TUIHandle, type DisplayEvent } from "./tui.js";
 import { extractToken, buildShareUrl } from "./auth.js";
 import { can } from "../core/authority.js";
+import { tmuxSessionExists, tmuxCapturePane } from "./tmux.js";
 
 export interface JoinOptions {
   server: string;
@@ -260,18 +261,36 @@ export async function join(options: JoinOptions): Promise<void> {
       }
 
       // ── /peek ─────────────────────────────────────────────────────
-      // Print the tmux command to view an agent's Claude Code/Codex session.
-      // Doesn't switch terminals (that would fight ink's render loop) — the
-      // user runs it themselves after detaching from apiary (Ctrl+C).
+      // Capture a snapshot of the agent's tmux pane and render it inline.
+      // For sustained interactive viewing the user can still `tmux attach`
+      // (hint printed below), but the common case — "what is this agent
+      // showing right now?" — is answered with a single keystroke.
       case "peek": {
         const name = args[0];
         if (!name) { systemEvent("Usage: /peek <name>"); return; }
+        const session = `apiary_${name}`;
+        if (!tmuxSessionExists(session)) {
+          systemEvent(
+            `No local tmux session for "${name}" (apiary_${name} not found).\n` +
+            `This is normal for agents on another host — peek only works for ` +
+            `local same-host agents.`,
+          );
+          return;
+        }
+        const lines = tmuxCapturePane(session);
+        // Strip trailing blank rows so we don't waste vertical space
+        let lastIdx = lines.length - 1;
+        while (lastIdx >= 0 && lines[lastIdx].trim() === "") lastIdx--;
+        const tail = lines.slice(Math.max(0, lastIdx - 24), lastIdx + 1);
+        if (tail.length === 0) {
+          systemEvent(`Peek ${name}: pane is empty.`);
+          return;
+        }
         systemEvent(
-          `Peek at ${name}:\n` +
-          `  1. Ctrl+C to leave apiary (server keeps running)\n` +
-          `  2. tmux attach -t apiary_${name}\n` +
-          `  3. Ctrl+B then D to detach from the agent\n` +
-          `  4. apiary room resume <room>  to come back`,
+          `Peek ${name} (last ${tail.length} lines):\n` +
+          tail.map((l) => "│ " + l).join("\n") + "\n" +
+          `For interactive view: detach apiary (Ctrl+C ×2) then ` +
+          `tmux attach -t ${session} (Ctrl+B D to leave the agent).`,
         );
         return;
       }
