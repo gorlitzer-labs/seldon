@@ -8,27 +8,33 @@
 
 ---
 
-### The idea
+### What it is
 
-A Mac at home running `caffeinate`. Always on. We don't sleep.
+A CLI that creates and manages persistent tmux sessions across multiple
+machines on your Tailscale network — and auto-reconnects when SSH drops.
 
-MacBook in your backpack. Phone in your pocket. All on Tailscale.
+Plain tmux dies when your shell does. Bifrost wraps tmux + Tailscale so your
+sessions, scrollback, and running processes survive: closing your laptop,
+switching networks, even rebooting the machine you're connecting *from*.
 
-### The workflow
+### When to use it
 
-🏠 **Home** — Training a model. Four panes: GPU monitor, logs, Claude Code rewriting your pipeline, a shell. Close the laptop, walk out. The model keeps running.
+- Long-running work at home (training, build, server) you want to monitor
+  from a café or your phone.
+- Multiple machines treated as one workspace — home compiles, work serves,
+  both reachable from anywhere.
+- A 2×2 visual grid (iTerm2) or tmux tabs (Termux/mobile) — same sessions
+  either way.
 
-☕ **Café** — `bifrost workspace`. Same four panes, right where you left them. Start a new feature while the home Mac crunches numbers 40km away.
+### A typical day
 
-🚌 **Bus** — Phone buzzes, training done. `bifrost gateway`, hop into the home Mac, check results, kick off the next run. The guy next to you thinks you're texting. You just deployed from a bus.
+🏠 Start a training run at home, 4 panes (GPU, logs, Claude Code, shell). Close the lid, walk out.
 
-🏢 **Office** — Both machines are yours. Home compiling, work serving — your own cluster. Red window is home. Blue is work. Phone reaches either through the gateway.
+☕ `bifrost workspace` from the laptop — same 4 panes, right where you left them, while home keeps crunching.
 
-### The point
+📱 Phone buzzes when the run finishes. `ssh home && bifrost gateway` — pick a session, hop in, kick off the next run.
 
-Every pane is a tmux session. Nothing is lost. No machine sleeps. One `ssh` away from everything.
-
-*We built it because we could.*
+*Every pane is a tmux session. Nothing is lost. No machine sleeps.*
 
 ---
 
@@ -77,6 +83,25 @@ Heimdall works on macOS (with iTerm2 for visual grids), Linux, and Android via T
 
 ---
 
+## Prerequisites
+
+| Machine | Required |
+|---|---|
+| **Heimdall** (your primary) | Tailscale node, SSH client, `tmux ≥ 3.0`. iTerm2 optional (enables 2×2 grid on macOS) |
+| **Realm** (any remote) | Tailscale node on the same tailnet, `tmux ≥ 3.0`, SSH server, your public key in `~/.ssh/authorized_keys` |
+| **Raven** (phone/tablet) | Tailscale + any SSH client (Blink, Termius, Termux) — no bifrost install needed |
+
+Quick verification:
+```bash
+tailscale status              # all machines listed and reachable
+ssh <realm-host> tmux -V      # SSH key works, tmux is installed
+```
+
+> **Tip:** `tailscale up --ssh` on each realm gates SSH behind your tailnet
+> ACL — no need to expose port 22 publicly.
+
+---
+
 ## Install
 
 **One-liner** (macOS, Linux, Termux):
@@ -97,6 +122,26 @@ brew install tmux    # macOS
 sudo apt install tmux  # Linux
 pkg install tmux     # Termux (Android)
 ```
+
+### What `bifrost setup` does
+
+Interactive one-time config. Writes two files under `~/.config/bifrost/`:
+
+| File | Purpose | Re-runnable? |
+|---|---|---|
+| `config` | Default remote host + SSH user | ✅ re-prompts with current values as defaults |
+| `tmux.conf` | Platform-aware tmux config (mouse off on Termux) | ✅ regenerated every run |
+
+It asks for:
+1. **Remote hostname** — your Tailscale machine name (see `tailscale status`)
+2. **SSH user** — defaults to `$(whoami)`
+
+It tests SSH to that host and saves config either way. Safe to re-run any time
+you want to change defaults or regenerate `tmux.conf`.
+
+> Realms (additional remote machines) are added separately with
+> `bifrost realm add <name>` and stored one-file-per-realm under
+> `~/.config/bifrost/realms/`.
 
 **Termux (Google Pixel / Android):**
 ```bash
