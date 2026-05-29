@@ -11,7 +11,7 @@ set -euo pipefail
 
 REPO="gorlitzer-labs/bifrost"
 # Pin to a tag for reproducible installs. Override with: BIFROST_REF=main bash install.sh
-BIFROST_REF="${BIFROST_REF:-v1.5.0}"
+BIFROST_REF="${BIFROST_REF:-v1.5.1}"
 RAW_URL="https://raw.githubusercontent.com/$REPO/$BIFROST_REF"
 
 # ── Colors ──
@@ -240,6 +240,37 @@ set -g set-titles-string "#S"
 TMUXCONF
 
 info "tmux.conf generated (mouse: $MOUSE)"
+
+# ── Realm readiness: Homebrew on the non-interactive PATH ──
+# When this Mac is used as a Realm, bifrost reaches it via `ssh host "tmux ..."`,
+# a NON-interactive shell that does NOT read ~/.zshrc / ~/.profile. On Apple
+# Silicon, Homebrew lives in /opt/homebrew/bin — off-PATH for that shell, so
+# `tmux` isn't found even though it's installed. ~/.zshenv IS read by
+# non-interactive zsh, so we put Homebrew there. (The bifrost script also guards
+# against this itself, but fixing the dotfile makes the machine a clean realm
+# for any `ssh host tmux`, not just bifrost.)
+if [[ "$PLATFORM" == "macos" ]]; then
+  step "Realm readiness (non-interactive PATH)..."
+  brew_prefix=""
+  for p in /opt/homebrew /usr/local; do
+    [[ -x "$p/bin/brew" ]] && brew_prefix="$p" && break
+  done
+  if [[ -z "$brew_prefix" ]]; then
+    info "Homebrew not detected — skipping (nothing to add)"
+  else
+    zshenv="$HOME/.zshenv"
+    if grep -qs "$brew_prefix/bin" "$zshenv" 2>/dev/null; then
+      info "Homebrew already on non-interactive PATH (~/.zshenv)"
+    else
+      {
+        echo ""
+        echo "# Homebrew on PATH for non-interactive SSH shells (bifrost realm readiness)"
+        echo "export PATH=\"$brew_prefix/bin:$brew_prefix/sbin:\$PATH\""
+      } >> "$zshenv"
+      info "Added Homebrew to ~/.zshenv — this Mac is ready to act as a realm"
+    fi
+  fi
+fi
 
 # ── Termux extras ──
 if [[ "$PLATFORM" == "termux" ]]; then

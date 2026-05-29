@@ -13,7 +13,7 @@
 set -euo pipefail
 
 # ── Version ──────────────────────────────────────────────────────
-BIFROST_VERSION="1.5.0"
+BIFROST_VERSION="1.5.1"
 BIFROST_REPO="gorlitzer-labs/bifrost"
 BIFROST_VERSION_CACHE="${HOME}/.config/bifrost/version-check.json"
 
@@ -45,6 +45,16 @@ fi
 BIFROST_CONFIG_DIR="${HOME}/.config/bifrost"
 BIFROST_CONFIG="${BIFROST_CONFIG_DIR}/config"
 BIFROST_TMUX_CONF="${BIFROST_CONFIG_DIR}/tmux.conf"
+
+# ── Remote PATH ───────────────────────────────────────────────────
+# A realm reached via `ssh host "tmux ..."` runs a NON-interactive shell that
+# doesn't read ~/.zshrc / ~/.profile. Homebrew (/opt/homebrew on Apple Silicon,
+# /usr/local on Intel) is then off-PATH and `tmux` isn't found — even though it's
+# installed. Prepend the usual locations so remote tmux is always found,
+# regardless of the realm's dotfiles. $HOME/$PATH expand on the REMOTE side.
+# NOTE: kept in sync with the literal `export PATH=...` lines in the remote
+# `bash -s` heredocs below (quoted heredocs can't interpolate this variable).
+BIFROST_REMOTE_PATH='export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"'
 
 # ── SSH options ───────────────────────────────────────────────────
 # ControlMaster reuses a single TCP connection across calls — huge win
@@ -462,7 +472,7 @@ mode_doctor() {
 
         # Check remote tmux
         local remote_tmux
-        remote_tmux=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
+        remote_tmux=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "$BIFROST_REMOTE_PATH; tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
         if [[ "$remote_tmux" == "missing" ]]; then
           echo "    ✗ tmux — not installed on realm"
           echo "      → ssh $REALM_USER@$REALM_HOST 'brew install tmux'"
@@ -490,7 +500,7 @@ mode_doctor() {
     if ssh "${SSH_OPTS_BATCH[@]}" "$REMOTE_USER@$REMOTE_HOST" "echo ok" &>/dev/null; then
       echo "    ✓ SSH connection"
       local remote_tmux
-      remote_tmux=$(ssh "${SSH_OPTS_BATCH[@]}" "$REMOTE_USER@$REMOTE_HOST" "tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
+      remote_tmux=$(ssh "${SSH_OPTS_BATCH[@]}" "$REMOTE_USER@$REMOTE_HOST" "$BIFROST_REMOTE_PATH; tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
       if [[ "$remote_tmux" == "missing" ]]; then
         echo "    ✗ tmux — not installed on realm"
         ok=false
@@ -687,7 +697,7 @@ realm_add() {
   # Test connection
   echo ""
   echo "Testing SSH to $user@$host..."
-  if ssh -o ConnectTimeout=5 "$user@$host" "echo 'OK — \$(uname -m)'" 2>/dev/null; then
+  if ssh -o ConnectTimeout=5 "$user@$host" "echo \"OK — \$(uname -m)\"" 2>/dev/null; then
     echo "Connected."
 
     # Check if key-based auth works
@@ -879,6 +889,7 @@ ensure_tmux_session() {
   else
     ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$host" \
       env BIFROST_SESSION="$session" bash -s <<'REMOTE'
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
 session="$BIFROST_SESSION"
 tmux has-session -t "$session" 2>/dev/null || \
   tmux -f ~/.config/bifrost/tmux.conf new-session -d -s "$session" 2>/dev/null || \
@@ -892,7 +903,7 @@ REMOTE
 ssh_reconnect_cmd() {
   local user="$1" host="$2" session="$3"
   local opts="-t -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ControlMaster=auto -o ControlPath='$BIFROST_SSH_CTLDIR/cm-%r@%h:%p' -o ControlPersist=60s"
-  echo "while true; do echo '🌈 Connecting to $host ($session)...'; ssh $opts $user@$host 'tmux attach -t $session || tmux new-session -s $session'; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done"
+  echo "while true; do echo '🌈 Connecting to $host ($session)...'; ssh $opts $user@$host '$BIFROST_REMOTE_PATH; tmux attach -t $session || tmux new-session -s $session'; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done"
 }
 
 # ── Mode: mobile (tmux) ──────────────────────────────────────────
@@ -1090,6 +1101,7 @@ create_pane_session() {
     # Pass emoji via env so it never enters the command string.
     ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$host" \
       env BIFROST_EMOJI="$emoji" BIFROST_SESSION="$session" bash -s <<'REMOTE'
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
 session="$BIFROST_SESSION"
 emoji="$BIFROST_EMOJI"
 if ! tmux has-session -t "$session" 2>/dev/null; then
@@ -1283,6 +1295,7 @@ mode_workspace_tmux() {
     local remote_sessions
     remote_sessions=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
       env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
 for i in 1 2 3 4; do
   s="${BIFROST_REALM}-$i"
   if tmux has-session -t "$s" 2>/dev/null; then
@@ -1471,7 +1484,7 @@ mode_attach() {
     echo "Attaching to $session @ $REALM_HOST..."
     # Session name comes from validated realm prefix + -N; safe to single-quote-embed.
     ssh -t "${SSH_OPTS_ATTACH[@]}" "$REALM_USER@$REALM_HOST" \
-      "tmux attach -t '$session' || echo 'Session $session not found'"
+      "$BIFROST_REMOTE_PATH; tmux attach -t '$session' || echo 'Session $session not found'"
   else
     # Try local first, then fail
     echo "Attaching to $session..."
@@ -1508,7 +1521,7 @@ mode_run() {
   fi
 
   load_realm "$realm_name"
-  ssh "${SSH_OPTS_ATTACH[@]}" "$REALM_USER@$REALM_HOST" "$*"
+  ssh "${SSH_OPTS_ATTACH[@]}" "$REALM_USER@$REALM_HOST" "$BIFROST_REMOTE_PATH; $*"
 }
 
 # ── Mode: sessions (visual map) ──────────────────────────────────
@@ -1569,6 +1582,7 @@ mode_sessions() {
       local remote_sessions
       remote_sessions=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
         env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
 for i in 1 2 3 4; do
   s="${BIFROST_REALM}-$i"
   if tmux has-session -t "$s" 2>/dev/null; then
@@ -1646,6 +1660,7 @@ mode_gateway() {
       local remote_sessions
       remote_sessions=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
         env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
 for i in 1 2 3 4; do
   s="${BIFROST_REALM}-$i"
   if tmux has-session -t "$s" 2>/dev/null; then
@@ -1704,7 +1719,7 @@ REMOTE
     local suser="${session_users[$idx]}"
     echo "Attaching to $selected @ $shost..."
     # Session name is realm-prefix + -N; realm prefix is validated by load_realm.
-    ssh -t "${SSH_OPTS_ATTACH[@]}" "$suser@$shost" "tmux attach -t '$selected'"
+    ssh -t "${SSH_OPTS_ATTACH[@]}" "$suser@$shost" "$BIFROST_REMOTE_PATH; tmux attach -t '$selected'"
   fi
 }
 
