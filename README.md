@@ -96,13 +96,27 @@ ssh <realm-host> tmux -V    # SSH key works and tmux is installed?
 
 ## Install
 
-**One-liner** (macOS, Linux, Termux):
+> **Heads-up:** this repo is **private**, so the `curl | bash` one-liner won't
+> work without access. The **clone install** below is the reliable path —
+> `install.sh` copies the local script, so it needs no network download. (If the
+> repo is ever made public, the one-liner works as-is.)
+
+**Clone install** (recommended — macOS, Linux, Termux):
+```bash
+git clone https://github.com/gorlitzer-labs/bifrost.git
+cd bifrost
+bash install.sh
+```
+
+`install.sh` checks dependencies, copies `bifrost` into your PATH, generates a
+`tmux.conf`, and (on Termux) creates home-screen widget shortcuts. On macOS it
+also makes the machine realm-ready (adds Homebrew to the non-interactive PATH so
+`ssh host tmux` works).
+
+**One-liner** (only if the repo is public, or you pipe an authenticated fetch):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gorlitzer-labs/bifrost/main/install.sh | bash
 ```
-
-It checks dependencies, installs `bifrost`, generates a `tmux.conf`, and (on
-Termux) creates home-screen widget shortcuts.
 
 **Manual:**
 ```bash
@@ -221,8 +235,9 @@ Bifrost runs natively on Termux as a Heimdall:
 # 1. Install Termux from F-Droid (NOT the Play Store — that version is outdated)
 #    https://f-droid.org/en/packages/com.termux/
 
-# 2. Install bifrost + dependencies:
-curl -fsSL https://raw.githubusercontent.com/gorlitzer-labs/bifrost/main/install.sh | bash
+# 2. Install bifrost + dependencies (clone install — works for the private repo):
+pkg install git
+git clone https://github.com/gorlitzer-labs/bifrost.git && cd bifrost && bash install.sh
 
 # 3. Set up and launch:
 bifrost setup
