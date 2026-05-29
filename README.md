@@ -324,9 +324,20 @@ from anywhere via Tailscale.
 
 ## Releasing
 
-Bump `BIFROST_VERSION` in the `bifrost` script and push to main — a GitHub
-Action creates the release automatically.
+Bump `BIFROST_VERSION` in the `bifrost` script, then use the local CI script
+(`scripts/ci.sh`) — it does what the GitHub Actions workflows do, so releases
+can be cut from any dev machine:
+
+```bash
+scripts/ci.sh check     # verify the version is bumped vs origin/main (run before a PR)
+# … merge to main …
+scripts/ci.sh release   # create the v<version> GitHub release (idempotent)
+```
 
 - **Patch** (1.3.0 → 1.3.1) — fixes
 - **Minor** (1.3.0 → 1.4.0) — features
 - **Major** (1.0.0 → 2.0.0) — breaking
+
+> The `.github/workflows/` still contain the equivalent Actions; they're dormant
+> while the repo's Actions are billing-blocked. `scripts/ci.sh` is the source of
+> truth for now and mirrors them exactly.
