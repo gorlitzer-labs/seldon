@@ -23,13 +23,11 @@ function makeRoom(id = "room-1"): Room {
 /** Create an EventProcessor with sensible defaults for testing. */
 function makeProcessor(opts?: {
   defaultMode?: EngagementMode;
-  personParticipantId?: string;
   selfIdentifier?: string;
   onModeChange?: (roomId: string, roomName: string, mode: EngagementMode) => void;
 }): EventProcessor {
   return new EventProcessor("agent-id", "Agent", {
     defaultMode: opts?.defaultMode ?? "everyone",
-    personParticipantId: opts?.personParticipantId,
     selfIdentifier: opts?.selfIdentifier ?? "agent",
     onModeChange: opts?.onModeChange,
   });
@@ -256,9 +254,9 @@ describe("mode management", () => {
     const room = makeRoom();
     await proc.connectRoom(room, "lobby");
 
-    proc.setModeForRoom(room.roomId, "me", false);
+    proc.setModeForRoom(room.roomId, "agents", false);
 
-    expect(proc.getModeForRoom(room.roomId)).toBe("me");
+    expect(proc.getModeForRoom(room.roomId)).toBe("agents");
   });
 
   test("setModeForRoom fires onModeChange callback", async () => {
@@ -880,8 +878,8 @@ describe("setModeForRoom", () => {
     const room = makeRoom();
     await proc.connectRoom(room, "lobby");
 
-    proc.setModeForRoom(room.roomId, "standby-me");
-    expect(proc.getModeForRoom(room.roomId)).toBe("standby-me");
+    proc.setModeForRoom(room.roomId, "standby-agents");
+    expect(proc.getModeForRoom(room.roomId)).toBe("standby-agents");
   });
 });
 

@@ -15,8 +15,6 @@ import type {
 
 const SELF = "agent_quinn";
 const HUMAN_ID = "user_human";
-const PERSON_ID = "user_person"; // agent's person (owner)
-const OTHER_HUMAN = "user_other";
 const OTHER_AGENT = "agent_ash";
 
 const BASE = { room_id: "test" };
@@ -162,46 +160,6 @@ describe("people mode", () => {
   });
 });
 
-// --- me mode ---
-
-describe("me mode", () => {
-  test("person's MessageSent → trigger", () => {
-    expect(classifyEvent(makeMessage(PERSON_ID), "me", SELF, "human", PERSON_ID, PERSON_ID)).toBe("trigger");
-  });
-
-  test("other human MessageSent → content (not trigger)", () => {
-    expect(classifyEvent(makeMessage(OTHER_HUMAN), "me", SELF, "human", OTHER_HUMAN, PERSON_ID)).toBe("content");
-  });
-
-  test("agent MessageSent → content", () => {
-    expect(classifyEvent(makeMessage(OTHER_AGENT), "me", SELF, "agent", OTHER_AGENT, PERSON_ID)).toBe("content");
-  });
-
-  test("Mentioned to self → drop (dedup)", () => {
-    expect(classifyEvent(makeMentioned(SELF, HUMAN_ID), "me", SELF, "human", HUMAN_ID, PERSON_ID)).toBe("drop");
-  });
-
-  test("no personId provided — all humans → content (safe fallback)", () => {
-    expect(classifyEvent(makeMessage(HUMAN_ID), "me", SELF, "human", HUMAN_ID, undefined)).toBe("content");
-  });
-
-  test("ParticipantJoined → content", () => {
-    expect(classifyEvent(makeJoined(HUMAN_ID), "me", SELF, "human", HUMAN_ID, PERSON_ID)).toBe("content");
-  });
-
-  test("ReactionAdded → content", () => {
-    expect(classifyEvent(makeReaction(HUMAN_ID), "me", SELF, "human", HUMAN_ID, PERSON_ID)).toBe("content");
-  });
-
-  test("ToolUse → drop (internal)", () => {
-    expect(classifyEvent(makeToolUse(HUMAN_ID), "me", SELF, "human", HUMAN_ID, PERSON_ID)).toBe("drop");
-  });
-
-  test("own MessageSent → drop", () => {
-    expect(classifyEvent(makeMessage(SELF), "me", SELF, "agent", SELF, PERSON_ID)).toBe("drop");
-  });
-});
-
 // --- everyone mode ---
 
 describe("everyone mode", () => {
@@ -281,34 +239,6 @@ describe("agents mode", () => {
   });
 });
 
-// --- standby-me mode ---
-
-describe("standby-me mode", () => {
-  test("Mentioned to self from person → trigger", () => {
-    expect(classifyEvent(makeMentioned(SELF, PERSON_ID), "standby-me", SELF, "human", PERSON_ID, PERSON_ID)).toBe("trigger");
-  });
-
-  test("Mentioned to self from other human → drop", () => {
-    expect(classifyEvent(makeMentioned(SELF, OTHER_HUMAN), "standby-me", SELF, "human", OTHER_HUMAN, PERSON_ID)).toBe("drop");
-  });
-
-  test("Mentioned to self from agent → drop", () => {
-    expect(classifyEvent(makeMentioned(SELF, OTHER_AGENT), "standby-me", SELF, "agent", OTHER_AGENT, PERSON_ID)).toBe("drop");
-  });
-
-  test("Mentioned to other (not self) from person → drop", () => {
-    expect(classifyEvent(makeMentioned(OTHER_AGENT, PERSON_ID), "standby-me", SELF, "human", PERSON_ID, PERSON_ID)).toBe("drop");
-  });
-
-  test("MessageSent from person → drop", () => {
-    expect(classifyEvent(makeMessage(PERSON_ID), "standby-me", SELF, "human", PERSON_ID, PERSON_ID)).toBe("drop");
-  });
-
-  test("no personId provided → drop even if mentioned", () => {
-    expect(classifyEvent(makeMentioned(SELF, PERSON_ID), "standby-me", SELF, "human", PERSON_ID, undefined)).toBe("drop");
-  });
-});
-
 // --- standby-people mode ---
 
 describe("standby-people mode", () => {
@@ -367,18 +297,9 @@ describe("StoopsEngagement", () => {
 
   test("onRoomDisconnected reverts to default", () => {
     const eng = new StoopsEngagement("people");
-    eng.setMode("room-1", "me");
+    eng.setMode("room-1", "everyone");
     eng.onRoomDisconnected("room-1");
     expect(eng.getMode("room-1")).toBe("people");
-  });
-
-  test("classify uses per-room mode", () => {
-    const eng = new StoopsEngagement("people", PERSON_ID);
-    eng.setMode("room-1", "me");
-    // person's message in me mode → trigger
-    expect(eng.classify(makeMessage(PERSON_ID), "room-1", SELF, "human", PERSON_ID)).toBe("trigger");
-    // other human in me mode → content
-    expect(eng.classify(makeMessage(OTHER_HUMAN), "room-1", SELF, "human", OTHER_HUMAN)).toBe("content");
   });
 
   test("classify uses default mode for unset rooms", () => {
@@ -389,21 +310,13 @@ describe("StoopsEngagement", () => {
     expect(eng.classify(makeMessage(OTHER_AGENT), "room-1", SELF, "agent", OTHER_AGENT)).toBe("trigger");
   });
 
-  test("classify with personParticipantId in standby-me", () => {
-    const eng = new StoopsEngagement("standby-me", PERSON_ID);
-    // person @mentions self → trigger
-    expect(eng.classify(makeMentioned(SELF, PERSON_ID), "room-1", SELF, "human", PERSON_ID)).toBe("trigger");
-    // other human @mentions self → drop
-    expect(eng.classify(makeMentioned(SELF, OTHER_HUMAN), "room-1", SELF, "human", OTHER_HUMAN)).toBe("drop");
-  });
-
   test("different rooms have independent modes", () => {
     const eng = new StoopsEngagement("people");
     eng.setMode("room-1", "everyone");
-    eng.setMode("room-2", "me");
+    eng.setMode("room-2", "people");
     // room-1 (everyone): agent message → trigger
     expect(eng.classify(makeMessage(OTHER_AGENT), "room-1", SELF, "agent", OTHER_AGENT)).toBe("trigger");
-    // room-2 (me without person): agent message → content
+    // room-2 (people): agent message → content
     expect(eng.classify(makeMessage(OTHER_AGENT), "room-2", SELF, "agent", OTHER_AGENT)).toBe("content");
   });
 });

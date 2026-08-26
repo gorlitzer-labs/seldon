@@ -35,7 +35,7 @@ import {
 import { MODE_DESCRIPTIONS } from "../prompts.js";
 import { type EngagementMode } from "../engagement.js";
 
-/** Modes available in the CLI runtime (no personParticipantId → no "me" modes). */
+/** Modes available in the CLI runtime. */
 const RUNTIME_MODES: ReadonlySet<string> = new Set<EngagementMode>([
   "everyone", "people", "agents",
   "standby-everyone", "standby-people", "standby-agents",

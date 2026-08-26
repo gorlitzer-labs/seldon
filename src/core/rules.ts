@@ -49,10 +49,6 @@ const APIARY_DIR = pathJoin(homedir(), ".apiary");
 const GLOBAL_DEFAULT_PATH = pathJoin(APIARY_DIR, "rules.default.md");
 const ROOMS_DIR = pathJoin(APIARY_DIR, "rooms");
 
-export function globalDefaultRulesPath(): string {
-  return GLOBAL_DEFAULT_PATH;
-}
-
 export function roomRulesPath(roomName: string): string {
   return pathJoin(ROOMS_DIR, `${roomName}.rules.md`);
 }
@@ -136,25 +132,3 @@ export function seedRulesIfMissing(roomName: string): string | null {
   return p;
 }
 
-// ── Delivery formatting ───────────────────────────────────────────────────
-
-/**
- * Render rules for an agent's onboarding (returned in the `join_room` MCP
- * response). Plain imperatives, one per line, with a one-line preamble that
- * encodes "follow these" without invoking MUST/SHOULD lawyering language.
- */
-export function formatRulesForAgent(rules: readonly string[]): string {
-  if (rules.length === 0) return "";
-  return [
-    "Room rules — follow these:",
-    ...rules.map((r, i) => `  ${i + 1}. ${r}`),
-  ].join("\n");
-}
-
-/** Render rules for a human's `/rules` slash command output. */
-export function formatRulesForHuman(rules: readonly string[]): string {
-  if (rules.length === 0) return "No rules set for this room.";
-  const lines = ["Room rules:"];
-  rules.forEach((r, i) => lines.push(`  ${i + 1}. ${r}`));
-  return lines.join("\n");
-}

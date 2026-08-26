@@ -813,10 +813,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           authority = tokenAuthority;
         } else if (legacyType === "guest") {
           authority = "guest";
-        } else if (legacyType === "human") {
-          authority = "member";
         } else {
-          // Default: agent joins as member
+          // Default: joins as member
           authority = "member";
         }
 
@@ -1316,14 +1314,8 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
 
       // ── POST /disconnect ────────────────────────────────────────────────
       if (url.pathname === "/disconnect") {
-        // Accept Authorization header, body.token, or legacy participantId/agentId
-        const token = extractSessionToken(req, url, body) ?? "";
-        const legacyId = String(body.participantId ?? body.agentId ?? "");
-
-        let targetToken = token;
-        if (!targetToken && legacyId) {
-          targetToken = idToSession.get(legacyId) ?? "";
-        }
+        // Accept Authorization header or body.token
+        const targetToken = extractSessionToken(req, url, body) ?? "";
 
         if (targetToken) {
           const p = participants.get(targetToken);

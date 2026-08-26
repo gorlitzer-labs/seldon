@@ -1,7 +1,6 @@
 /**
  * Interactive prompts for the `apiary room create` wizard:
  *   - `askRepoPath` — repo path picker (current dir + recents + discovered git repos + custom)
- *   - `askRole`     — agent / human / custom
  *   - `askRuntime`  — claude / codex (driven by detected runtimes)
  *
  * All three share a generic arrow-key picker primitive (`pickFromList`) that
@@ -251,37 +250,6 @@ export async function askRepoPath(opts: AskRepoPathOpts): Promise<string> {
 
   recordRecentRepo(final);
   return final;
-}
-
-// ── askRole ───────────────────────────────────────────────────────────────────
-
-const ROLE_HINTS: Record<string, string> = {
-  agent: "AI runtime (claude/codex)",
-  human: "joins via TUI",
-};
-
-export interface AskRoleOpts {
-  alias: string;
-  ask: Asker;
-}
-
-export async function askRole(opts: AskRoleOpts): Promise<string> {
-  const items: PickerItem<string | typeof CUSTOM>[] = [
-    { label: "🤖 agent", value: "agent", hint: ROLE_HINTS.agent },
-    { label: "👤 human", value: "human", hint: ROLE_HINTS.human },
-    { label: `${M}✎${R}  Type a custom role…`, value: CUSTOM },
-  ];
-  const header = `    🎭 ${B}Role${R} ${D}for ${opts.alias}${R}`;
-
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return (await opts.ask(`    Role ${D}[agent]${R}: `)) || "agent";
-  }
-
-  const picked = await arrowPicker(items, header, "to type a role");
-  if (!picked || picked.value === CUSTOM) {
-    return (await opts.ask(`    Custom role ${D}[agent]${R}: `)) || "agent";
-  }
-  return picked.value as string;
 }
 
 // ── askRuntime ────────────────────────────────────────────────────────────────

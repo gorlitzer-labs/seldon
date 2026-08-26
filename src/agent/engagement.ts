@@ -10,7 +10,7 @@
  *
  * The `EngagementStrategy` interface defines this contract. Implement it to
  * customize when your agent responds. The built-in `StoopsEngagement` provides
- * an 8-mode system; `classifyEvent()` is a standalone convenience function
+ * a 7-mode system; `classifyEvent()` is a standalone convenience function
  * using the same logic.
  *
  * # Built-in modes (StoopsEngagement / classifyEvent)
@@ -19,13 +19,12 @@
  * - "everyone"  — all messages trigger evaluation
  * - "people"    — only messages from human participants trigger evaluation
  * - "agents"    — only messages from other agents trigger evaluation
- * - "me"        — only messages from the agent's designated owner ("person") trigger
+ * - "fight"     — all messages trigger (novelty roast mode)
  *
  * Standby modes (agent only wakes on @mentions):
  * - "standby-everyone" — any @mention wakes the agent
  * - "standby-people"   — only @mentions from humans wake the agent
  * - "standby-agents"   — only @mentions from other agents wake the agent
- * - "standby-me"       — only an @mention from the agent's owner wakes them
  *
  * # Classification rules (in order)
  *
@@ -122,17 +121,8 @@ export interface EngagementStrategy {
 // ── Built-in modes ────────────────────────────────────────────────────────────
 
 export type EngagementMode =
-  | "me" | "people" | "agents" | "everyone" | "fight"
-  | "standby-me" | "standby-people" | "standby-agents" | "standby-everyone";
-
-export const VALID_MODES: ReadonlySet<string> = new Set<EngagementMode>([
-  "me", "people", "agents", "everyone", "fight",
-  "standby-me", "standby-people", "standby-agents", "standby-everyone",
-]);
-
-export function isValidMode(mode: string): mode is EngagementMode {
-  return VALID_MODES.has(mode);
-}
+  | "people" | "agents" | "everyone" | "fight"
+  | "standby-people" | "standby-agents" | "standby-everyone";
 
 // ── Core classification logic (shared) ────────────────────────────────────────
 
@@ -140,14 +130,12 @@ function senderMatches(
   filter: string,
   senderType: ParticipantType,
   senderId: string,
-  personParticipantId?: string,
 ): boolean {
   switch (filter) {
     case "everyone": return true;
     case "fight":    return true;
     case "people":   return senderType === "human";
     case "agents":   return senderType === "agent";
-    case "me":       return !!personParticipantId && senderId === personParticipantId;
     default:         return false;
   }
 }
@@ -159,7 +147,6 @@ function classify(
   selfId: string,
   senderType: ParticipantType,
   senderId: string,
-  personParticipantId?: string,
 ): EventDisposition {
   // 1. Internal events (agent activity, edits, deletes, status) — always drop.
   const role = EVENT_ROLE[event.type];
@@ -179,7 +166,7 @@ function classify(
     if (
       (role === "mention" || role === "ping") &&
       event.participant_id === selfId &&
-      senderMatches(filter, senderType, senderId, personParticipantId)
+      senderMatches(filter, senderType, senderId)
     ) return "trigger";
     return "drop";
   }
@@ -194,7 +181,7 @@ function classify(
 
   // 5–6. Active: message → trigger if sender matches filter, content otherwise.
   if (role === "message") {
-    return senderMatches(filter, senderType, senderId, personParticipantId)
+    return senderMatches(filter, senderType, senderId)
       ? "trigger"
       : "content";
   }
@@ -210,23 +197,21 @@ function classify(
 /**
  * StoopsEngagement — the built-in engagement strategy.
  *
- * Implements the 8-mode system: 4 active modes (everyone/people/agents/me)
- * and 4 standby modes that only wake on @mentions. Maintains per-room mode
+ * Implements the 7-mode system: 4 active modes (everyone/people/agents/fight)
+ * and 3 standby modes that only wake on @mentions. Maintains per-room mode
  * state internally.
  *
  * @example
- * const engagement = new StoopsEngagement("people", personId);
- * engagement.setMode("room-1", "me");
+ * const engagement = new StoopsEngagement("people");
+ * engagement.setMode("room-1", "agents");
  * engagement.classify(event, "room-1", selfId, "human", senderId);
  */
 export class StoopsEngagement implements EngagementStrategy {
   private _modes = new Map<string, EngagementMode>();
   private _defaultMode: EngagementMode;
-  private _personParticipantId?: string;
 
-  constructor(defaultMode: EngagementMode, personParticipantId?: string) {
+  constructor(defaultMode: EngagementMode) {
     this._defaultMode = defaultMode;
-    this._personParticipantId = personParticipantId;
   }
 
   /** Get the engagement mode for a room. Falls back to the default mode. */
@@ -252,7 +237,7 @@ export class StoopsEngagement implements EngagementStrategy {
     senderId: string,
   ): EventDisposition {
     const mode = this._modes.get(roomId) ?? this._defaultMode;
-    return classify(event, mode, selfId, senderType, senderId, this._personParticipantId);
+    return classify(event, mode, selfId, senderType, senderId);
   }
 }
 
@@ -273,8 +258,6 @@ export class StoopsEngagement implements EngagementStrategy {
  *                               For `Mentioned` events, pass `event.message.sender_id`
  *                               (who wrote the mention), not `event.participant_id`
  *                               (who was mentioned).
- * @param personParticipantId  — the agent's owner's participant ID, used in
- *                               "me" and "standby-me" modes
  */
 export function classifyEvent(
   event: RoomEvent,
@@ -282,7 +265,6 @@ export function classifyEvent(
   selfId: string,
   senderType: ParticipantType,
   senderId: string,
-  personParticipantId?: string,
 ): EventDisposition {
-  return classify(event, mode, selfId, senderType, senderId, personParticipantId);
+  return classify(event, mode, selfId, senderType, senderId);
 }

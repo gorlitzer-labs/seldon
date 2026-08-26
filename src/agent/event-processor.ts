@@ -39,8 +39,6 @@ export interface EventProcessorOptions {
   defaultMode?: EngagementMode;
   /** Custom engagement strategy. Defaults to StoopsEngagement. */
   engagement?: EngagementStrategy;
-  /** The agent owner's participant ID (for "me" / "standby-me" modes). */
-  personParticipantId?: string;
   /** The agent's own stable identifier slug (e.g. "my-agent"). */
   selfIdentifier?: string;
   /** Called when engagement mode changes for a room. */
@@ -92,7 +90,7 @@ export class EventProcessor implements RoomResolver {
     this._participantName = participantName;
     this._options = options;
     this._engagement = options.engagement
-      ?? new StoopsEngagement(options.defaultMode ?? "everyone", options.personParticipantId);
+      ?? new StoopsEngagement(options.defaultMode ?? "everyone");
   }
 
   // ── Public accessors ────────────────────────────────────────────────────────

@@ -59,7 +59,7 @@ const MIN_AUTHORITY: Record<Operation, AuthorityLevel> = {
  * Numeric ordering. Authority strings MUST NOT be compared with `<`/`>`
  * directly — lexical ordering "p" > "m" makes `"product_owner" > "member"`
  * accidentally true and silently breaks the moment any string changes. Always
- * go through `levelOf()`.
+ * go through `TIER_ORDER`.
  */
 export const TIER_ORDER: Record<AuthorityLevel, number> = {
   guest:         0,
@@ -68,38 +68,8 @@ export const TIER_ORDER: Record<AuthorityLevel, number> = {
   admin:         3,
 };
 
-/** Numeric position of a tier. Higher = more privilege. */
-export function levelOf(a: AuthorityLevel): number {
-  return TIER_ORDER[a];
-}
-
-/** Does `actual` meet or exceed `required`? Use for raw-tier comparisons. */
-export function hasAuthority(actual: AuthorityLevel | undefined, required: AuthorityLevel): boolean {
-  if (!actual) return false;
-  return TIER_ORDER[actual] >= TIER_ORDER[required];
-}
-
 /** Can the bearer of `authority` perform `op`? The check everyone calls. */
 export function can(authority: AuthorityLevel | undefined, op: Operation): boolean {
   if (!authority) return false;
   return TIER_ORDER[authority] >= TIER_ORDER[MIN_AUTHORITY[op]];
-}
-
-/**
- * Can `caller` grant a token / promote someone to `target` tier?
- *
- * Strictly `>` — a product_owner cannot promote anyone to product_owner (only
- * admins can). Closes the lateral-escalation door. Note: `canGrant` in
- * src/cli/auth.ts handles share-token generation with slightly more permissive
- * semantics (members can clone their own tier); this helper is for operations
- * that change someone *else's* authority.
- */
-export function canGrantTier(caller: AuthorityLevel | undefined, target: AuthorityLevel): boolean {
-  if (!caller) return false;
-  return TIER_ORDER[caller] > TIER_ORDER[target];
-}
-
-/** The minimum authority required for an operation — exported for docs/help text. */
-export function minAuthorityFor(op: Operation): AuthorityLevel {
-  return MIN_AUTHORITY[op];
 }

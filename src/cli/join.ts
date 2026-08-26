@@ -11,7 +11,6 @@ import { randomName } from "../core/names.js";
 import { loadConfig, saveConfig, roomEmoji } from "./config.js";
 import type { RoomEvent } from "../core/events.js";
 import type { AuthorityLevel } from "../core/types.js";
-import { formatTimestamp as formatTimestampUTC } from "../agent/prompts.js";
 
 /** Format a Date as local HH:MM:SS for TUI display. */
 function formatTimestamp(date: Date): string {
