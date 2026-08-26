@@ -10,6 +10,7 @@
 
 import { randomBytes } from "node:crypto";
 import type { AuthorityLevel } from "../core/types.js";
+import { TIER_ORDER } from "../core/authority.js";
 
 interface SessionData {
   participantId: string;
@@ -152,14 +153,6 @@ export class TokenManager {
     }
   }
 }
-
-/** Authority tier ordering: admin > product_owner > member > guest. */
-export const TIER_ORDER: Record<AuthorityLevel, number> = {
-  admin: 3,
-  product_owner: 2,
-  member: 1,
-  guest: 0,
-};
 
 /**
  * Can a caller at `callerLevel` grant a share token at `targetLevel`?

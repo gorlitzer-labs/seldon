@@ -229,6 +229,39 @@ export async function join(options: JoinOptions): Promise<void> {
     });
   }
 
+  /** Resolve a participant by name via GET /participants. Emits a system
+   *  message and returns null on any failure (bad list, not found, network). */
+  async function resolveParticipant(name: string): Promise<{ id: string; name: string } | null> {
+    try {
+      const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
+      if (!res.ok) { systemEvent("Failed to get participant list."); return null; }
+      const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
+      const target = data.participants.find((p) => p.name.toLowerCase() === name.toLowerCase());
+      if (!target) { systemEvent(`Participant "${name}" not found.`); return null; }
+      return target;
+    } catch {
+      systemEvent("Failed to reach server.");
+      return null;
+    }
+  }
+
+  /** POST a participant action to the server and report the outcome. */
+  async function participantAction(
+    opts: { path: string; body: Record<string, unknown>; failVerb: string; success: string },
+  ): Promise<void> {
+    try {
+      const res = await fetch(`${serverUrl}${opts.path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
+        body: JSON.stringify(opts.body),
+      });
+      if (!res.ok) { systemEvent(`Failed to ${opts.failVerb}: ${await res.text()}`); return; }
+      systemEvent(opts.success);
+    } catch {
+      systemEvent("Failed to reach server.");
+    }
+  }
+
   async function handleSlashCommand(input: string): Promise<void> {
     const parts = input.slice(1).split(/\s+/);
     const cmd = parts[0]?.toLowerCase();
@@ -359,25 +392,12 @@ export async function join(options: JoinOptions): Promise<void> {
         if (!can(authority, "kick")) { systemEvent("Only admins can kick."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /kick <name>"); return; }
-
-        // Look up participant by name
-        try {
-          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
-          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
-          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
-          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
-          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
-
-          const kickRes = await fetch(`${serverUrl}/kick`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-            body: JSON.stringify({ participantId: target.id }),
-          });
-          if (!kickRes.ok) { systemEvent(`Failed to kick: ${await kickRes.text()}`); return; }
-          systemEvent(`Kicked ${targetName}.`);
-        } catch {
-          systemEvent("Failed to reach server.");
-        }
+        const target = await resolveParticipant(targetName);
+        if (!target) return;
+        await participantAction({
+          path: "/kick", body: { participantId: target.id },
+          failVerb: "kick", success: `Kicked ${targetName}.`,
+        });
         return;
       }
 
@@ -386,24 +406,12 @@ export async function join(options: JoinOptions): Promise<void> {
         if (!can(authority, "mute")) { systemEvent("Only admins and product owners can mute."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /mute <name>"); return; }
-
-        try {
-          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
-          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
-          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
-          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
-          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
-
-          const authRes = await fetch(`${serverUrl}/set-authority`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-            body: JSON.stringify({ participantId: target.id, authority: "guest" }),
-          });
-          if (!authRes.ok) { systemEvent(`Failed to mute: ${await authRes.text()}`); return; }
-          systemEvent(`Muted ${targetName} (guest).`);
-        } catch {
-          systemEvent("Failed to reach server.");
-        }
+        const target = await resolveParticipant(targetName);
+        if (!target) return;
+        await participantAction({
+          path: "/set-authority", body: { participantId: target.id, authority: "guest" },
+          failVerb: "mute", success: `Muted ${targetName} (guest).`,
+        });
         return;
       }
 
@@ -412,24 +420,12 @@ export async function join(options: JoinOptions): Promise<void> {
         if (!can(authority, "unmute")) { systemEvent("Only admins and product owners can unmute."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /unmute <name>"); return; }
-
-        try {
-          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
-          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
-          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
-          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
-          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
-
-          const authRes = await fetch(`${serverUrl}/set-authority`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-            body: JSON.stringify({ participantId: target.id, authority: "member" }),
-          });
-          if (!authRes.ok) { systemEvent(`Failed to unmute: ${await authRes.text()}`); return; }
-          systemEvent(`Unmuted ${targetName} (member).`);
-        } catch {
-          systemEvent("Failed to reach server.");
-        }
+        const target = await resolveParticipant(targetName);
+        if (!target) return;
+        await participantAction({
+          path: "/set-authority", body: { participantId: target.id, authority: "member" },
+          failVerb: "unmute", success: `Unmuted ${targetName} (member).`,
+        });
         return;
       }
 
@@ -439,24 +435,12 @@ export async function join(options: JoinOptions): Promise<void> {
         const targetName = args[0];
         const mode = args[1];
         if (!targetName || !mode) { systemEvent("Usage: /setmode <name> <mode>"); return; }
-
-        try {
-          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
-          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
-          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
-          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
-          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
-
-          const modeRes = await fetch(`${serverUrl}/set-mode`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-            body: JSON.stringify({ participantId: target.id, mode }),
-          });
-          if (!modeRes.ok) { systemEvent(`Failed to set mode: ${await modeRes.text()}`); return; }
-          systemEvent(`Set ${targetName} to ${mode}.`);
-        } catch {
-          systemEvent("Failed to reach server.");
-        }
+        const target = await resolveParticipant(targetName);
+        if (!target) return;
+        await participantAction({
+          path: "/set-mode", body: { participantId: target.id, mode },
+          failVerb: "set mode", success: `Set ${targetName} to ${mode}.`,
+        });
         return;
       }
 
@@ -465,24 +449,12 @@ export async function join(options: JoinOptions): Promise<void> {
         if (!can(authority, "promote")) { systemEvent("Only admins can promote."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /promote <name>"); return; }
-
-        try {
-          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
-          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
-          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
-          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
-          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
-
-          const authRes = await fetch(`${serverUrl}/set-authority`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-            body: JSON.stringify({ participantId: target.id, authority: "product_owner" }),
-          });
-          if (!authRes.ok) { systemEvent(`Failed to promote: ${await authRes.text()}`); return; }
-          systemEvent(`${targetName} is now a product owner.`);
-        } catch {
-          systemEvent("Failed to reach server.");
-        }
+        const target = await resolveParticipant(targetName);
+        if (!target) return;
+        await participantAction({
+          path: "/set-authority", body: { participantId: target.id, authority: "product_owner" },
+          failVerb: "promote", success: `${targetName} is now a product owner.`,
+        });
         return;
       }
 
@@ -491,24 +463,12 @@ export async function join(options: JoinOptions): Promise<void> {
         if (!can(authority, "demote")) { systemEvent("Only admins can demote."); return; }
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /demote <name>"); return; }
-
-        try {
-          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
-          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
-          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
-          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
-          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
-
-          const authRes = await fetch(`${serverUrl}/set-authority`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-            body: JSON.stringify({ participantId: target.id, authority: "member" }),
-          });
-          if (!authRes.ok) { systemEvent(`Failed to demote: ${await authRes.text()}`); return; }
-          systemEvent(`${targetName} is now a member.`);
-        } catch {
-          systemEvent("Failed to reach server.");
-        }
+        const target = await resolveParticipant(targetName);
+        if (!target) return;
+        await participantAction({
+          path: "/set-authority", body: { participantId: target.id, authority: "member" },
+          failVerb: "demote", success: `${targetName} is now a member.`,
+        });
         return;
       }
 
@@ -516,24 +476,12 @@ export async function join(options: JoinOptions): Promise<void> {
       case "ping": {
         const targetName = args[0];
         if (!targetName) { systemEvent("Usage: /ping <name>"); return; }
-
-        try {
-          const res = await fetch(`${serverUrl}/participants`, { headers: { Authorization: `Bearer ${sessionToken}` } });
-          if (!res.ok) { systemEvent("Failed to get participant list."); return; }
-          const data = (await res.json()) as { participants: Array<{ id: string; name: string }> };
-          const target = data.participants.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
-          if (!target) { systemEvent(`Participant "${targetName}" not found.`); return; }
-
-          const pingRes = await fetch(`${serverUrl}/ping`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-            body: JSON.stringify({ participantId: target.id }),
-          });
-          if (!pingRes.ok) { systemEvent(`Failed to ping: ${await pingRes.text()}`); return; }
-          systemEvent(`Pinged ${targetName}.`);
-        } catch {
-          systemEvent("Failed to reach server.");
-        }
+        const target = await resolveParticipant(targetName);
+        if (!target) return;
+        await participantAction({
+          path: "/ping", body: { participantId: target.id },
+          failVerb: "ping", success: `Pinged ${targetName}.`,
+        });
         return;
       }
 

@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { join as pathJoin } from "node:path";
 import { createInterface } from "node:readline";
 
-import { buildShareUrl } from "./auth.js";
+import { buildShareUrl, extractToken } from "./auth.js";
 import { agentEmoji, roomEmoji } from "./config.js";
 import { askRepoPath, askRuntime, shortenPath } from "./repoPicker.js";
 import type { AuthorityLevel } from "../core/types.js";
@@ -868,14 +868,6 @@ export function isServerAlive(session: PersistedRoomSession): boolean {
   try { process.kill(session.pid, 0); return true; } catch { return false; }
 }
 
-function extractToken(url: string): string | null {
-  try {
-    const u = new URL(url);
-    return u.searchParams.get("token");
-  } catch {
-    return null;
-  }
-}
 
 function parseDuration(input: string): number | null {
   if (!input) return null;

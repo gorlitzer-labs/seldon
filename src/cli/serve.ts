@@ -271,6 +271,24 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     lastSeenAt.set(id, Date.now());
   }
 
+  /** Write an SSE frame to every connected client (unfiltered fan-out). */
+  function broadcastToAll(event: unknown): void {
+    const frame = `data: ${JSON.stringify(event)}\n\n`;
+    for (const [, sseRes] of sseConnections) {
+      sseRes.write(frame);
+    }
+  }
+
+  /** Current participants as the summary shape returned by /participants + /join. */
+  function participantSummaries() {
+    return room.listParticipants().map((p) => ({
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      authority: p.authority ?? "member",
+    }));
+  }
+
   function broadcastStatusChange(
     participantId: string,
     name: string,
@@ -288,9 +306,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       previous_status: previousStatus,
       reason,
     });
-    for (const [, sseRes] of sseConnections) {
-      sseRes.write(`data: ${JSON.stringify(event)}\n\n`);
-    }
+    broadcastToAll(event);
   }
 
   function broadcastRulesChanged(rules: string[], updatedBy: string): void {
@@ -302,9 +318,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       rules,
       updated_by: updatedBy,
     });
-    for (const [, sseRes] of sseConnections) {
-      sseRes.write(`data: ${JSON.stringify(event)}\n\n`);
-    }
+    broadcastToAll(event);
   }
 
   // ── Attachment storage ───────────────────────────────────────────────────
@@ -613,12 +627,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       // ── GET /participants ────────────────────────────────────────────────
       if (url.pathname === "/participants") {
         if (!session) return jsonError(res, 401, "Invalid session token");
-        const list = room.listParticipants().map((p) => ({
-          id: p.id,
-          name: p.name,
-          type: p.type,
-          authority: p.authority ?? "member",
-        }));
+        const list = participantSummaries();
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ participants: list }));
         return;
@@ -829,12 +838,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           guests.set(sessionToken, { id, authority: "guest", channel, sessionToken });
           idToSession.set(id, sessionToken);
 
-          const participantList = room.listParticipants().map((p) => ({
-            id: p.id,
-            name: p.name,
-            type: p.type,
-            authority: p.authority ?? "member",
-          }));
+          const participantList = participantSummaries();
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
@@ -1213,9 +1217,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           participant_id: session.id,
           cleared_by: adminP?.name ?? "admin",
         });
-        for (const [, sseRes] of sseConnections) {
-          sseRes.write(`data: ${JSON.stringify(clearEvent)}\n\n`);
-        }
+        broadcastToAll(clearEvent);
 
         log(`room cleared by ${adminP?.name ?? session.id}`);
         jsonOk(res);
