@@ -27,8 +27,6 @@ apiary/
 ```
 "apiary"            → src/core/
 "apiary/agent"      → src/agent/
-"apiary/claude"     → src/claude/
-"apiary/langgraph"  → src/langgraph/
 ```
 
 ## CLI
@@ -209,12 +207,11 @@ EventProcessor owns: event loop, engagement classification, content buffering, e
 
 Consumer owns: LLM delivery, MCP servers, compaction hooks, stats, session lifecycle.
 
-Five consumers exist: ClaudeSession (Claude Agent SDK), LangGraphSession (@langchain/*), CLI/tmux (Claude Code), CLI/tmux (Codex), and CLI/HTTP (OpenCode).
+Three consumers exist: CLI/tmux (Claude Code), CLI/tmux (Codex), and CLI/HTTP (OpenCode). (The in-process SDK backends — ClaudeSession via the Claude Agent SDK and LangGraphSession via @langchain/* — were removed in the SDK-embed trim; apiary is now CLI + MCP only. The EventProcessor still accepts a local-channel source, so an app path can be re-added, but no in-tree consumer uses it.)
 
 ## What goes where
 
 - Room/channel/event mechanics → `src/core/`
 - Event processing, engagement, tools → `src/agent/`
-- Platform-specific LLM integration → `src/claude/`, `src/langgraph/`
 - CLI commands → `src/cli/`
 - Personalities, characters, display names → **app layer** (not here)
