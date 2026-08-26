@@ -23,7 +23,12 @@ jobs:
 
       - run: npm install
 
+      # Never publish red code: typecheck + full test suite gate the release.
+      - run: npm run typecheck
+
       - run: npm run build
+
+      - run: npm test
 
       - run: npm publish
         env:
