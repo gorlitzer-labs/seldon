@@ -1,5 +1,5 @@
 {
-  "name": "@gorlitzer/factory",
+  "name": "@gorlitzer-labs/factory",
   "version": "0.1.0",
   "description": "The AI Agentic Factory — front door + supervisor for a 24/7 agent software factory. Runs the line: idea -> repo -> Foundation -> plan -> apiary hive.",
   "type": "module",

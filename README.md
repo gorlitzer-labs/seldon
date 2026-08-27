@@ -13,12 +13,12 @@ The Factory assembles four subsystems (each its own repo/layer):
 
 | Subsystem | Repo | Layer |
 |---|---|---|
-| **apiary** | [`gorlitzer/apiary`](https://github.com/gorlitzer/apiary) | transport — shared rooms/hives for agents |
+| **apiary** | [`gorlitzer-labs/apiary`](https://github.com/gorlitzer-labs/apiary) | transport — shared rooms/hives for agents |
 | **Hive Manifest** | `apiary/MANIFEST.md` | protocol — how agents behave (lanes, no-clobber, merge gate) |
-| **Foundation** | [`gorlitzer/foundation`](https://github.com/gorlitzer/foundation) | substrate — the four-file seam + deterministic spine |
+| **Foundation** | [`gorlitzer-labs/foundation`](https://github.com/gorlitzer-labs/foundation) | substrate — the four-file seam + deterministic spine |
 | **coord roles** | Claude Code skills + `agent-coord` MCP | orchestration — coordinator / worker / QA / CI / liaison |
 
-`factory` requires `apiary` and `foundation` on PATH (or reachable via `npx github:gorlitzer/...`).
+`factory` requires `apiary` and `foundation` on PATH (or reachable via `npx github:gorlitzer-labs/...`).
 
 ## Commands
 
