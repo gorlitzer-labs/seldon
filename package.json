@@ -1,0 +1,19 @@
+{
+  "name": "@gorlitzer/factory",
+  "version": "0.1.0",
+  "description": "The AI Agentic Factory — front door + supervisor for a 24/7 agent software factory. Runs the line: idea -> repo -> Foundation -> plan -> apiary hive.",
+  "type": "module",
+  "bin": {
+    "factory": "src/cli.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "keywords": ["ai", "agents", "apiary", "foundation", "orchestration", "factory", "24-7"],
+  "author": "Franco Berardi",
+  "license": "MIT"
+}
