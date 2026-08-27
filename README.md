@@ -51,12 +51,29 @@ factory board --once     # one snapshot
 
 Read straight from the Foundation seam (no room-join noise). Highlights what needs you.
 
+## Escalation + alerting (Phase 4) — the supervised-autonomy loop
+
+The factory reaches *you*, off-screen, and you answer without babysitting it:
+
+```bash
+# an agent, when it hits a call it shouldn't make alone, posts into the hive:
+#   DECISION: Postgres or SQLite for storage? ...
+# the supervisor catches it → macOS notification + morning briefing + the board flags it:
+
+factory board                       # ⚑ 1 DECISION(S) PENDING YOUR CALL   d-20df46 [inv] Aria: ...
+factory decide d-20df46 "SQLite"    # posts your call back to the hive; the agent unblocks
+factory briefing                    # the accumulating ~/.factory/briefing.md you read at 8am
+```
+
+`DECISION:` and `BLOCKER:` messages become pending decisions; alerts fire on macOS (`osascript`).
+The factory escalates — it never decides the irreversible.
+
 ## Roadmap
 
 - **Phase 1 — Front Door** (`factory new`) ✅
 - **Phase 2 — Supervisor** (`factory watch`) ✅
 - **Phase 3 — Control Panel** (`factory board`) ✅
-- **Phase 4 — Escalation + alerting** (push/Slack digest, pending-decisions queue)
+- **Phase 4 — Escalation + alerting** (`decide` / `briefing`, macOS alerts) ✅
 - **Phase 5 — multi-hive + monitored delivery** (merge → deploy → observed-in-prod)
 
 Supervised autonomy: the factory builds around the clock; you decide the irreversible calls.

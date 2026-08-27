@@ -6,6 +6,8 @@ import { existsSync, readFileSync, writeFileSync, statSync, appendFileSync, mkdi
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { c, say, ok, warn, err } from "./lib/log.mjs";
+import { notify, brief } from "./lib/notify.mjs";
+import { fileDecision } from "./lib/decisions.mjs";
 
 const sh = (cmd, args, opts = {}) => { try { return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], ...opts }); } catch { return null; } };
 // Like sh() but returns stdout even on a non-zero exit (e.g. `foundation doctor` exits 1 on drift).
@@ -45,6 +47,20 @@ export async function factoryWatch(project, flags) {
     }
     // ── PRESENCE ──
     const online = stok ? await getOnline(hive, stok) : [];
+    // ── ESCALATIONS: scrape DECISION:/BLOCKER: from the room → pending-decisions + off-screen alert ──
+    if (stok) {
+      for (const m of await getMessages(hive, stok)) {
+        const t = (m.content || "").trim();
+        const kind = t.startsWith("DECISION:") ? "decision" : t.startsWith("BLOCKER:") ? "blocker" : null;
+        if (!kind || m.sender_name === "Supervisor") continue;
+        const filed = fileDecision({ hive: name, dir, from: m.sender_name, text: t.slice(0, 200), kind, ts: nowHM() });
+        if (filed) {
+          events.push(`${kind.toUpperCase()} from ${m.sender_name} — needs your call (factory decide ${filed.id})`);
+          notify(`Factory · ${kind} in ${name}`, `${m.sender_name}: ${t.replace(/^\w+:\s*/, "").slice(0, 90)}`);
+          brief(`[${name}] ${kind} from ${m.sender_name}: ${t.slice(0, 130)}  (factory decide ${filed.id})`);
+        }
+      }
+    }
     // ── SEAM STATE ──
     const doctor = shOut("foundation", ["doctor", "--dir", dir]);
     const drift = (doctor.match(/(\d+) drift issue/)?.[1]) || (doctor.includes("no drift") ? "0" : "?");
@@ -72,8 +88,9 @@ export async function factoryWatch(project, flags) {
     if (once || digestDue || escalate) {
       appendFileSync(digestPath, line + (events.length ? "\n  " + events.join("\n  ") : "") + "\n");
       if (stok && (digestDue || escalate)) {
-        const needs = events.filter((e) => /STALL|DRIFT|BLOCKER|healed/.test(e));
+        const needs = events.filter((e) => /STALL|DRIFT|BLOCKER|DECISION|healed/.test(e));
         await postMsg(hive, stok, `SUPERVISOR DIGEST — ${line.replace(/^\[.*?\] /, "")}` + (needs.length ? `\nNeeds you:\n- ${needs.join("\n- ")}` : `\nAll nominal.`));
+        if (escalate) { notify(`Factory · ${name} needs you`, needs[0] || line); brief(`[${name}] escalation: ${needs.join("; ") || line}`); }
         lastDigestAt = Date.now();
       }
     }
@@ -104,6 +121,9 @@ async function joinAsSupervisor(hive) {
 }
 async function getOnline(hive, stok) {
   try { const r = await fetch(`${hive.serverUrl}/participants`, { headers: { Authorization: `Bearer ${stok}` } }); const d = await r.json(); return (d.participants || []).map((p) => p.name); } catch { return []; }
+}
+async function getMessages(hive, stok) {
+  try { const r = await fetch(`${hive.serverUrl}/messages`, { headers: { Authorization: `Bearer ${stok}` } }); const d = await r.json(); return d.items || []; } catch { return []; }
 }
 async function postMsg(hive, stok, content) {
   try { await fetch(`${hive.serverUrl}/message`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${stok}` }, body: JSON.stringify({ content }) }); } catch { /* best effort */ }

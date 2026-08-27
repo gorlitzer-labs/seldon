@@ -5,6 +5,7 @@ import { c, say, err } from "./lib/log.mjs";
 import { factoryNew } from "./new.mjs";
 import { factoryWatch } from "./watch.mjs";
 import { factoryBoard } from "./board.mjs";
+import { factoryDecide, factoryBriefing } from "./decide.mjs";
 
 const argv = process.argv.slice(2);
 const [cmd, ...rest] = argv;
@@ -35,7 +36,11 @@ function help() {
     `        nudge idle agents, and post an escalation digest to the hive.`,
     "",
     `  ${c.cyan("board")} [--interval 5] [--once]`,
-    `        Live control panel: every hive's queue, lanes, done, drift, blockers.`,
+    `        Live control panel: every hive's queue, lanes, done, drift, blockers,`,
+    `        and the decisions pending your call.`,
+    "",
+    `  ${c.cyan("decide")} <id> "<your call>"    Answer a pending decision (posts it to the hive)`,
+    `  ${c.cyan("briefing")}                     Print the accumulating morning briefing`,
   ].join("\n"));
 }
 
@@ -45,6 +50,8 @@ try {
     case "new": await factoryNew(pos.join(" ").trim(), flags); break;
     case "watch": await factoryWatch(pos[0], flags); break;
     case "board": await factoryBoard(flags); break;
+    case "decide": await factoryDecide(pos[0], pos.slice(1)); break;
+    case "briefing": await factoryBriefing(); break;
     case "version": case "--version": case "-v": say("factory 0.1.0"); break;
     case undefined: case "help": case "--help": case "-h": help(); break;
     default: err(`unknown command: ${cmd}`); help(); process.exit(2);

@@ -3,6 +3,7 @@
 // the CLI. Read-only.
 import { c, say } from "./lib/log.mjs";
 import { readRegistry, hiveState } from "./lib/hive.mjs";
+import { pending } from "./lib/decisions.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const CLEAR = "\x1b[2J\x1b[H";
@@ -32,6 +33,15 @@ export async function factoryBoard(flags) {
       if (s.lanes.length) out.push("   " + s.lanes.map(laneChip).join("  "));
       if (needs(s)) out.push("   " + c.yellow("→ needs you: ") + attentionReasons(s));
       if (s.digest) out.push("   " + c.dim(s.digest.replace(/^\[/, "last [")));
+      out.push("");
+    }
+    const decisions = pending();
+    if (decisions.length) {
+      out.push(c.yellow(`⚑ ${decisions.length} DECISION(S) PENDING YOUR CALL`));
+      for (const d of decisions) {
+        out.push(`  ${c.honey(d.id)} ${c.dim(`[${d.hive}]`)} ${c.dim(d.from + ":")} ${d.text.replace(/^\w+:\s*/, "").slice(0, 80)}`);
+      }
+      out.push(c.dim(`  answer:  factory decide <id> "<your call>"`));
       out.push("");
     }
     out.push(c.dim(once ? "" : `  refreshing every ${interval / 1000}s · ctrl-c to exit`));
