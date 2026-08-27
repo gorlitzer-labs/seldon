@@ -3,6 +3,7 @@
 // Coming: `watch` (the standalone 24/7 supervisor), `board` (the control panel).
 import { c, say, err } from "./lib/log.mjs";
 import { factoryNew } from "./new.mjs";
+import { factoryWatch } from "./watch.mjs";
 
 const argv = process.argv.slice(2);
 const [cmd, ...rest] = argv;
@@ -28,7 +29,11 @@ function help() {
     `  ${c.cyan("new")} "<idea>" [--name <n>] [--dir <p>] [--here] [--port <p>]`,
     `        Run the front of the line: repo -> Foundation -> seed -> apiary hive`,
     "",
-    c.dim("  soon: factory watch <hive>   (24/7 supervisor)   ·   factory board   (live panel)"),
+    `  ${c.cyan("watch")} [project] [--agents A,B] [--interval 30] [--stall 15] [--once]`,
+    `        The 24/7 supervisor: heal dead agents, run doctor, detect stalls,`,
+    `        nudge idle agents, and post an escalation digest to the hive.`,
+    "",
+    c.dim("  soon: factory board   (live control panel)"),
   ].join("\n"));
 }
 
@@ -36,6 +41,7 @@ const { flags, pos } = parse(rest);
 try {
   switch (cmd) {
     case "new": await factoryNew(pos.join(" ").trim(), flags); break;
+    case "watch": await factoryWatch(pos[0], flags); break;
     case "version": case "--version": case "-v": say("factory 0.1.0"); break;
     case undefined: case "help": case "--help": case "-h": help(); break;
     default: err(`unknown command: ${cmd}`); help(); process.exit(2);
