@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { c, say, step, ok, warn, err } from "./lib/log.mjs";
+import { addToRegistry } from "./lib/hive.mjs";
 
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").split("-").slice(0, 4).join("-") || "project";
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: "utf8", ...opts });
@@ -52,6 +53,7 @@ export async function factoryNew(idea, flags) {
   if (!has("apiary")) { warn("apiary not on PATH — skipping hive. Install/link apiary, then: apiary room " + name); return { name, dir, hive: null }; }
   const hive = await openHive(name, port);
   writeFileSync(join(dir, ".factory.json"), JSON.stringify({ name, hive }, null, 2));
+  addToRegistry({ name, dir, hive });   // so `factory board` / `factory watch` can find it
   ok(`hive ${c.bold(name)} up on ${c.dim(hive.serverUrl)}`);
 
   // 5. Next steps

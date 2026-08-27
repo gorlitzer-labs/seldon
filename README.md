@@ -29,12 +29,34 @@ and dispatches:
 cd <project> && apiary claude Coordinator --admin
 ```
 
+## `factory watch` — the 24/7 supervisor (Phase 2)
+
+A standalone daemon (independent of any session) that keeps one hive alive + productive:
+
+```bash
+factory watch <project> --agents Aria,Bruno   # heal dead agents · run doctor · detect stalls ·
+                                              # nudge idle agents · post an escalation digest
+```
+
+Flags: `--interval 30` · `--stall 15` · `--digest 60` · `--once` (single tick, for cron). It
+**escalates** (blockers, drift, stalls) to you via the hive + `.factory/digest.log` — it never
+decides the irreversible.
+
+## `factory board` — the control panel (Phase 3)
+
+```bash
+factory board            # live dashboard of every hive: queue, lanes, done, facts, drift, blockers
+factory board --once     # one snapshot
+```
+
+Read straight from the Foundation seam (no room-join noise). Highlights what needs you.
+
 ## Roadmap
 
 - **Phase 1 — Front Door** (`factory new`) ✅
-- **Phase 2 — Supervisor** (`factory watch`): a standalone 24/7 daemon — feed the QUEUE, restart dead
-  agents, run `foundation doctor`, emit the escalation digest to the liaison.
-- **Phase 3 — Control Panel** (`factory board`): a live view of hives, lanes, queue depth, health.
-- **Phase 4 — Escalation + alerting** · **Phase 5 — multi-hive + monitored delivery.**
+- **Phase 2 — Supervisor** (`factory watch`) ✅
+- **Phase 3 — Control Panel** (`factory board`) ✅
+- **Phase 4 — Escalation + alerting** (push/Slack digest, pending-decisions queue)
+- **Phase 5 — multi-hive + monitored delivery** (merge → deploy → observed-in-prod)
 
 Supervised autonomy: the factory builds around the clock; you decide the irreversible calls.

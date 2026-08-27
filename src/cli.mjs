@@ -4,6 +4,7 @@
 import { c, say, err } from "./lib/log.mjs";
 import { factoryNew } from "./new.mjs";
 import { factoryWatch } from "./watch.mjs";
+import { factoryBoard } from "./board.mjs";
 
 const argv = process.argv.slice(2);
 const [cmd, ...rest] = argv;
@@ -33,7 +34,8 @@ function help() {
     `        The 24/7 supervisor: heal dead agents, run doctor, detect stalls,`,
     `        nudge idle agents, and post an escalation digest to the hive.`,
     "",
-    c.dim("  soon: factory board   (live control panel)"),
+    `  ${c.cyan("board")} [--interval 5] [--once]`,
+    `        Live control panel: every hive's queue, lanes, done, drift, blockers.`,
   ].join("\n"));
 }
 
@@ -42,6 +44,7 @@ try {
   switch (cmd) {
     case "new": await factoryNew(pos.join(" ").trim(), flags); break;
     case "watch": await factoryWatch(pos[0], flags); break;
+    case "board": await factoryBoard(flags); break;
     case "version": case "--version": case "-v": say("factory 0.1.0"); break;
     case undefined: case "help": case "--help": case "-h": help(); break;
     default: err(`unknown command: ${cmd}`); help(); process.exit(2);
