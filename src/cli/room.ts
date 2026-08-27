@@ -17,6 +17,7 @@ import { createInterface } from "node:readline";
 import { buildShareUrl, extractToken } from "./auth.js";
 import { agentEmoji, roomEmoji } from "./config.js";
 import { askRepoPath, askRuntime, shortenPath } from "./repoPicker.js";
+import { foundationInit } from "./foundation.js";
 import type { AuthorityLevel } from "../core/types.js";
 import { roomRulesPath } from "../core/rules.js";
 import {
@@ -450,6 +451,8 @@ export async function roomCreate(opts: {
   port?: number;
   share?: boolean;
   expose?: boolean;
+  /** Bootstrap the Foundation project workflow into each repo (default on). --no-foundation opts out. */
+  foundation?: boolean;
 }): Promise<void> {
   const Y = "\x1b[33m";
   const B = "\x1b[1m";
@@ -523,6 +526,22 @@ export async function roomCreate(opts: {
   }
 
   close();
+
+  // ── Foundation: bootstrap the project workflow into each repo (always follows) ──
+  if (opts.foundation !== false) {
+    const seen = new Set<string>();
+    for (const p of participants) {
+      if (!isLocalPath(p.cwd)) continue;
+      const key = p.cwd.replace(/^~/, homedir());
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const r = foundationInit(p.cwd);
+      const where = shortenPath(p.cwd);
+      if (r.how === "already") console.log(`  ${D}Foundation already set up in ${where}${R}`);
+      else if (r.ok) console.log(`  ${G}✓${R} Foundation installed in ${D}${where}${R} ${D}(${r.how})${R}`);
+      else console.log(`  ${D}Foundation skipped for ${where} — run: foundation init${R}`);
+    }
+  }
 
   console.log(`\n  Starting server in background...`);
 

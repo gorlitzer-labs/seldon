@@ -282,6 +282,7 @@ async function main(): Promise<void> {
         port,
         share: roomArgs.includes("--share"),
         expose: roomArgs.includes("--expose"),
+        foundation: !roomArgs.includes("--no-foundation"),
       });
       return;
     }
