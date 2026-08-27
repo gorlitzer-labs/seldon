@@ -33,7 +33,7 @@ Status: design draft for Franco's review. No code yet. Decisions locked so far a
 - **/verify default: light, escalate on risk.** The gate runs typecheck + tests + an independent
   behavior check by default; it escalates to isolated-worktree + named mutation-kill (+ prod
   before/after for changed numbers) only for money/high-risk changes.
-- **Distribution:** `npx github:gorlitzer/foundation init` (like groundwork). Init-into-existing
+- **Distribution:** `npx github:gorlitzer-labs/foundation init` (like groundwork). Init-into-existing
   (or new) repos only — no starter template in v1.
 
 ---
@@ -220,7 +220,7 @@ The three gaps groundwork leaves — and you require — as first-class skills:
    Copilot (+ Codex) via a Foundation-owned adapter (no vendored dep). Foundation stays
    **apiary-agnostic / standalone**. (§0, §1)
 2. **`/verify` depth:** **light default, escalate on risk.** (§0, §5)
-3. **Distribution:** **`npx github:gorlitzer/foundation init`**, init-into-existing only. (§0)
+3. **Distribution:** **`npx github:gorlitzer-labs/foundation init`**, init-into-existing only. (§0)
 4. **Starter template:** **no** in v1 — bolt-onto-existing only.
 
 ### 8b. Seam-grammar decision — RESOLVED: detach completely, own it, do better

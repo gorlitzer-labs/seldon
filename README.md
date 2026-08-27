@@ -11,7 +11,7 @@ It is *not* groundwork. Its center of gravity is the **deterministic spine**: ev
 goes through a concurrency-safe, atomic, ASCII-validated command — the model never hand-edits state.
 
 ```bash
-npx github:gorlitzer/foundation init      # install the seam + doc scaffold into the current repo
+npx github:gorlitzer-labs/foundation init      # install the seam + doc scaffold into the current repo
 ```
 
 ## The seam (writer-split — one writer per file, the filesystem *is* the concurrency control)
