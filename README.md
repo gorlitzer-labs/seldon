@@ -4,9 +4,32 @@
 > **24/7** under **supervised autonomy**. See [`THE-AGENTIC-FACTORY.md`](../THE-AGENTIC-FACTORY.md)
 > for the full blueprint.
 
-apiary (transport) + the Hive Manifest (protocol) + Foundation (substrate) + the coord roles are the
-subsystems. `factory` is the front door and — soon — the supervisor and control panel that tie them
-into one product.
+`factory` is the umbrella CLI — the **front door, the 24/7 supervisor, and the control panel** that
+tie the subsystems into one product.
+
+## The stack (subsystems)
+
+The Factory assembles four subsystems (each its own repo/layer):
+
+| Subsystem | Repo | Layer |
+|---|---|---|
+| **apiary** | [`gorlitzer/apiary`](https://github.com/gorlitzer/apiary) | transport — shared rooms/hives for agents |
+| **Hive Manifest** | `apiary/MANIFEST.md` | protocol — how agents behave (lanes, no-clobber, merge gate) |
+| **Foundation** | [`gorlitzer/foundation`](https://github.com/gorlitzer/foundation) | substrate — the four-file seam + deterministic spine |
+| **coord roles** | Claude Code skills + `agent-coord` MCP | orchestration — coordinator / worker / QA / CI / liaison |
+
+`factory` requires `apiary` and `foundation` on PATH (or reachable via `npx github:gorlitzer/...`).
+
+## Commands
+
+```
+factory new "<idea>"          create a line: repo · Foundation · plan · hive
+factory watch <project>       supervise one hive (24/7)   ·   watch --all  supervise every hive
+factory board                 live control panel + decisions pending your call
+factory decide <id> "<call>"  answer a pending decision (reaches the agents)
+factory briefing              the accumulating morning briefing
+factory ls                    list every hive the factory knows
+```
 
 ## `factory new` — the front door (Phase 1)
 
