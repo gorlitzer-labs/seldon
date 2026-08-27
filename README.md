@@ -36,6 +36,8 @@ A standalone daemon (independent of any session) that keeps one hive alive + pro
 ```bash
 factory watch <project> --agents Aria,Bruno   # heal dead agents · run doctor · detect stalls ·
                                               # nudge idle agents · post an escalation digest
+factory watch --all                           # one supervisor over EVERY registered hive
+factory ls                                    # list all hives the factory knows
 ```
 
 Flags: `--interval 30` · `--stall 15` · `--digest 60` · `--once` (single tick, for cron). It
@@ -74,6 +76,8 @@ The factory escalates — it never decides the irreversible.
 - **Phase 2 — Supervisor** (`factory watch`) ✅
 - **Phase 3 — Control Panel** (`factory board`) ✅
 - **Phase 4 — Escalation + alerting** (`decide` / `briefing`, macOS alerts) ✅
-- **Phase 5 — multi-hive + monitored delivery** (merge → deploy → observed-in-prod)
+- **Phase 5 — multi-hive** (`watch --all`, `ls`) ✅ · **monitored delivery** (merge → deploy →
+  observed-in-prod) — designed; needs a per-project deploy adapter, so it lands when wired to a real
+  target.
 
 Supervised autonomy: the factory builds around the clock; you decide the irreversible calls.

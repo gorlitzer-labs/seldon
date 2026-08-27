@@ -53,6 +53,12 @@ export async function factoryBoard(flags) {
   while (!stop) { await sleep(interval); if (stop) break; await render(); }
 }
 
+export function factoryLs() {
+  const reg = readRegistry();
+  if (!reg.length) { say(c.dim("no hives — factory new \"<idea>\"")); return; }
+  for (const e of reg) say(`  ${c.bold(e.name.padEnd(20))} ${c.dim(e.hive?.serverUrl || "-")}  ${c.dim(e.dir)}`);
+}
+
 const needs = (s) => !s.up || s.drift > 0 || s.blockers > 0;
 function attentionReasons(s) {
   const r = [];

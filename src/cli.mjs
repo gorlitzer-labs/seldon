@@ -4,7 +4,7 @@
 import { c, say, err } from "./lib/log.mjs";
 import { factoryNew } from "./new.mjs";
 import { factoryWatch } from "./watch.mjs";
-import { factoryBoard } from "./board.mjs";
+import { factoryBoard, factoryLs } from "./board.mjs";
 import { factoryDecide, factoryBriefing } from "./decide.mjs";
 
 const argv = process.argv.slice(2);
@@ -50,6 +50,7 @@ try {
     case "new": await factoryNew(pos.join(" ").trim(), flags); break;
     case "watch": await factoryWatch(pos[0], flags); break;
     case "board": await factoryBoard(flags); break;
+    case "ls": factoryLs(); break;
     case "decide": await factoryDecide(pos[0], pos.slice(1)); break;
     case "briefing": await factoryBriefing(); break;
     case "version": case "--version": case "-v": say("factory 0.1.0"); break;
