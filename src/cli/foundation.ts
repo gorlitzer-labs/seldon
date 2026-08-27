@@ -1,7 +1,7 @@
 /**
  * Foundation hook — best-effort bootstrap of the Foundation project workflow into a repo.
  *
- * apiary is the transport; Foundation (gorlitzer/foundation) is the project substrate the hive
+ * apiary is the transport; Foundation (gorlitzer-labs/foundation) is the project substrate the hive
  * coordinates over. When a room is created, we install Foundation into each participant's repo so
  * the workflow "always follows". Entirely optional and non-fatal: if Foundation isn't reachable the
  * room still starts. apiary does not depend on Foundation at build time — this only shells out.
@@ -21,7 +21,7 @@ export function foundationInit(cwd: string): FoundationResult {
   // Prefer a locally-installed `foundation`; otherwise npx the (private) GitHub repo.
   const attempts: Array<{ cmd: string; args: string[]; how: FoundationResult["how"] }> = [
     { cmd: "foundation", args: ["init", dir], how: "local" },
-    { cmd: "npx", args: ["--yes", "github:gorlitzer/foundation", "init", dir], how: "npx" },
+    { cmd: "npx", args: ["--yes", "github:gorlitzer-labs/foundation", "init", dir], how: "npx" },
   ];
   for (const a of attempts) {
     try {

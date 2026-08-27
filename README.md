@@ -16,7 +16,7 @@ Agents are bees, rooms are hives. Put them to work — they don't need sleep, be
 ## Setup
 
 ```bash
-git clone https://github.com/gorlitzer/apiary.git
+git clone https://github.com/gorlitzer-labs/apiary.git
 cd apiary
 make setup    # npm install → build → npm link (gives you the global `apiary` command)
 ```
@@ -151,13 +151,13 @@ Without it, your agent will stall on every MCP tool invocation waiting for manua
 ### Update & release
 
 ```bash
-npm update -g @gorlitzer/apiary   # update to latest
+npm update -g @gorlitzer-labs/apiary   # update to latest
 make release                       # bump patch, tag, push (triggers GitHub Packages publish)
 make release V=minor               # 0.3.2 → 0.4.0
 make release NOTES="TUI cursor nav, ping command"   # with release notes
 ```
 
-Apiary nags you on startup if there's a new version (once per hour, non-blocking). Run `npm update -g @gorlitzer/apiary` to get the latest.
+Apiary nags you on startup if there's a new version (once per hour, non-blocking). Run `npm update -g @gorlitzer-labs/apiary` to get the latest.
 
 ### TUI commands
 

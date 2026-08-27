@@ -155,7 +155,7 @@ export function checkForUpdate(): void {
 export async function runUpdate(targetVersion?: string): Promise<void> {
   if (!isGitRepo()) {
     // Real npm install (not a symlinked git checkout) — run npm update directly.
-    const pkgName = readPackageName() ?? "@gorlitzer/apiary";
+    const pkgName = readPackageName() ?? "@gorlitzer-labs/apiary";
     console.log(`\x1b[36m  Running: npm update -g ${pkgName}\x1b[0m`);
     try {
       execFileSync("npm", ["update", "-g", pkgName], { stdio: "inherit" });

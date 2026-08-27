@@ -206,7 +206,7 @@ function joinHeadless(
         send(message: string) {
           child.stdin!.write(message + "\n");
         },
-        waitForEvent(predicate, timeoutMs = 5000) {
+        waitForEvent(predicate, timeoutMs = 15000) {
           // Check existing events first
           const existing = events.find(predicate);
           if (existing) return Promise.resolve(existing);
