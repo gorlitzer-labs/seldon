@@ -48,3 +48,5 @@ is written only if the check passes.
     verified: 2026-09-05T08:19Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/smoke.json turns.1.first_audio_ms 2000 max
 - `mlx-wired-limit-helps`: Pinning MLX memory with mx.set_wired_limit(24 GB) and set_cache_limit(4 GB) removed the residual first-generation cost with three models resident: 3268 ms on defaults versus 347 ms pinned. This reverses the earlier conclusion that no memory tuning was needed -- it is needed for stability, not capacity.
     verified: 2026-09-05T08:19Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/smoke.json turns.1.ttft_ms 700 max
+- `fully-local-verified`: Boomer holds no non-loopback socket while running. This was NOT true initially: huggingface_hub kept an ESTABLISHED connection to huggingface.co (18.155.129.129, CloudFront) at load time to check model revisions. Fixed by setting HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE in boomer/__init__.py before any hub import. Verified with lsof, not assumed.
+    verified: 2026-09-05T17:13Z  by: gorlitzer  method: sh scripts/check-offline.sh

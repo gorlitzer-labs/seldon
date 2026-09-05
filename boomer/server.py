@@ -131,12 +131,24 @@ def serve_http():
 
 
 def load_models():
+    """Load on the worker thread, not the main one.
+
+    MLX streams are thread-local. Loading and warming on the main thread and
+    then running turns on the executor raises
+
+        RuntimeError: There is no Stream(cpu, 1) in current thread
+
+    because the worker never inherits the stream the models were built against.
+    Every MLX touch -- load, warm, transcribe, generate -- happens on this one
+    thread, which is also what serialises access to the single GPU.
+    """
     global ears, brain, voice
     ears, brain, voice = load_all()
 
 
 async def main():
-    load_models()
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(worker, load_models)   # same thread as every turn
     threading.Thread(target=serve_http, daemon=True).start()
     print(f"\n  Boomer is listening -- open http://localhost:{HTTP_PORT}/\n", flush=True)
     async with websockets.serve(handler, "127.0.0.1", WS_PORT, max_size=None):

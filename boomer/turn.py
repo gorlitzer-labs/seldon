@@ -119,6 +119,9 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
         speak(tail)
 
     reply_text = " ".join(spoken)
+    print(f"  turn | heard {transcript!r} | stt {m.stt_ms:.0f}ms "
+          f"ttft {m.ttft_ms:.0f}ms first-audio {m.tts_first_ms:.0f}ms "
+          f"| said {reply_text[:60]!r}", flush=True)
     m.reply_chars = len(reply_text)
     m.total_ms = ((first_audio_at or time.perf_counter()) - speech_ended_at) * 1000
     emit(P.reply("", done=True))

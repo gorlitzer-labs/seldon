@@ -10,9 +10,14 @@ const el = (id) => document.getElementById(id);
 const setState = (s) => {
   el('state').textContent = s;
   document.body.dataset.state = s;
+  sending = (s === 'idle' || s === 'listening');
 };
 
 let ws, micCtx, playCtx, nextPlayTime = 0, pendingAudio = null;
+// Only stream the mic while she is idle or listening. During thinking/speaking
+// the frames would queue in the socket and flood in when the turn ends -- with
+// her own voice among them, which reads as a new utterance.
+let sending = true;
 
 function playChunk(float32, sampleRate) {
   const buf = playCtx.createBuffer(1, float32.length, sampleRate);
@@ -81,7 +86,7 @@ async function start() {
   const src = micCtx.createMediaStreamSource(stream);
   const node = micCtx.createScriptProcessor(1024, 1, 1);
   node.onaudioprocess = (e) => {
-    if (ws.readyState !== 1) return;
+    if (ws.readyState !== 1 || !sending) return;
     const f = e.inputBuffer.getChannelData(0);
     const i16 = new Int16Array(f.length);
     for (let i = 0; i < f.length; i++) {
