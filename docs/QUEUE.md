@@ -25,3 +25,4 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P2) Model contention policy: yield the LLM to the voice path on wake, agents run at low priority.
 - [ ] (P3) three.js hologram avatar as a pure consumer of the :8765 state protocol.
 - [ ] (P3) Performance mode dashboard driven by the same factory state --json.
+- [ ] (P1) AEC follow-up: AGC confounds the measurement (aec-on residual sits 14.5 dB BELOW the noise floor). Test speech intelligibility while the tone plays, with autoGainControl off, before trusting barge-in.
