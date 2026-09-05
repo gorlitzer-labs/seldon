@@ -16,11 +16,17 @@ is written only if the check passes.
     verified: 2026-09-05T07:28Z  by: gorlitzer  method: curl -s https://huggingface.co/api/models/mlx-community/Qwen3.6-35B-A3B-4bit | grep -q modelId
 - `m3-pro-bandwidth`: M3 Pro has 150 GB/s memory bandwidth and 36 GB unified, so MoE is required: dense 27B would read ~16 GB/token
     verified: 2026-09-05T07:28Z  by: gorlitzer  method: test 38654705664 -eq 38654705664
-- `wired-limit-default`: iogpu.wired_limit_mb is 0 (default ~27 GB) and must be raised to ~30720 to hold the 24.8 GB working set
-    verified: 2026-09-05T07:28Z  by: gorlitzer  method: sysctl -n iogpu.wired_limit_mb
+- `wired-limit-default`: SUPERSEDES the earlier claim that iogpu.wired_limit_mb must be raised. Measured working set is ~21.5 GB against a default limit of ~27 GB, so no sysctl change is needed unless the browser and avatar push it over.
+    verified: 2026-09-05T07:45Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/llm-cache-bench.json peak_gb 20 max
 - `opencode-config-merges`: apiary injects OPENCODE_CONFIG_CONTENT with only an mcp block; opencode MERGES config sources, so a local provider in ~/.config/opencode/opencode.json survives. Fully-local factory agents are reachable.
     verified: 2026-09-05T07:29Z  by: gorlitzer  method: gh api repos/gorlitzer-labs/apiary/contents/src/cli/opencode/run.ts --jq .content | base64 -d | grep -q OPENCODE_CONFIG_CONTENT
-- `browser-aec-erle`: Chrome getUserMedia echoCancellation gives 26.8 dB ERLE on this Mac over speakers (tone -27.3 dBFS AEC off vs -54.0 dBFS AEC on). Enough that Aria will not retrigger on her own TTS. The page can be the ears; Python needs no CoreAudio binding.
-    verified: 2026-09-05T07:35Z  by: gorlitzer  method: python3 spikes/aec/check.py
-- `bargein-speech-snr`: With AGC off, speech rides 14.0 dB above the residual echo while a tone plays (speech p90 -40.5 dBFS vs residual -54.5), costing 5.0 dB of level. Enough SNR for wake-word detection during playback; NOT yet proven for full STT, and measured against a tone rather than real TTS.
-    verified: 2026-09-05T07:40Z  by: gorlitzer  method: python3 spikes/aec/check.py result-bargein.json speech_snr_db 10
+- `browser-aec-erle`: Chrome getUserMedia echoCancellation gives 26.8 dB ERLE on this Mac over speakers. Enough that Aria will not retrigger on her own TTS; the page can be the ears and Python needs no CoreAudio binding.
+    verified: 2026-09-05T07:45Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/aec/result.json erle_db 20
+- `bargein-speech-snr`: With AGC off, speech rides 14.0 dB above the residual echo while a tone plays, costing 5.0 dB of level. Enough for wake-word detection during playback; not proven for full STT, and measured against a tone rather than real TTS.
+    verified: 2026-09-05T07:45Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/aec/result-bargein.json speech_snr_db 10
+- `llm-decode-speed`: Qwen3.6-35B-A3B-4bit decodes at 52.4 tok/s on this M3 Pro, well above the ~15-20 tok/s that speech consumes. The MoE bandwidth argument holds: a dense model here would not keep the TTS fed.
+    verified: 2026-09-05T07:45Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/llm-bench.json decode_tok_s_warm_avg 30
+- `llm-ttft-cached`: A retained KV cache cuts TTFT from 644 ms to 334 ms (48 percent). More important than the average: uncached TTFT GROWS with conversation length (417 to 703 ms over four turns) while cached stays flat (385 to 328). Aria must hold a per-conversation cache.
+    verified: 2026-09-05T07:45Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/llm-cache-bench.json avg_cached_ms 500 max
+- `llm-memory-actual`: The 4-bit LLM occupies 18.2 GB active / 18.6 GB peak, not the 20.4 GB on-disk size. With Parakeet (2.5) and Kokoro (0.4) that is ~21.5 GB, inside the default ~27 GB wired limit.
+    verified: 2026-09-05T07:45Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/llm-cache-bench.json peak_gb 20 max

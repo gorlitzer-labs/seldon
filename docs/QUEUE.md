@@ -28,3 +28,4 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P1) AEC follow-up: AGC confounds the measurement (aec-on residual sits 14.5 dB BELOW the noise floor). Test speech intelligibility while the tone plays, with autoGainControl off, before trusting barge-in.
 - [ ] (P1) Re-run the barge-in spike using real Kokoro TTS as the playback source, not a 440/880 Hz tone. Broadband speech occupies the same spectrum as the user's voice and is the genuinely hard case for AEC.
 - [ ] (P2) Barge-in design: gate interruption on the wake word during playback, not full STT. A wake-word model tolerates far less SNR than transcription does.
+- [ ] (P1) Warm the model at boot with a throwaway inference: the first generation after load costs 3.7-8 s of graph build, which would land on the user's first ever utterance.
