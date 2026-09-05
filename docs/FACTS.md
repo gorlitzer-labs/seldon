@@ -30,3 +30,9 @@ is written only if the check passes.
     verified: 2026-09-05T07:45Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/llm-cache-bench.json avg_cached_ms 500 max
 - `llm-memory-actual`: The 4-bit LLM occupies 18.2 GB active / 18.6 GB peak, not the 20.4 GB on-disk size. With Parakeet (2.5) and Kokoro (0.4) that is ~21.5 GB, inside the default ~27 GB wired limit.
     verified: 2026-09-05T07:45Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/llm-cache-bench.json peak_gb 20 max
+- `stt-latency`: Parakeet TDT v3 transcribes at 215 ms average for 3-5 s clips, RTF 0.054 (about 18x realtime) on this M3 Pro. The ears are not the bottleneck.
+    verified: 2026-09-05T07:49Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/voice-bench.json stt_transcribe_ms_avg 400 max
+- `tts-first-audio-is-chunk-bound`: Kokoro's KPipeline yields per SENTENCE, so time-to-first-audio equals the time to synthesize the whole opening chunk, not a streaming first frame. One long sentence costs 1007 ms; leading with a short clause costs 329 ms. Aria must split her reply and synthesize a short opener first.
+    verified: 2026-09-05T07:49Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/tts-chunk-bench.json best_first_audio_ms 500 max
+- `stt-mangles-technical-terms`: Parakeet transcribed 'Postgres or SQLite' as 'Poskers or SQ light' in the round-trip test. Aria's domain is full of such terms, so the router must tolerate mangled technical vocabulary or use biasing.
+    verified: 2026-09-05T07:49Z  by: gorlitzer  method: python3 -c "import json;d=json.load(open('spikes/voice-bench.json'));assert 'SQLite' not in d['stt'][1]['got']"
