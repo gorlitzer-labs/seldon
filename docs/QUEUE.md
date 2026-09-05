@@ -37,3 +37,5 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P1) TTS is now the biggest cost at ~760 ms for a fresh 5-word opener, against 329 ms measured in isolation. Investigate misaki/spacy phonemization cost per utterance and whether the opener can be pre-synthesized from a small fixed set.
 - [ ] (P1) Swap Parakeet for Qwen3-ASR-1.7B on accented English. Qwen3-ASR scores 16.07 WER on dialog-accented English vs Whisper large-v3's 21.30, and narrows the L1-English to L1-other gap to 1.1x against Whisper's 2.2x. mlx-community/Qwen3-ASR-1.7B-8bit is 2.47 GB, near-identical to Parakeet's 2.5 GB.
 - [ ] (P2) Have the LLM repair mangled transcripts before the router acts. Published work on accented-ASR errors recommends LLM-based remedies, and a 35B model is already in the loop.
+- [ ] (P2) Qwen3-ASR appears to worsen LLM TTFT (445 -> 611 ms), likely more GPU eviction than Parakeet caused. Try more settle rounds or interleaving the models differently.
+- [ ] (P1) Verify the accent improvement with David's own voice, A/B via BOOMER_STT. The published accent numbers are from benchmarks; the synthetic TTS fixtures used here cannot test a real accent.

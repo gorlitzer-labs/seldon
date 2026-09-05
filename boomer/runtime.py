@@ -39,7 +39,8 @@ def load_all(verbose: bool = True) -> tuple[Ears, Brain, Voice]:
     say = print if verbose else (lambda *a, **k: None)
     say(f"memory: {configure_memory()}", flush=True)
     t0 = time.perf_counter()
-    say("loading ears (parakeet) ...", flush=True)
+    from .models import STT_BACKEND
+    say(f"loading ears ({STT_BACKEND}) ...", flush=True)
     ears = Ears()
     say("loading voice (kokoro) ...", flush=True)
     voice = Voice()

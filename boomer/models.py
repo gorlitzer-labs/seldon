@@ -15,6 +15,7 @@ seconds, which would otherwise land on the user's first ever utterance.
 """
 from __future__ import annotations
 
+import os
 import re
 import time
 from typing import Iterator
@@ -25,8 +26,21 @@ import numpy as np
 from .protocol import MIC_SR, TTS_SR
 
 LLM_MODEL = "mlx-community/Qwen3.6-35B-A3B-4bit"
-STT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
+STT_QWEN = "mlx-community/Qwen3-ASR-1.7B-8bit"
+STT_PARAKEET = "mlx-community/parakeet-tdt-0.6b-v3"
 TTS_VOICE = "af_heart"
+
+# Words the generic model has no reason to know but Boomer hears constantly.
+# Measured: without these, "Postgres or SQLite" came back as "posters or SQ
+# light"; with them it is exact. Costs ~8 ms.
+HOTWORDS = [
+    "Boomer", "netreach", "apiary", "foundation", "factory", "gorlitzer",
+    "Postgres", "SQLite", "Cloudflare", "wrangler", "worktree", "PR",
+    "coordinator", "hive", "queue", "blocker", "netwatch", "bifrost",
+]
+
+# BOOMER_STT=parakeet falls back to the faster, less accent-robust model.
+STT_BACKEND = os.environ.get("BOOMER_STT", "qwen").lower()
 
 SYSTEM = (
     "You are Boomer, a local voice assistant running on David's Mac. You are the "
@@ -42,17 +56,33 @@ _CLAUSE = re.compile(r"(?<=[.!?])\s+|(?<=[,;:])\s+")
 class Ears:
     """Speech-to-text over a buffered utterance.
 
-    An earlier version fed StreamingParakeet incrementally, hoping to shrink the
-    wait after you stop talking. It was measurably unreliable at utterance
-    scale: on a 1.86 s clip, one whole-clip call transcribed correctly while
-    320/480/640 ms chunking returned an empty string and 960 ms returned
-    "Yeah.". Batch decoding of a 2-4 s utterance costs ~215 ms at RTF 0.054, so
-    streaming was buying a tail saving that barely exists. Buffer, then decode.
+    Default backend is Qwen3-ASR, chosen for accented English: it scores 16.07
+    WER on dialog-accented English against Whisper large-v3's 21.30, and
+    narrows the gap between L1-English and other first languages to 1.1x versus
+    Whisper's 2.2x. It also accepts hotwords, which is what makes the domain
+    vocabulary come out right.
+
+    Measured on this Mac against synthetic fixtures: Parakeet 134 ms,
+    Qwen3-ASR 327 ms, Qwen3-ASR + hotwords 335 ms. The ~200 ms buys correct
+    technical terms; whether it also helps a given real accent has to be tested
+    by that speaker, not inferred from a leaderboard.
+
+    Set BOOMER_STT=parakeet to A/B against the faster model.
+
+    Streaming is deliberately not used. StreamingParakeet proved unreliable at
+    utterance scale -- on a 1.86 s clip, chunked calls returned empty strings
+    while a single whole-clip call transcribed correctly -- and batch decoding
+    of a 2-4 s utterance is fast enough that the tail saving barely exists.
     """
 
     def __init__(self) -> None:
-        from parakeet_mlx import from_pretrained
-        self.model = from_pretrained(STT_MODEL)
+        self.backend = STT_BACKEND
+        if self.backend == "parakeet":
+            from parakeet_mlx import from_pretrained
+            self.model = from_pretrained(STT_PARAKEET)
+        else:
+            from mlx_audio.stt.utils import load_model
+            self.model = load_model(STT_QWEN)
         self._buf: list[np.ndarray] = []
         self._open = False
 
@@ -75,17 +105,19 @@ class Ears:
             return ""
         audio = np.concatenate(self._buf)
         self._buf = []
-        # Too short to be speech; the mel would be degenerate.
-        if len(audio) < MIC_SR // 5:
+        if len(audio) < MIC_SR // 5:      # too short to be speech
             return ""
         return self.transcribe(audio)
 
     def transcribe(self, audio: np.ndarray) -> str:
-        from parakeet_mlx.audio import get_logmel
-        mel = get_logmel(mx.array(np.ascontiguousarray(audio, dtype=np.float32)),
-                         self.model.preprocessor_config)
-        out = self.model.generate(mel)
-        return (out[0].text or "").strip() if out else ""
+        audio = np.ascontiguousarray(audio, dtype=np.float32)
+        if self.backend == "parakeet":
+            from parakeet_mlx.audio import get_logmel
+            mel = get_logmel(mx.array(audio), self.model.preprocessor_config)
+            out = self.model.generate(mel)
+            return (out[0].text or "").strip() if out else ""
+        out = self.model.generate(mx.array(audio), hotwords=HOTWORDS)
+        return (getattr(out, "text", "") or "").strip()
 
     def warm(self) -> None:
         self.transcribe(np.zeros(MIC_SR, dtype=np.float32))

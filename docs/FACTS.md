@@ -50,3 +50,7 @@ is written only if the check passes.
     verified: 2026-09-05T08:19Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/smoke.json turns.1.ttft_ms 700 max
 - `fully-local-verified`: Boomer holds no non-loopback socket while running. This was NOT true initially: huggingface_hub kept an ESTABLISHED connection to huggingface.co (18.155.129.129, CloudFront) at load time to check model revisions. Fixed by setting HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE in boomer/__init__.py before any hub import. Verified with lsof, not assumed.
     verified: 2026-09-05T17:13Z  by: gorlitzer  method: sh scripts/check-offline.sh
+- `stt-hotwords-fix-vocabulary`: Qwen3-ASR hotwords fix domain vocabulary outright: 'Should we use Postgres or SQLite for storage?' came back as 'poskers or SQ Lite' (Parakeet) and 'posters or SQ light' (Qwen3-ASR bare), but exactly right with hotwords. Cost of the hotwords themselves is ~8 ms.
+    verified: 2026-09-05T17:22Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/asr-compare.json runs.2.avg_ms 600 max
+- `stt-swap-latency-cost`: Swapping Parakeet for Qwen3-ASR+hotwords costs about 190 ms of STT (134 -> 335 ms on fixtures; 120 -> 304 ms in the live pipeline), taking the full turn from ~1.79 s to ~1.96 s from the user's last word. Bought for correct technical vocabulary and better accented-English WER. Set BOOMER_STT=parakeet to A/B.
+    verified: 2026-09-05T17:22Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/smoke.json steady_from_last_word_ms 2500 max

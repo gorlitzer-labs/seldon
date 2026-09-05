@@ -1,17 +1,17 @@
 {
   "turns": [
     {
-      "stt_ms": 128.83224998950027,
-      "ttft_ms": 451.86070798081346,
-      "first_audio_ms": 1309.238624991849
+      "stt_ms": 321.6754999999978,
+      "ttft_ms": 612.1889169999974,
+      "first_audio_ms": 1390.4183329999853
     },
     {
-      "stt_ms": 120.32641601399519,
-      "ttft_ms": 445.03587498911656,
-      "first_audio_ms": 1208.7470830010716
+      "stt_ms": 304.20266700002685,
+      "ttft_ms": 610.8609999999999,
+      "first_audio_ms": 1380.0962920000188
     }
   ],
-  "steady_endpoint_to_word_ms": 1208.7470830010716,
+  "steady_endpoint_to_word_ms": 1380.0962920000188,
   "hangover_ms": 576.0,
-  "steady_from_last_word_ms": 1784.7470830010716
+  "steady_from_last_word_ms": 1956.0962920000188
 }

@@ -6,3 +6,4 @@ models/
 *.onnx
 .playwright-mcp/
 spikes/*.wav
+transcript.txt
