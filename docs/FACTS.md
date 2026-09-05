@@ -22,3 +22,5 @@ is written only if the check passes.
     verified: 2026-09-05T07:29Z  by: gorlitzer  method: gh api repos/gorlitzer-labs/apiary/contents/src/cli/opencode/run.ts --jq .content | base64 -d | grep -q OPENCODE_CONFIG_CONTENT
 - `browser-aec-erle`: Chrome getUserMedia echoCancellation gives 26.8 dB ERLE on this Mac over speakers (tone -27.3 dBFS AEC off vs -54.0 dBFS AEC on). Enough that Aria will not retrigger on her own TTS. The page can be the ears; Python needs no CoreAudio binding.
     verified: 2026-09-05T07:35Z  by: gorlitzer  method: python3 spikes/aec/check.py
+- `bargein-speech-snr`: With AGC off, speech rides 14.0 dB above the residual echo while a tone plays (speech p90 -40.5 dBFS vs residual -54.5), costing 5.0 dB of level. Enough SNR for wake-word detection during playback; NOT yet proven for full STT, and measured against a tone rather than real TTS.
+    verified: 2026-09-05T07:40Z  by: gorlitzer  method: python3 spikes/aec/check.py result-bargein.json speech_snr_db 10

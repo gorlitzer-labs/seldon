@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Exit 0 only if the measured browser AEC still clears the 20 dB bar."""
+"""Re-check a spike measurement. Usage: check.py <result.json> <key> <min_db>"""
 import json, sys, pathlib
-r = json.loads((pathlib.Path(__file__).parent / "result.json").read_text())
-erle = r["erle_db"]
-print(f"ERLE {erle:.1f} dB")
-sys.exit(0 if erle >= 20 else 1)
+f, key, floor = sys.argv[1], sys.argv[2], float(sys.argv[3])
+v = json.loads((pathlib.Path(__file__).parent / f).read_text())[key]
+print(f"{key} = {v:.1f} dB (need >= {floor})")
+sys.exit(0 if v >= floor else 1)

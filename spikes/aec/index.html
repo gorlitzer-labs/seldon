@@ -1,6 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>Aria AEC spike</title>
+<link rel="icon" href="data:,">
 <style>
   body{font:14px ui-monospace,Menlo,monospace;background:#0b0e13;color:#cfe3ff;padding:2rem;max-width:52rem;margin:auto}
   button{font:inherit;padding:.6rem 1.1rem;background:#1b2738;color:#cfe3ff;border:1px solid #2f4358;border-radius:6px;cursor:pointer}
@@ -10,80 +11,37 @@
 </style>
 <h2>Aria &mdash; acoustic echo cancellation spike</h2>
 <p class="warn">Use SPEAKERS, not headphones. Headphones make this test meaningless.</p>
+<p>Does the browser keep Aria's own voice out of her microphone? You WILL hear the tone in
+both phases &mdash; AEC removes it from the mic, not from the room.</p>
 <button id="go">Run test (~24s)</button>
 <div id="log"></div>
-<script>
-const log = (s) => { document.getElementById('log').textContent += s + "\n"; };
-let ws;
+<p><a href="./bargein.html" style="color:#7ee787">&rarr; barge-in spike</a></p>
+<script type="module">
+import { log, connect, send, capture } from './capture.js';
 
-// A 440Hz+880Hz tone is a stand-in for Aria's own TTS coming out of the speakers.
-function playTone(ctx, seconds) {
-  const g = ctx.createGain();
-  g.gain.value = 0.25;
-  g.connect(ctx.destination);
-  for (const f of [440, 880]) {
-    const o = ctx.createOscillator();
-    o.frequency.value = f;
-    o.connect(g);
-    o.start();
-    o.stop(ctx.currentTime + seconds);
-  }
-  return new Promise(r => setTimeout(r, seconds * 1000));
-}
-
-async function capture(ctx, aec, phase, seconds) {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: aec, noiseSuppression: aec, autoGainControl: aec }
-  });
-  const track = stream.getAudioTracks()[0];
-  const settings = track.getSettings();
-  log(`  [${phase}] requested aec=${aec} -> browser reports echoCancellation=${settings.echoCancellation}`);
-
-  let sent = 0;
-  const src = ctx.createMediaStreamSource(stream);
-  const node = ctx.createScriptProcessor(1024, 1, 1);
-  ws.send(JSON.stringify({ phase, aec, sampleRate: ctx.sampleRate }));
-  node.onaudioprocess = (e) => {
-    if (ws.readyState === 1) { ws.send(e.inputBuffer.getChannelData(0).slice().buffer); sent++; }
-  };
-  // A ScriptProcessorNode is only pulled if its output reaches the destination.
-  // Route through a zero-gain node: the graph runs, nothing is audible.
-  const sink = ctx.createGain();
-  sink.gain.value = 0;
-  src.connect(node);
-  node.connect(sink);
-  sink.connect(ctx.destination);
-
-  const _wait = seconds;
-  if (seconds) await playTone(ctx, seconds);
-  else await new Promise(r => setTimeout(r, 3000));
-
-  node.onaudioprocess = null;
-  src.disconnect(); node.disconnect(); sink.disconnect();
-  track.stop();
-  log(`  [${phase}] captured ${sent} frames`);
-}
+const ON  = { echoCancellation: true,  noiseSuppression: true,  autoGainControl: true  };
+const OFF = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
 
 document.getElementById('go').onclick = async () => {
-  document.getElementById('go').disabled = true;
+  const btn = document.getElementById('go');
+  btn.disabled = true;
   document.getElementById('log').textContent = '';
-  ws = new WebSocket(`ws://${location.hostname}:8765`);
-  await new Promise(r => ws.onopen = r);
+  await connect();
   const ctx = new AudioContext();
   await ctx.resume();
   log(`AudioContext sampleRate = ${ctx.sampleRate} Hz\n`);
 
   log('1/3 noise floor (stay quiet, no tone)...');
-  await capture(ctx, true, 'noise-floor', 0);
+  await capture(ctx, ON, 'noise-floor', 3);
 
-  log('2/3 tone playing, AEC OFF (you should hear it; mic will hear it too)...');
-  await capture(ctx, false, 'tone-aec-off', 6);
+  log('2/3 tone playing, AEC OFF (mic will hear it)...');
+  await capture(ctx, OFF, 'tone-aec-off', 6, true);
 
-  log('3/3 tone playing, AEC ON (same tone; mic should NOT hear it)...');
-  await capture(ctx, true, 'tone-aec-on', 6);
+  log('3/3 tone playing, AEC ON (mic should not)...');
+  await capture(ctx, ON, 'tone-aec-on', 6, true);
 
-  ws.send(JSON.stringify({ phase: 'done' }));
-  log('\ndone - read the verdict in the terminal.');
-  document.getElementById('go').disabled = false;
+  send({ phase: 'done' });
+  log('\ndone - verdict is in the terminal.');
+  btn.disabled = false;
 };
 </script>
