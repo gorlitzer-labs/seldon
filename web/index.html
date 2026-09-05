@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Aria</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{--bg:#080b10;--fg:#cfe3ff;--dim:#5d7893;--accent:#7ee787}
+  *{box-sizing:border-box}
+  body{font:15px/1.6 ui-monospace,Menlo,monospace;background:var(--bg);color:var(--fg);
+       margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
+  main{width:min(46rem,100%)}
+  h1{font-size:1.1rem;letter-spacing:.35em;text-transform:uppercase;color:var(--dim);
+     font-weight:400;margin:0 0 2rem}
+  #orb{width:96px;height:96px;border-radius:50%;margin:0 auto 1.5rem;
+       background:radial-gradient(circle at 35% 30%,#2a4763,#0d1520 70%);
+       box-shadow:0 0 0 1px #1d2c3d, 0 0 40px -8px #2a4763;transition:.35s}
+  body[data-state=listening] #orb{box-shadow:0 0 0 1px #2f6b46,0 0 60px -6px #2f8f57}
+  body[data-state=thinking]  #orb{box-shadow:0 0 0 1px #6b5a2f,0 0 60px -6px #b08b2a;
+       animation:pulse 1.1s ease-in-out infinite}
+  body[data-state=speaking]  #orb{box-shadow:0 0 0 1px #2f5a6b,0 0 70px -4px #3aa0c9;
+       animation:pulse .7s ease-in-out infinite}
+  @keyframes pulse{50%{transform:scale(1.06)}}
+  #state{text-align:center;color:var(--dim);letter-spacing:.2em;text-transform:uppercase;
+         font-size:.75rem;margin-bottom:2rem}
+  .row{margin:.75rem 0;min-height:1.6em}
+  .who{color:var(--dim);display:inline-block;width:4.5rem}
+  #aria{color:var(--accent)}
+  #metrics,#hint{color:var(--dim);font-size:.78rem;margin-top:1.5rem}
+  button{font:inherit;padding:.5rem 1rem;background:#131c27;color:var(--fg);
+         border:1px solid #24384d;border-radius:6px;cursor:pointer;margin-right:.5rem}
+  button:disabled{opacity:.35;cursor:default}
+</style>
+<main>
+  <h1>Aria</h1>
+  <div id="orb"></div>
+  <div id="state">offline</div>
+  <div class="row"><span class="who">you</span><span id="you"></span></div>
+  <div class="row"><span class="who">aria</span><span id="aria"></span></div>
+  <div id="hint">press start, allow the microphone, then just talk</div>
+  <div id="metrics"></div>
+  <p style="margin-top:1.5rem">
+    <button id="go">start</button>
+    <button id="stop">stop talking</button>
+    <button id="reset">new conversation</button>
+  </p>
+</main>
+<script type="module" src="./aria.js"></script>

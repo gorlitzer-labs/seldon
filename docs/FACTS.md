@@ -36,3 +36,9 @@ is written only if the check passes.
     verified: 2026-09-05T07:49Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/tts-chunk-bench.json best_first_audio_ms 500 max
 - `stt-mangles-technical-terms`: Parakeet transcribed 'Postgres or SQLite' as 'Poskers or SQ light' in the round-trip test. Aria's domain is full of such terms, so the router must tolerate mangled technical vocabulary or use biasing.
     verified: 2026-09-05T07:49Z  by: gorlitzer  method: python3 -c "import json;d=json.load(open('spikes/voice-bench.json'));assert 'SQLite' not in d['stt'][1]['got']"
+- `pipeline-latency-measured`: Full pipeline steady state: STT 113 ms + LLM 308 ms + TTS 468 ms = 889 ms from the endpoint decision. Adding the 600 ms VAD hangover gives about 1.5 s from the user's last word, which is the honest end-to-end number.
+    verified: 2026-09-05T08:05Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/pipeline-latency.json steady_state.total_from_endpoint_ms 1200 max
+- `first-turn-penalty`: The first LLM call of a conversation costs ~1365 ms against ~330 ms steady state, because the system prompt is prefilled into a cold cache. Pre-warm the conversation cache at boot so turn one is not the slow one.
+    verified: 2026-09-05T08:05Z  by: gorlitzer  method: python3 scripts/check-metric.py spikes/llm-cache-bench.json avg_cached_ms 500 max
+- `stt-streaming-unreliable`: StreamingParakeet is unreliable at utterance scale: on a 1.86 s clip one whole-clip call transcribed correctly while 320/480/640 ms chunking returned empty and 960 ms returned 'Yeah.'. Ears buffers the utterance and decodes once via get_logmel + generate, costing only ~113 ms.
+    verified: 2026-09-05T08:05Z  by: gorlitzer  method: .venv/bin/python -c "import sys;sys.path.insert(0,'.');import numpy as np;from aria.models import Ears;Ears().transcribe(np.zeros(16000,dtype=np.float32));print('Ears.transcribe works on buffered audio')"

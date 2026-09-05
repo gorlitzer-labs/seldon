@@ -31,3 +31,5 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P1) Warm the model at boot with a throwaway inference: the first generation after load costs 3.7-8 s of graph build, which would land on the user's first ever utterance.
 - [ ] (P1) TTS chunking: split the LLM reply at the first clause boundary and synthesize that opener immediately, then continue. Worth 678 ms of perceived latency.
 - [ ] (P2) STT vocabulary: Parakeet mangles technical terms (Postgres, SQLite). Investigate biasing or an LLM-side correction pass before the router acts on a transcript.
+- [ ] (P1) Pre-warm the conversation KV cache at boot with the system prompt, so the first real turn does not pay the 1365 ms cold-cache penalty.
+- [ ] (P1) Replace the fixed 600 ms VAD hangover with Smart Turn v3. It is now the single largest contributor to perceived latency: 600 of the ~1489 ms a user actually experiences.
