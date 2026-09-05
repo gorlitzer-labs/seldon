@@ -1,4 +1,4 @@
-"""Aria's ears, brain and mouth.
+"""Boomer's ears, brain and mouth.
 
 Each class encodes something the benchmarks in spikes/ actually measured:
 
@@ -29,7 +29,7 @@ STT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
 TTS_VOICE = "af_heart"
 
 SYSTEM = (
-    "You are Aria, a local voice assistant running on David's Mac. You are the "
+    "You are Boomer, a local voice assistant running on David's Mac. You are the "
     "voice of his agent factory. Speak in one or two short spoken sentences. "
     "Never use markdown, lists, headings or emoji -- everything you say is read "
     "aloud. Be dry and direct. If you do not know, say so plainly."
@@ -101,10 +101,44 @@ class Brain:
         self.sampler = make_sampler(temp=0.7, top_p=0.9)
         self.reset()
 
-    def reset(self) -> None:
+    def reset(self, prewarm: bool = True) -> None:
         from mlx_lm.models.cache import make_prompt_cache
         self.cache = make_prompt_cache(self.model)
         self._turns = 0
+        if prewarm:
+            self._prefill_system()
+
+    def _prefill_system(self) -> None:
+        """Push the system prompt through the cache before anyone speaks.
+
+        Measured: the first turn of a cold conversation costs ~1365 ms against
+        ~330 ms steady state, because the system prompt prefills on the critical
+        path. Paying it at boot moves that cost off the user's first utterance.
+
+        The shared prefix is derived empirically -- render two different turn-1
+        prompts and take the common token prefix -- because Qwen's chat template
+        refuses to render a system message on its own ("No user query found").
+        If the two renderings share too little, we skip rather than corrupt the
+        cache with tokens the real prompt will repeat.
+        """
+        self._prewarmed = False
+        self._system_tokens = 0
+        try:
+            a = self.tokenizer.encode(self._render("aaaa"))
+            b = self.tokenizer.encode(self._render("bbbb"))
+        except Exception:
+            return
+        n = 0
+        for x, y in zip(a, b):
+            if x != y:
+                break
+            n += 1
+        if n < 8:                      # nothing meaningful shared; not worth it
+            return
+        self.model(mx.array([a[:n]]), cache=self.cache)
+        mx.eval([c.state for c in self.cache])
+        self._system_tokens = n
+        self._prewarmed = True
 
     def _render(self, user: str) -> str:
         # Turn 1 carries the system prompt; later turns ride the retained cache.
@@ -119,17 +153,28 @@ class Brain:
 
     def stream(self, user: str, max_tokens: int = 160) -> Iterator[str]:
         from mlx_lm import stream_generate
-        prompt = self._render(user)
+        ids = self.tokenizer.encode(self._render(user))
+        # Turn 1 must not re-send the tokens already sitting in the cache from
+        # the boot-time prefill, or they would be duplicated in the KV.
+        if self._turns == 0 and self._prewarmed:
+            ids = ids[self._system_tokens:]
         self._turns += 1
-        for r in stream_generate(self.model, self.tokenizer, prompt,
+        for r in stream_generate(self.model, self.tokenizer, ids,
                                  max_tokens=max_tokens, sampler=self.sampler,
                                  prompt_cache=self.cache):
             yield r.text
 
     def warm(self) -> None:
-        from mlx_lm import stream_generate
-        for _ in stream_generate(self.model, self.tokenizer, "hi", max_tokens=1):
+        """Exercise the REAL generation path, cache included.
+
+        A bare uncached one-token call is not enough: the first cached
+        generation compiles a different graph, and that cost (~1.3 s) would
+        otherwise land on the user's first utterance. Measured, not assumed --
+        the system-prompt prefill turned out NOT to be the cause.
+        """
+        for _ in self.stream("hello", max_tokens=8):
             pass
+        self.reset()
 
 
 class Voice:

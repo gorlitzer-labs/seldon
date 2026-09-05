@@ -1,4 +1,4 @@
-// Aria's face: microphone in, speech out, state on screen.
+// Boomer's face: microphone in, speech out, state on screen.
 //
 // Two audio contexts on purpose. Capture runs at 16 kHz so the browser does the
 // resampling the STT needs (and does it properly, rather than us decimating and
@@ -43,7 +43,7 @@ function onMessage(ev) {
       break;
     case 'reply':
       if (m.done) break;
-      el('aria').textContent += (el('aria').textContent ? ' ' : '') + m.text;
+      el('boomer').textContent += (el('boomer').textContent ? ' ' : '') + m.text;
       break;
     case 'metrics':
       el('metrics').textContent =
@@ -56,7 +56,7 @@ function onMessage(ev) {
       el('metrics').textContent = `error in ${m.where}: ${m.detail}`;
       break;
   }
-  if (m.type === 'transcript' && m.final === false) el('aria').textContent = '';
+  if (m.type === 'transcript' && m.final === false) el('boomer').textContent = '';
 }
 
 async function start() {
@@ -104,5 +104,5 @@ el('stop').onclick = () => ws && ws.send(JSON.stringify({ type: 'stop' }));
 el('reset').onclick = () => {
   if (!ws) return;
   ws.send(JSON.stringify({ type: 'reset' }));
-  el('you').textContent = el('aria').textContent = '';
+  el('you').textContent = el('boomer').textContent = '';
 };

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pull Aria's model set into the HF cache. Safe to re-run: resumes, skips complete files."""
+"""Pull Boomer's model set into the HF cache. Safe to re-run: resumes, skips complete files."""
 import os, sys, time
 os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
 from huggingface_hub import snapshot_download

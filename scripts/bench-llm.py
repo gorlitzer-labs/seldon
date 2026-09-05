@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure what Aria's brain actually does on this Mac.
+"""Measure what Boomer's brain actually does on this Mac.
 
 Every latency figure in the plan so far is arithmetic from 150 GB/s. This
 replaces it with measurement: load time, resident memory, time-to-first-token
@@ -19,10 +19,10 @@ GB = 1 << 30
 PROMPTS = [
     "What's on the board?",
     "Tell me in one sentence why the sky is blue.",
-    "Aria, is netreach still blocked?",
+    "Boomer, is netreach still blocked?",
 ]
 
-SYSTEM = ("You are Aria, a local voice assistant. Answer in one or two short "
+SYSTEM = ("You are Boomer, a local voice assistant. Answer in one or two short "
           "spoken sentences. Never use markdown or lists.")
 
 

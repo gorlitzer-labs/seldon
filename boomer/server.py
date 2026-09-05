@@ -1,4 +1,4 @@
-"""Aria's runtime: the browser is her ears and mouth, this process is the rest.
+"""Boomer's runtime: the browser is her ears and mouth, this process is the rest.
 
 The page captures microphone audio with echo cancellation on (measured at
 26.8 dB ERLE, which is why Python needs no CoreAudio binding), streams it here
@@ -26,11 +26,12 @@ import websockets
 from . import protocol as P
 from .audio import Endpointer, int16_to_float
 from .models import Brain, Ears, Voice
+from .runtime import load_all
 from .protocol import HTTP_PORT, WS_PORT, State
 from .turn import run_turn
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
-worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aria-gpu")
+worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="boomer-gpu")
 
 ears: Ears
 brain: Brain
@@ -131,25 +132,13 @@ def serve_http():
 
 def load_models():
     global ears, brain, voice
-    t0 = time.perf_counter()
-    print("loading ears (parakeet) ...", flush=True)
-    ears = Ears()
-    print("loading brain (qwen3.6-35b-a3b) ...", flush=True)
-    brain = Brain()
-    print("loading voice (kokoro) ...", flush=True)
-    voice = Voice()
-    print(f"loaded in {time.perf_counter()-t0:.1f}s -- warming ...", flush=True)
-    # The first inference of each model builds its graph and costs seconds.
-    # Pay that here, not on the user's first utterance.
-    t1 = time.perf_counter()
-    ears.warm(); brain.warm(); voice.warm()
-    print(f"warm in {time.perf_counter()-t1:.1f}s", flush=True)
+    ears, brain, voice = load_all()
 
 
 async def main():
     load_models()
     threading.Thread(target=serve_http, daemon=True).start()
-    print(f"\n  Aria is listening -- open http://localhost:{HTTP_PORT}/\n", flush=True)
+    print(f"\n  Boomer is listening -- open http://localhost:{HTTP_PORT}/\n", flush=True)
     async with websockets.serve(handler, "127.0.0.1", WS_PORT, max_size=None):
         await asyncio.Future()
 

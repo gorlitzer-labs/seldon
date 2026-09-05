@@ -33,3 +33,5 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P2) STT vocabulary: Parakeet mangles technical terms (Postgres, SQLite). Investigate biasing or an LLM-side correction pass before the router acts on a transcript.
 - [ ] (P1) Pre-warm the conversation KV cache at boot with the system prompt, so the first real turn does not pay the 1365 ms cold-cache penalty.
 - [ ] (P1) Replace the fixed 600 ms VAD hangover with Smart Turn v3. It is now the single largest contributor to perceived latency: 600 of the ~1489 ms a user actually experiences.
+- [ ] (P2) SUPERSEDES the earlier 'hey aria' wake word item: train the wake word on 'boomer' instead. The plosive /b/ is acoustically stronger than 'aria', which Parakeet was observed hearing as 'area'. Hard negatives: boomer, bloomer, boom, room.
+- [ ] (P1) TTS is now the biggest cost at ~760 ms for a fresh 5-word opener, against 329 ms measured in isolation. Investigate misaki/spacy phonemization cost per utterance and whether the opener can be pre-synthesized from a small fixed set.

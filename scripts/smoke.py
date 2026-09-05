@@ -1,82 +1,89 @@
 #!/usr/bin/env python3
-"""Run one full turn with no browser and no microphone.
+"""Run full turns with no browser and no microphone.
 
 Feeds recorded speech through the same Endpointer -> Ears -> Brain -> Voice path
 the live server uses, so a wiring bug surfaces here rather than while someone is
-talking to it. Prints the real latency breakdown.
+talking to it.
+
+Runs the clip TWICE. The first turn still carries some one-off cost; the second
+is what a real conversation feels like. Reporting only the first would overstate
+the latency, reporting only the second would flatter it.
 """
-import sys, time, warnings
+import json, sys, time, warnings
 warnings.filterwarnings("ignore")
 import numpy as np, soundfile as sf, librosa
 
 sys.path.insert(0, ".")
-from aria.audio import Endpointer
-from aria.models import Brain, Ears, Voice
-from aria.protocol import MIC_SR
-from aria.turn import run_turn
+from boomer.audio import Endpointer
+from boomer.protocol import MIC_SR
+from boomer.runtime import load_all
+from boomer.turn import run_turn
 
-CLIP = sys.argv[1] if len(sys.argv) > 1 else "spikes/tts-sample.wav"
+CLIP = sys.argv[1] if len(sys.argv) > 1 else "spikes/utt-medium.wav"
+TURNS = 2
 
-print("loading models ...", flush=True)
-t0 = time.perf_counter()
-ears, brain, voice = Ears(), Brain(), Voice()
-print(f"  loaded in {time.perf_counter()-t0:.1f}s", flush=True)
-t0 = time.perf_counter()
-ears.warm(); brain.warm(); voice.warm()
-print(f"  warmed in {time.perf_counter()-t0:.1f}s", flush=True)
+ears, brain, voice = load_all()
 
 wav, sr = sf.read(CLIP, dtype="float32")
 if wav.ndim > 1:
     wav = wav.mean(axis=1)
 if sr != MIC_SR:
     wav = librosa.resample(wav, orig_sr=sr, target_sr=MIC_SR)
-print(f"\nclip: {len(wav)/MIC_SR:.1f}s of speech, then silence\n", flush=True)
-
+print(f"\nclip: {len(wav)/MIC_SR:.1f}s of speech, then silence", flush=True)
 # Real capture never ends exactly at the last word; pad so the endpointer fires.
 wav = np.concatenate([wav, np.zeros(MIC_SR, dtype=np.float32)])
 
-ep = Endpointer()
-audio_out = []
-events = []
-emit = lambda m: events.append(m) or print(f"  << {m}", flush=True)
-emit_audio = lambda a: audio_out.append(np.asarray(a, dtype=np.float32))
+results = []
+for turn in range(1, TURNS + 1):
+    print(f"\n--- turn {turn} ---", flush=True)
+    ep = Endpointer()
+    audio_out = []
+    fired = False
+    for i in range(0, len(wav), 1024):
+        if fired:
+            break
+        for kind, frame in ep.push(wav[i:i + 1024]):
+            if kind == "start":
+                ears.open(); ears.feed(frame)
+            elif kind == "audio":
+                ears.feed(frame)
+            elif kind == "abort":
+                ears.close()
+            elif kind == "end":
+                ended = time.perf_counter()
+                transcript = ears.close()
+                print(f"  heard: {transcript!r}", flush=True)
+                m = run_turn(ears, brain, voice, transcript=transcript,
+                             speech_ended_at=ended,
+                             emit=lambda x: None,
+                             emit_audio=lambda a: audio_out.append(np.asarray(a, dtype=np.float32)),
+                             should_stop=lambda: False)
+                results.append(m)
+                print(f"  STT {m.stt_ms:6.0f} ms | LLM first token {m.ttft_ms:6.0f} ms "
+                      f"| first audio {m.tts_first_ms:6.0f} ms", flush=True)
+                fired = True
+                break
 
-speech_ended_at = None
-CH = 1024
-for i in range(0, len(wav), CH):
-    for kind, frame in ep.push(wav[i:i + CH]):
-        if kind == "start":
-            ears.open(); ears.feed(frame)
-            print("  >> speech start", flush=True)
-        elif kind == "audio":
-            ears.feed(frame)
-        elif kind == "abort":
-            ears.close(); print("  >> aborted (too short)", flush=True)
-        elif kind == "end":
-            speech_ended_at = time.perf_counter()
-            print("  >> speech end -> turn", flush=True)
-            transcript = ears.close()
-            print(f"  >> heard: {transcript!r}", flush=True)
-            m = run_turn(ears, brain, voice, transcript=transcript,
-                         speech_ended_at=speech_ended_at, emit=emit,
-                         emit_audio=emit_audio, should_stop=lambda: False)
-            print("\n" + "=" * 58)
-            print(f"  STT tail after speech end   {m.stt_ms:7.0f} ms")
-            print(f"  LLM first token             {m.ttft_ms:7.0f} ms")
-            print(f"  first audio out             {m.tts_first_ms:7.0f} ms")
-            print("=" * 58)
-            print(f"  MIC-TO-VOICE                {m.tts_first_ms:7.0f} ms")
-            print("=" * 58, flush=True)
-            if audio_out:
-                out = np.concatenate(audio_out)
-                sf.write("spikes/smoke-reply.wav", out, 24000)
-                print(f"  reply audio: {len(out)/24000:.1f}s -> spikes/smoke-reply.wav")
-            import json
-            json.dump({"stt_ms": m.stt_ms, "ttft_ms": m.ttft_ms,
-                       "mic_to_voice_ms": m.tts_first_ms,
-                       "reply_chars": m.reply_chars},
-                      open("spikes/smoke.json", "w"), indent=2)
-            sys.exit(0)
+if not results:
+    print("NO TURN FIRED - the endpointer never detected a complete utterance.")
+    sys.exit(1)
 
-print("NO TURN FIRED - the endpointer never detected a complete utterance.")
-sys.exit(1)
+last = results[-1]
+print("\n" + "=" * 58)
+print(f"  STT after speech end        {last.stt_ms:7.0f} ms")
+print(f"  LLM first token             {last.ttft_ms:7.0f} ms")
+print(f"  first audio out             {last.tts_first_ms:7.0f} ms")
+print("-" * 58)
+print(f"  ENDPOINT -> FIRST WORD      {last.tts_first_ms:7.0f} ms")
+print(f"  + VAD hangover              {Endpointer().hangover_ms:7.0f} ms")
+print(f"  = FROM YOUR LAST WORD       {last.tts_first_ms + Endpointer().hangover_ms:7.0f} ms")
+print("=" * 58, flush=True)
+if audio_out:
+    sf.write("spikes/smoke-reply.wav", np.concatenate(audio_out), 24000)
+json.dump({"turns": [{"stt_ms": r.stt_ms, "ttft_ms": r.ttft_ms,
+                      "first_audio_ms": r.tts_first_ms} for r in results],
+           "steady_endpoint_to_word_ms": last.tts_first_ms,
+           "hangover_ms": Endpointer().hangover_ms,
+           "steady_from_last_word_ms": last.tts_first_ms + Endpointer().hangover_ms},
+          open("spikes/smoke.json", "w"), indent=2)
+print("wrote spikes/smoke.json", flush=True)
