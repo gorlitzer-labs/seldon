@@ -97,6 +97,13 @@ def _handle_factory(transcript: str, ctx: dict) -> str | None:
             ctx.pop("awaiting_confirm", None)
             if _readonly():
                 return "I am in read-only mode, so I did not send that."
+            # A permanent write asks more of the voice than chatting does.
+            sim = ctx.get("voice_sim")
+            if sim is not None:
+                from .speaker import WRITE
+                if sim < WRITE:
+                    return ("I am not confident enough that this is you to "
+                            "answer for you. Do it from the terminal.")
             ok, line = fac.answer_decision(awaiting["id"], awaiting["answer"])
             return line
         if fac.is_negative(transcript):

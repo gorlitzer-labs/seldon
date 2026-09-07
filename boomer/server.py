@@ -31,6 +31,7 @@ from .protocol import HTTP_PORT, WS_PORT, State
 from .turn import run_turn
 from .record import record_utterance
 from .factory import Item, Urgency, Watcher
+from .speaker import Speaker, available as speaker_available
 
 WATCH_INTERVAL_S = 2.0
 
@@ -51,6 +52,7 @@ worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="boomer-gpu")
 ears: Ears
 brain: Brain
 voice: Voice
+speaker: Speaker | None = None
 
 
 class Session:
@@ -144,6 +146,17 @@ class Session:
             transcript = await loop.run_in_executor(worker, ears.close)
             self.emit(P.transcript(transcript, final=False))
             record_utterance(self.last_utterance, transcript)
+            # Score the voice once per turn and hand it to the turn, so the
+            # factory write can demand a stricter match than conversation does.
+            if speaker is not None and self.last_utterance is not None:
+                ok, sim = speaker.check(self.last_utterance, strict=False)
+                self.ctx["voice_sim"] = sim
+                if not ok:
+                    self.emit(P.msg("rejected", reason="voice", similarity=sim))
+                    self.emit(P.state(State.IDLE))
+                    print(f"  ignored | not Franko (similarity {sim:.3f}) | "
+                          f"{transcript!r}", flush=True)
+                    return
             await loop.run_in_executor(worker, functools.partial(
                 run_turn, ears, brain, voice,
                 transcript=transcript, speech_ended_at=self.speech_ended_at,
@@ -220,6 +233,18 @@ def serve_http():
         httpd.serve_forever()
 
 
+def load_speaker():
+    """Voiceprint check. Optional: absent model or no enrolment means she
+    answers everyone, which is the right default for something opt-in."""
+    global speaker
+    if not speaker_available():
+        print("speaker: model absent, voice checks disabled", flush=True)
+        return
+    speaker = Speaker()
+    print(f"speaker: {'enrolled' if speaker.enrolled is not None else 'no voiceprint yet'}",
+          flush=True)
+
+
 def load_models():
     """Load on the worker thread, not the main one.
 
@@ -234,6 +259,7 @@ def load_models():
     """
     global ears, brain, voice
     ears, brain, voice = load_all()
+    load_speaker()
 
 
 async def main():
