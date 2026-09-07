@@ -13,65 +13,80 @@
 
 import * as THREE from './vendor/three.module.js';
 
-// The figure is assembled from limbed parts, not one lathe. A single
-// radius-per-height body of revolution was the first attempt and it reads as a
-// robed column: below the hips it tapers to one trunk, and there are no arms.
-// Verified by reading the framebuffer back as a coverage map.
+// The figure is a wireframe mannequin: horizontal contour rings tied together
+// by longitudinal lines. Three earlier attempts and one screenshot taught the
+// constraints:
 //
-// Each part is a stack of contour rings around its own axis, so legs and arms
-// are separate volumes that happen to share the scan plane.
+//   * A single body of revolution has no limbs -- it reads as a robed column.
+//   * POINTS are the wrong primitive. Ring points bunch at the silhouette and
+//     go sparse across the face, so a torso renders as a dark mass with a bright
+//     rim, and thin arms become ladder rungs. Contours want to be LINES.
+//   * Proportions have to come from the figure canon, not from taste. Legs at
+//     radius 0.06 over 1.38 units are 1:23 and read as a stalk.
+//
+// So: lines, and the classical 7.5-head canon. All values below are fractions of
+// total height, which is what makes them checkable against the canon.
 
-const FIGURE_HEIGHT = 2.6;
-const SEGMENTS = 40;        // points per ring
+const FIGURE_HEIGHT = 2.55;
+const SEG = 30;             // points around each ring
+const LONGS = 10;           // longitudinal lines tying the rings together
 
-// [t, radius] up each part, t normalised within the part's own span.
+// Vertical landmarks as fractions of total height (feet 0 -> crown 1).
+const Y = {
+  foot: 0.00, ankle: 0.045, calf: 0.16, knee: 0.265, thigh: 0.37,
+  crotch: 0.47, hip: 0.515, waist: 0.60, chest: 0.70, shoulder: 0.795,
+  neck: 0.835, chin: 0.865, eyes: 0.925, crown: 1.00,
+  wrist: 0.475, elbow: 0.615,
+};
+
+// [y, radius] -- radius also as a fraction of height, so proportions hold at
+// any scale. Shoulder radius 0.105 gives a breadth of ~2 head widths.
 const TORSO = [
-  [0.00, 0.140], [0.14, 0.122], [0.30, 0.128],   // hips, waist, ribs
-  [0.52, 0.150], [0.66, 0.168],                  // chest, shoulders
-  [0.76, 0.072], [0.80, 0.058],                  // neck
-  [0.88, 0.086], [0.94, 0.094], [0.99, 0.074], [1.00, 0.040],   // head
+  [Y.crotch, 0.098], [Y.hip, 0.104], [Y.waist, 0.080],
+  [Y.chest, 0.098], [Y.shoulder, 0.105],
+  [Y.neck, 0.040], [Y.chin, 0.036],
+  [Y.eyes, 0.062], [0.965, 0.058], [Y.crown, 0.030],
 ];
 const LEG = [
-  [0.00, 0.052], [0.06, 0.044], [0.10, 0.040],   // foot, ankle
-  [0.42, 0.058], [0.62, 0.062], [0.72, 0.066],   // calf, knee
-  [1.00, 0.082],                                 // thigh into the hip
+  [Y.foot, 0.030], [Y.ankle, 0.024], [Y.calf, 0.040],
+  [Y.knee, 0.033], [Y.thigh, 0.046], [Y.crotch, 0.052],
 ];
 const ARM = [
-  [0.00, 0.030], [0.10, 0.026],                  // hand, wrist
-  [0.45, 0.034], [0.60, 0.036],                  // forearm, elbow
-  [1.00, 0.052],                                 // upper arm into the shoulder
+  [0.455, 0.017], [Y.wrist, 0.016], [0.545, 0.021],
+  [Y.elbow, 0.024], [0.72, 0.031], [Y.shoulder, 0.036],
 ];
 
-// Where each part sits: vertical span as a fraction of FIGURE_HEIGHT, plus a
-// lateral offset so limbs are side by side rather than concentric.
 const PARTS = [
-  { profile: TORSO, y0: 0.50, y1: 1.00, dx: 0.000, rings: 60, squash: 0.72 },
-  { profile: LEG,   y0: 0.00, y1: 0.53, dx: -0.062, rings: 34, squash: 0.95 },
-  { profile: LEG,   y0: 0.00, y1: 0.53, dx: 0.062, rings: 34, squash: 0.95 },
-  { profile: ARM,   y0: 0.44, y1: 0.80, dx: -0.196, rings: 26, squash: 0.95 },
-  { profile: ARM,   y0: 0.44, y1: 0.80, dx: 0.196, rings: 26, squash: 0.95 },
+  { profile: TORSO, dx: 0.000, rings: 26, squash: 0.62 },
+  { profile: LEG,   dx: -0.048, rings: 14, squash: 0.92 },
+  { profile: LEG,   dx: 0.048, rings: 14, squash: 0.92 },
+  { profile: ARM,   dx: -0.122, rings: 12, squash: 0.92 },
+  { profile: ARM,   dx: 0.122, rings: 12, squash: 0.92 },
 ];
 
-function sampleProfile(profile, t) {
+function sampleProfile(profile, y) {
+  const lo = profile[0], hi = profile[profile.length - 1];
+  if (y <= lo[0]) return lo[1];
+  if (y >= hi[0]) return hi[1];
   for (let i = 0; i < profile.length - 1; i++) {
     const [a, r0] = profile[i], [b, r1] = profile[i + 1];
-    if (t >= a && t <= b) {
-      const k = (t - a) / (b - a || 1);
-      return r0 + (r1 - r0) * (k * k * (3 - 2 * k));   // smoothstep
+    if (y >= a && y <= b) {
+      const k = (y - a) / (b - a || 1);
+      return r0 + (r1 - r0) * (k * k * (3 - 2 * k));
     }
   }
-  return profile[profile.length - 1][1];
+  return hi[1];
+}
+
+/** Ring vertex at part-local height y and angle a. */
+function vertex(part, y, a) {
+  const r = sampleProfile(part.profile, y);
+  return [part.dx + Math.cos(a) * r, y * FIGURE_HEIGHT, Math.sin(a) * r * part.squash];
 }
 
 const VERT = `
   uniform float uTime, uScan, uBreath, uAgitation, uLevel;
-  // Perspective-correct point sizing. uPointK = drawingBufferHeight /
-  // (2 * tan(fov/2)), so a world-space radius maps to pixels. An earlier
-  // hardcoded 300.0/-z produced 86-268 px points, which merged 7200 points into
-  // one blob and hid the limbs entirely.
-  uniform float uPointK;
-  attribute float aT;        // 0..1 up the body
-  attribute float aAngle;
+  attribute float aT;
   varying float vGlow;
   varying float vT;
 
@@ -79,32 +94,24 @@ const VERT = `
     vT = aT;
     vec3 p = position;
 
-    // Breathing: the chest expands more than the limbs.
-    float chest = smoothstep(0.55, 0.80, aT) * (1.0 - smoothstep(0.80, 0.92, aT));
-    p.xz *= 1.0 + uBreath * chest * 0.16;
+    // Breathing: the chest expands, the limbs barely move.
+    float chest = smoothstep(0.58, 0.78, aT) * (1.0 - smoothstep(0.78, 0.86, aT));
+    p.xz *= 1.0 + uBreath * chest * 0.13;
 
-    // Speaking pushes rings outward near the head, driven by real audio level.
-    float head = smoothstep(0.84, 0.95, aT);
-    p.xz *= 1.0 + uLevel * head * 0.5;
+    // Speaking pushes the head and jaw, driven by real playback audio.
+    float head = smoothstep(0.85, 0.98, aT);
+    p.xz *= 1.0 + uLevel * head * 0.34;
 
-    // Agitation shears the figure while she is thinking.
-    float tw = sin(aT * 9.0 + uTime * 2.2) * uAgitation * 0.05;
-    p.x += tw; p.z += tw * 0.6;
+    // Thinking shears the figure very slightly, like a settling hologram.
+    float tw = sin(aT * 7.0 + uTime * 2.0) * uAgitation * 0.035;
+    p.x += tw; p.z += tw * 0.5;
 
-    // The scan plane: a bright band travelling up the body.
+    // The scan plane travelling up the body.
     float d = abs(aT - uScan);
-    vGlow = exp(-d * d * 260.0);
+    vGlow = exp(-d * d * 420.0);
+    p.xz *= 1.0 + vGlow * 0.03;
 
-    // Rings near the scan plane bulge very slightly -- it reads as a pulse.
-    p.xz *= 1.0 + vGlow * 0.05;
-
-    vec4 mv = modelViewMatrix * vec4(p, 1.0);
-    gl_Position = projectionMatrix * mv;
-    // Size and alpha both used to spike at the scan plane, compounding to a
-    // ~36x brightness ratio that made the band the only visible thing. Keep the
-    // size boost modest and let colour carry the highlight.
-    float worldSize = 0.0085 + vGlow * 0.005;
-    gl_PointSize = clamp(worldSize * uPointK / -mv.z, 1.0, 9.0);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
   }`;
 
 const FRAG = `
@@ -115,111 +122,108 @@ const FRAG = `
   varying float vT;
 
   void main() {
-    // Round points; discard the corners so they do not read as squares.
-    vec2 c = gl_PointCoord - 0.5;
-    float r = dot(c, c);
-    if (r > 0.25) discard;
-    float soft = 1.0 - smoothstep(0.0, 0.25, r);
-
-    // Fade the extremities so the figure dissolves rather than being cut off.
-    float ends = smoothstep(0.0, 0.10, vT) * (1.0 - smoothstep(0.94, 1.05, vT));
-    vec3 col = mix(uColor, uScanColor, clamp(vGlow, 0.0, 1.0));
-    float a = uOpacity * soft * ends * (0.55 + vGlow * 0.55);
+    // Dissolve the extremities so she fades rather than being cut off.
+    float ends = smoothstep(0.0, 0.05, vT) * (1.0 - smoothstep(0.97, 1.02, vT));
+    vec3 col = mix(uColor, uScanColor, clamp(vGlow * 1.2, 0.0, 1.0));
+    float a = uOpacity * ends * (0.34 + vGlow * 0.66);
     gl_FragColor = vec4(col, a);
   }`;
 
 const PALETTE = {
-  idle:      { color: 0x2f6f8f, scan: 0x8fd9ff, opacity: 0.55, agitation: 0.0, scanSpeed: 0.10 },
-  listening: { color: 0x2f8f6a, scan: 0xb6ffcf, opacity: 0.95, agitation: 0.05, scanSpeed: 0.34 },
-  thinking:  { color: 0x8f7a2f, scan: 0xffd98f, opacity: 0.90, agitation: 1.0,  scanSpeed: 0.75 },
-  speaking:  { color: 0x2f7f9f, scan: 0xa8e8ff, opacity: 1.00, agitation: 0.25, scanSpeed: 0.45 },
-  busy:      { color: 0x6a2f3a, scan: 0xff9fb0, opacity: 0.40, agitation: 0.0,  scanSpeed: 0.05 },
-  offline:   { color: 0x39424d, scan: 0x5d7893, opacity: 0.28, agitation: 0.0,  scanSpeed: 0.03 },
+  idle:      { color: 0x1f5f7a, scan: 0x9fe8ff, opacity: 0.62, agitation: 0.0, scanSpeed: 0.10 },
+  listening: { color: 0x2f9f74, scan: 0xd6ffe8, opacity: 1.00, agitation: 0.05, scanSpeed: 0.32 },
+  thinking:  { color: 0xb08a2a, scan: 0xffe9b8, opacity: 0.95, agitation: 1.0,  scanSpeed: 0.70 },
+  speaking:  { color: 0x2b8fc4, scan: 0xdff4ff, opacity: 1.00, agitation: 0.22, scanSpeed: 0.42 },
+  busy:      { color: 0x8a3346, scan: 0xffc2ce, opacity: 0.45, agitation: 0.0,  scanSpeed: 0.05 },
+  offline:   { color: 0x2b3540, scan: 0x53687d, opacity: 0.30, agitation: 0.0,  scanSpeed: 0.03 },
 };
 
 export function createAvatar(canvas) {
   const renderer = new THREE.WebGLRenderer({
     canvas, alpha: true, antialias: true,
-    // Needed only so a headless check can read the framebuffer back and verify
-    // the figure actually reads as a figure. Negligible cost at this scene size.
+    // Only so a headless check can read the framebuffer back.
     preserveDrawingBuffer: true,
   });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
-  camera.position.set(0, 1.45, 5.6);
-  camera.lookAt(0, 1.25, 0);
+  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+  // Framed so she fills the canvas: an earlier build left her small and lost in
+  // empty space, which flattened everything.
+  const mid = FIGURE_HEIGHT * 0.52;
+  camera.position.set(0, mid + 0.10, 4.45);
+  camera.lookAt(0, mid, 0);
 
-  // --- the figure ---------------------------------------------------------
-  const count = PARTS.reduce((n, p) => n + p.rings * SEGMENTS, 0);
-  const pos = new Float32Array(count * 3);
-  const aT = new Float32Array(count);
-  const aAngle = new Float32Array(count);
-  let n = 0;
+  // --- the figure: contour rings + longitudinal lines ---------------------
+  const verts = [], ts = [];
+  const seg = (a, b) => {
+    verts.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+    ts.push(a[1] / FIGURE_HEIGHT, b[1] / FIGURE_HEIGHT);
+  };
   for (const part of PARTS) {
+    const y0 = part.profile[0][0], y1 = part.profile[part.profile.length - 1][0];
+    const ys = [];
     for (let i = 0; i < part.rings; i++) {
-      const local = i / (part.rings - 1);
-      const r = sampleProfile(part.profile, local);
-      // aT is height over the WHOLE figure, so one scan plane crosses every part.
-      const t = part.y0 + (part.y1 - part.y0) * local;
-      for (let j = 0; j < SEGMENTS; j++) {
-        const a = (j / SEGMENTS) * Math.PI * 2;
-        pos[n * 3] = part.dx + Math.cos(a) * r;
-        pos[n * 3 + 1] = t * FIGURE_HEIGHT;
-        pos[n * 3 + 2] = Math.sin(a) * r * part.squash;
-        aT[n] = t;
-        aAngle[n] = a;
-        n++;
+      ys.push(y0 + (y1 - y0) * (i / (part.rings - 1)));
+    }
+    // rings
+    for (const y of ys) {
+      for (let j = 0; j < SEG; j++) {
+        const a0 = (j / SEG) * Math.PI * 2, a1 = ((j + 1) / SEG) * Math.PI * 2;
+        seg(vertex(part, y, a0), vertex(part, y, a1));
+      }
+    }
+    // longitudinals: without these the rings float as separate hoops
+    for (let k = 0; k < LONGS; k++) {
+      const a = (k / LONGS) * Math.PI * 2;
+      for (let i = 0; i < ys.length - 1; i++) {
+        seg(vertex(part, ys[i], a), vertex(part, ys[i + 1], a));
       }
     }
   }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('aT', new THREE.BufferAttribute(aT, 1));
-  geo.setAttribute('aAngle', new THREE.BufferAttribute(aAngle, 1));
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('aT', new THREE.Float32BufferAttribute(ts, 1));
 
   const uniforms = {
     uTime: { value: 0 }, uScan: { value: 0 }, uBreath: { value: 0 },
     uAgitation: { value: 0 }, uLevel: { value: 0 },
-    uPointK: { value: 600 },
     uColor: { value: new THREE.Color(PALETTE.offline.color) },
     uScanColor: { value: new THREE.Color(PALETTE.offline.scan) },
     uOpacity: { value: PALETTE.offline.opacity },
   };
   const mat = new THREE.ShaderMaterial({
     uniforms, vertexShader: VERT, fragmentShader: FRAG,
-    transparent: true, depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
-  const figure = new THREE.Points(geo, mat);
+  const figure = new THREE.LineSegments(geo, mat);
   scene.add(figure);
 
   // --- floor: a grid that ripples, so she is standing on something --------
   const floorGeo = new THREE.BufferGeometry();
-  const gridN = 22, half = 2.2, lines = [];
+  const gridN = 20, half = 1.5, lines = [];
   for (let i = 0; i <= gridN; i++) {
-    const p = -half + (i / gridN) * half * 2;
-    lines.push(p, 0, -half, p, 0, half, -half, 0, p, half, 0, p);
+    const q = -half + (i / gridN) * half * 2;
+    lines.push(q, 0, -half, q, 0, half, -half, 0, q, half, 0, q);
   }
   floorGeo.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
   const floorMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: uniforms.uTime, uColor: uniforms.uColor, uOpacity: uniforms.uOpacity },
+    uniforms: { uTime: uniforms.uTime, uColor: uniforms.uScanColor, uOpacity: uniforms.uOpacity },
     vertexShader: `
       uniform float uTime;
       varying float vFade;
       void main() {
         vec3 p = position;
         float d = length(p.xz);
-        p.y += sin(d * 3.4 - uTime * 1.6) * 0.035 * exp(-d * 0.5);
-        vFade = 1.0 - smoothstep(0.4, 2.2, d);
+        p.y += sin(d * 4.0 - uTime * 1.5) * 0.030 * exp(-d * 0.7);
+        vFade = 1.0 - smoothstep(0.25, 1.45, d);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
       }`,
     fragmentShader: `
       precision mediump float;
       uniform vec3 uColor; uniform float uOpacity;
       varying float vFade;
-      void main() { gl_FragColor = vec4(uColor, vFade * uOpacity * 0.30); }`,
+      void main() { gl_FragColor = vec4(uColor, vFade * uOpacity * 0.22); }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   scene.add(new THREE.LineSegments(floorGeo, floorMat));
@@ -227,10 +231,8 @@ export function createAvatar(canvas) {
   // --- state ---------------------------------------------------------------
   let target = PALETTE.offline;
   let scanSpeed = target.scanSpeed;
-  let level = 0, levelDecay = 0;
+  let levelDecay = 0;
   const col = new THREE.Color(), scanCol = new THREE.Color();
-
-  // Respect a viewer who has asked for less motion.
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function resize() {
@@ -238,20 +240,17 @@ export function createAvatar(canvas) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    // Recomputed on resize so point size is stable across window sizes and DPR.
-    const bufH = renderer.getContext().drawingBufferHeight || h;
-    uniforms.uPointK.value = bufH / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
   }
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);
   resize();
 
-  let raf = 0, t0 = performance.now();
+  let raf = 0;
+  const t0 = performance.now();
   function frame(now) {
     const t = (now - t0) / 1000;
     uniforms.uTime.value = t;
 
-    // Ease toward the target look so state changes read as transitions.
     const k = calm ? 1 : 0.055;
     col.setHex(target.color); scanCol.setHex(target.scan);
     uniforms.uColor.value.lerp(col, k);
@@ -260,15 +259,14 @@ export function createAvatar(canvas) {
     uniforms.uAgitation.value += (target.agitation - uniforms.uAgitation.value) * k;
     scanSpeed += (target.scanSpeed - scanSpeed) * k;
 
-    uniforms.uScan.value = (uniforms.uScan.value + scanSpeed * 0.016) % 1.2;
-    uniforms.uBreath.value = calm ? 0 : Math.sin(t * 0.9) * 0.5 + 0.5;
+    // 0..1.15 so there is a beat between sweeps rather than a strobe.
+    uniforms.uScan.value = (uniforms.uScan.value + scanSpeed * 0.016) % 1.15;
+    uniforms.uBreath.value = calm ? 0 : Math.sin(t * 0.85) * 0.5 + 0.5;
 
-    // Audio level decays on its own, so she settles when the speech stops.
     levelDecay *= 0.90;
     uniforms.uLevel.value += (levelDecay - uniforms.uLevel.value) * 0.30;
 
-    // Gaze drift: a slow turn so she is never perfectly static.
-    figure.rotation.y = calm ? 0 : Math.sin(t * 0.16) * 0.22;
+    figure.rotation.y = calm ? 0 : Math.sin(t * 0.14) * 0.20;
 
     renderer.render(scene, camera);
     raf = requestAnimationFrame(frame);
@@ -277,43 +275,34 @@ export function createAvatar(canvas) {
 
   return {
     setState(name) { target = PALETTE[name] || PALETTE.idle; },
-    /** For diagnostics only: is the scene actually being drawn? */
+    /** amplitude 0..1 from the audio actually being played */
+    setLevel(v) { levelDecay = Math.max(levelDecay, Math.min(1, v)); },
     stats() {
-      return { calls: renderer.info.render.calls,
-               points: renderer.info.render.points,
-               lines: renderer.info.render.lines,
-               state: Object.keys(PALETTE).find((k) => PALETTE[k] === target),
+      return { calls: renderer.info.render.calls, lines: renderer.info.render.lines,
+               state: Object.keys(PALETTE).find((s) => PALETTE[s] === target),
                scan: +uniforms.uScan.value.toFixed(3),
                opacity: +uniforms.uOpacity.value.toFixed(3) };
     },
-    /** amplitude 0..1 from the audio actually being played */
-    setLevel(v) { levelDecay = Math.max(levelDecay, Math.min(1, v)); },
-    /** Coverage map of what is on screen, for headless verification. */
-    capture(cols = 34, rows = 30) {
+    /** Coverage map for headless verification. */
+    capture(cols = 40, rows = 32) {
       renderer.render(scene, camera);
       const gl = renderer.getContext();
       const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
       const px = new Uint8Array(w * h * 4);
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      // Two passes: measure, then threshold relative to what is actually there.
-      // A fixed threshold cannot tell "the figure is dim" from "my cutoff is
-      // wrong", which cost a debugging round.
       const cell = [];
-      let max = 0, sum2 = 0, lit = 0;
+      let max = 0, total = 0;
       for (let r = 0; r < rows; r++) {
         cell.push([]);
         for (let c = 0; c < cols; c++) {
-          // readPixels is bottom-up, so invert the row.
-          const y0 = Math.floor((rows - 1 - r) * h / rows);
-          const y1 = Math.floor((rows - r) * h / rows);
+          const y0 = Math.floor((rows - 1 - r) * h / rows), y1 = Math.floor((rows - r) * h / rows);
           const x0 = Math.floor(c * w / cols), x1 = Math.floor((c + 1) * w / cols);
           let sum = 0, n = 0;
           for (let y = y0; y < y1; y += 2) {
             for (let x = x0; x < x1; x += 2) {
               const i = (y * w + x) * 4;
-              // RGB only. Multiplying by alpha double-attenuates on a
-              // transparent additively-blended canvas and made the figure look
-              // 100x dimmer than it renders.
+              // RGB only: multiplying by alpha double-attenuates an additively
+              // blended transparent canvas.
               sum += (px[i] + px[i + 1] + px[i + 2]) / 3;
               n++;
             }
@@ -321,16 +310,15 @@ export function createAvatar(canvas) {
           const v = n ? sum / n : 0;
           cell[r].push(v);
           if (v > max) max = v;
-          sum2 += v; if (v > 0.5) lit++;
+          total += v;
         }
       }
-      const grid = cell.map((row) => row.map((v) => {
-        const k = max > 0 ? v / max : 0;
-        return k > 0.55 ? '#' : k > 0.28 ? '+' : k > 0.08 ? '.' : ' ';
-      }).join(''));
-      return { art: grid.join('\n'), maxBrightness: +max.toFixed(2),
-               meanBrightness: +(sum2 / (rows * cols)).toFixed(3),
-               litCells: lit, totalCells: rows * cols };
+      const art = cell.map((row) => row.map((v) => {
+        const q = max > 0 ? v / max : 0;
+        return q > 0.55 ? '#' : q > 0.28 ? '+' : q > 0.08 ? '.' : ' ';
+      }).join('')).join('\n');
+      return { art, maxBrightness: +max.toFixed(1),
+               meanBrightness: +(total / (rows * cols)).toFixed(2) };
     },
     dispose() {
       cancelAnimationFrame(raf); ro.disconnect();
