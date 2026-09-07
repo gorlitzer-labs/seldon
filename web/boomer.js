@@ -45,6 +45,7 @@ function onMessage(ev) {
     case 'audio':      pendingAudio = m; break;
     case 'transcript':
       el('you').textContent = m.text || '...';
+      delete document.body.dataset.unprompted;
       break;
     case 'reply':
       if (m.done) break;
@@ -56,6 +57,16 @@ function onMessage(ev) {
       break;
     case 'ready':
       el('metrics').textContent = `endpoint hangover ${m.hangoverMs|0}ms`;
+      break;
+    case 'announce':
+      // She spoke first. Mark it so it doesn't read as a reply to you.
+      el('you').textContent = '';
+      el('boomer').textContent = m.text;
+      el('metrics').textContent = `unprompted - ${m.kind} on ${m.hive || 'the factory'}`;
+      document.body.dataset.unprompted = '1';
+      break;
+    case 'batched':
+      el('hint').textContent = `${m.count} item(s) waiting - ask "anything need me?"`;
       break;
     case 'error':
       el('metrics').textContent = `error in ${m.where}: ${m.detail}`;

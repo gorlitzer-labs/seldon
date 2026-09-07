@@ -30,7 +30,9 @@ from .runtime import load_all
 from .protocol import HTTP_PORT, WS_PORT, State
 from .turn import run_turn
 from .record import record_utterance
+from .factory import Item, Urgency, Watcher
 
+WATCH_INTERVAL_S = 2.0
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
 worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="boomer-gpu")
 
@@ -50,6 +52,7 @@ class Session:
         self.stop_flag = False
         self.speech_ended_at = 0.0
         self.last_utterance = None
+        self.batched: list[Item] = []
 
     # --- emitting back to the page (called from the worker thread) ---
     def emit(self, message: dict) -> None:
@@ -62,6 +65,38 @@ class Session:
 
     def should_stop(self) -> bool:
         return self.stop_flag
+
+    async def announce(self, item: Item) -> None:
+        """Speak a factory escalation. TTS only -- no LLM, no transcript.
+
+        The agent already wrote this text for a human to read, so there is
+        nothing to generate. That is what makes proactive announcements
+        essentially free, and what would let them keep working even with the
+        brain unloaded.
+        """
+        if self.busy:
+            return
+        self.busy = True
+        loop = asyncio.get_running_loop()
+        try:
+            line = item.spoken()
+            self.emit(P.msg("announce", id=item.id, kind=item.kind,
+                            hive=item.hive, text=line))
+            self.emit(P.state(State.SPEAKING))
+            await loop.run_in_executor(worker, self._say, line)
+        except Exception as e:
+            self.emit(P.error("announce", f"{type(e).__name__}: {e}"))
+        finally:
+            self.emit(P.state(State.IDLE))
+            self.busy = False
+            self.ep.reset()
+
+    def _say(self, line: str) -> None:
+        for chunk in Voice.split(line):
+            if self.stop_flag:
+                return
+            for audio in voice.say(chunk):
+                self.emit_audio(audio)
 
     # --- microphone input ---
     async def on_pcm(self, blob: bytes) -> None:
@@ -107,11 +142,36 @@ class Session:
             self.ep.reset()
 
 
+async def watch_factory(session: "Session") -> None:
+    """Poll the factory's decision queue and speak what is worth interrupting for.
+
+    An mtime stat every couple of seconds -- idle CPU measured at 0.0%, so this
+    costs nothing until something actually happens. Existing items are primed as
+    seen at startup: being greeted by a backlog is how an assistant gets muted.
+    """
+    watcher = Watcher()
+    watcher.prime()
+    while True:
+        try:
+            for item in watcher.poll():
+                if item.urgency is Urgency.NOW:
+                    while session.busy:            # never talk over a turn
+                        await asyncio.sleep(0.4)
+                    await session.announce(item)
+                elif item.urgency is Urgency.BATCH:
+                    session.batched.append(item)
+                    session.emit(P.msg("batched", count=len(session.batched)))
+        except Exception as e:
+            session.emit(P.error("watcher", f"{type(e).__name__}: {e}"))
+        await asyncio.sleep(WATCH_INTERVAL_S)
+
+
 async def handler(ws):
     loop = asyncio.get_running_loop()
     s = Session(ws, loop)
     s.emit(P.state(State.IDLE))
     s.emit(P.msg("ready", hangoverMs=s.ep.hangover_ms))
+    watcher_task = asyncio.create_task(watch_factory(s))
     try:
         async for message in ws:
             if isinstance(message, bytes):
@@ -125,6 +185,8 @@ async def handler(ws):
                     s.emit(P.msg("info", detail="conversation reset"))
     except websockets.ConnectionClosed:
         pass
+    finally:
+        watcher_task.cancel()
 
 
 def serve_http():
