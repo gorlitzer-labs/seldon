@@ -1023,13 +1023,20 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         const label = body.label === null || body.label === undefined
           ? null
           : String(body.label).slice(0, 120);
+        // Optional: what the runtime actually saw on the agent's screen.
+        // Whitelisted rather than passed through — this drives a glyph in
+        // every participant's TUI, and it arrives over the network.
+        const rawState = body.state === undefined ? undefined : String(body.state);
+        const state = rawState === "idle" || rawState === "working" || rawState === "blocked"
+          ? rawState
+          : undefined;
         await p.channel.emit(createEvent<ActivityEvent>({
           type: "Activity",
           category: "ACTIVITY",
           room_id: room.roomId,
           participant_id: p.id,
           action: "status_label",
-          detail: { label, participant_name: p.name },
+          detail: { label, participant_name: p.name, ...(state ? { state } : {}) },
         }));
         jsonOk(res);
         return;

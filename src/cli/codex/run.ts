@@ -24,6 +24,8 @@ import {
 } from "../tmux.js";
 import { CodexTmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
+import { codexStateToActivity } from "../agent-state.js";
+import type { AgentActivityState } from "../../agent/event-processor.js";
 import { contentPartsToString } from "../../agent/prompts.js";
 import { agentEmoji } from "../config.js";
 import { deliverInvite, sameApiaryServer } from "../invites.js";
@@ -146,12 +148,33 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
   const eventLoopPromise = setup.processor.run(bridge.deliver.bind(bridge), setup.wrappedSource)
     .catch(() => {}); // Prevent unhandled rejection from crashing the process
 
+  // Activity heartbeat. The Codex runtime previously reported nothing at all,
+  // so the room could only guess: every agent was marked "working" whenever
+  // anyone spoke, and a Codex agent parked on an approval prompt looked
+  // identical to one that was thinking. Report what the pane actually shows.
+  let lastActivityLabel: string | null = null;
+  let lastState: AgentActivityState | undefined;
+  const activityTimer: NodeJS.Timeout = setInterval(() => {
+    let label: string | null;
+    let state: AgentActivityState | undefined;
+    try {
+      label = bridge.getActivityLabel();
+      state = codexStateToActivity(bridge.detectState());
+    } catch { return; }
+    if (label === lastActivityLabel && state === lastState) return;
+    lastActivityLabel = label;
+    lastState = state;
+    setup.processor.broadcastActivity(label, state).catch(() => { /* best-effort */ });
+  }, 1500);
+  activityTimer.unref();
+
   // Wait for Codex to start, checking the session is still alive
   for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if (!tmuxSessionExists(tmuxSession)) {
       console.error("Error: Codex exited during startup. Try running again.");
       clearCodexProfile(setup.agentName);
+      clearInterval(activityTimer);
       bridge.stop();
       await setup.cleanup();
       resetTerminal();
@@ -204,6 +227,7 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
     });
     inviteAbort.abort();
     await invitePromise;
+    clearInterval(activityTimer);
     bridge.stop();
     await setup.cleanup();
     if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
@@ -224,6 +248,7 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
 
   inviteAbort.abort();
   await invitePromise;
+  clearInterval(activityTimer);
   bridge.stop();
   await setup.cleanup();
   tmuxKillSession(tmuxSession);

@@ -189,6 +189,21 @@ Apiary nags you on startup if there's a new version (once per hour, non-blocking
 | `/clear` | Admin: wipe room history (all clients clear) |
 | `/tunnel` | Admin: start a cloudflared tunnel mid-session |
 | `/sound` | Toggle notification sounds (on by default, persisted) |
+| `/watch <name>` | Open that agent's terminal in a new window (read-only; `--control` to type into it) |
+
+### Watching an agent
+
+The participant strip marks each agent with its live state and a `⧉<n>` handle:
+
+```
+● fableboy ✓ Brewed for 6s ⧉1 · ◉ aztraboy ⏸ needs you ⧉2
+```
+
+`⏸ needs you` means that agent's CLI is sitting on something only you can clear — a command approval, a sign-in screen, an onboarding step. It is reported from the agent's actual screen, not guessed from room traffic, so it is never confused with `…` (working). One of those resolves by waiting; the other never does.
+
+Press `Ctrl+2` (or run `/watch aztraboy`) to open that agent's terminal in a **new window**. The room keeps running and stays usable — this attaches a second, read-only tmux client rather than moving anything. Use `/watch <name> --control` when you actually want to type into the agent.
+
+Agent panes are created at 200x50 with a pinned size, so a watcher window can never reflow the pane the runtime reads to work out what the agent is doing.
 
 ### Room persistence
 

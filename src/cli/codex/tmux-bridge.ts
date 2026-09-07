@@ -128,6 +128,15 @@ export class CodexTmuxBridge {
   }
 
   /**
+   * Codex's live status text ("Working (12s • esc to interrupt)") for the room
+   * strip, or null when idle. Mirrors the Claude bridge's getActivityLabel so
+   * both runtimes can report the same shape.
+   */
+  getActivityLabel(): string | null {
+    return extractCodexActivityLabel(this.captureScreen());
+  }
+
+  /**
    * Try to inject text, choosing strategy based on TUI state.
    * Text is flattened to a single line to avoid multi-line paste issues.
    */
@@ -280,9 +289,25 @@ export class CodexTmuxBridge {
  *
  * Detection priority: approval > streaming > idle/typing > unknown
  */
+/**
+ * Case-INSENSITIVE match against the UI-chrome patterns.
+ *
+ * Codex has changed the casing of its own hint text between releases: the
+ * dialog reads "Press enter to confirm or esc to cancel" in v0.153.4 where an
+ * earlier build capitalised Enter and Esc. A case-sensitive miss here is the
+ * dangerous direction — the screen falls through to "idle" and the bridge
+ * bracket-pastes a room event plus Enter into a live approval dialog, choosing
+ * an answer for a question the agent never saw. A false positive only queues
+ * the event for the drain loop to retry, so lean toward matching.
+ */
 function matchesAny(text: string, patterns: Array<string | RegExp>): boolean {
+  const haystack = text.toLowerCase();
   for (const pattern of patterns) {
-    if (typeof pattern === "string" ? text.includes(pattern) : pattern.test(text)) return true;
+    if (typeof pattern === "string") {
+      if (haystack.includes(pattern.toLowerCase())) return true;
+    } else if (pattern.test(text) || new RegExp(pattern.source, pattern.flags.includes("i") ? pattern.flags : pattern.flags + "i").test(text)) {
+      return true;
+    }
   }
   return false;
 }
@@ -344,4 +369,23 @@ export function detectCodexStateFromLines(lines: string[]): CodexTuiState {
   }
 
   return "unknown";
+}
+
+/**
+ * Pull Codex's status line out of a screen capture.
+ *
+ * Exported separately so it can be tested without tmux. Returns null when
+ * nothing is running — the room shows the state glyph alone in that case.
+ */
+export function extractCodexActivityLabel(lines: string[]): string | null {
+  // Scan bottom-up: the status line lives just under the transcript, and
+  // earlier conversation text can quote the same words.
+  for (const line of lines.slice(-12).reverse()) {
+    const m = /(Working|Thinking|Compacting|Reviewing)\b[^)\n]*/.exec(line);
+    if (!m) continue;
+    // Trim Codex's interrupt hint — it is UI chrome, not progress.
+    const label = m[0].replace(/\s*[•·]?\s*esc to interrupt.*$/i, "").trim();
+    if (label) return label.slice(0, 120);
+  }
+  return null;
 }

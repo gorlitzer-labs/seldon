@@ -24,6 +24,8 @@ import {
 } from "../tmux.js";
 import { TmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
+import { claudeStateToActivity } from "../agent-state.js";
+import type { AgentActivityState } from "../../agent/event-processor.js";
 import { contentPartsToString } from "../../agent/prompts.js";
 import { agentEmoji } from "../config.js";
 import { deliverInvite, sameApiaryServer } from "../invites.js";
@@ -292,13 +294,22 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   // changes. Gives the room TUI live "is the agent stuck or working?" signal
   // instead of just a static green dot.
   let lastActivityLabel: string | null = null;
+  let lastState: AgentActivityState | undefined;
   const activityTimer: NodeJS.Timeout = setInterval(() => {
     let label: string | null;
-    try { label = bridge.getActivityLabel(); }
-    catch { return; }
-    if (label === lastActivityLabel) return;
+    let state: AgentActivityState | undefined;
+    try {
+      label = bridge.getActivityLabel();
+      state = claudeStateToActivity(bridge.detectState());
+    } catch { return; }
+    // Report the state as well as the label. A permission prompt shows no
+    // activity label at all, so on the label alone the room cannot tell
+    // "waiting for you" from "quietly working" — and only one of those ends
+    // without the user doing something.
+    if (label === lastActivityLabel && state === lastState) return;
     lastActivityLabel = label;
-    setup.processor.broadcastActivity(label).catch(() => { /* best-effort */ });
+    lastState = state;
+    setup.processor.broadcastActivity(label, state).catch(() => { /* best-effort */ });
   }, 1500);
   activityTimer.unref();
 

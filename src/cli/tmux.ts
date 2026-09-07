@@ -33,11 +33,46 @@ export function tmuxSessionExists(session: string): boolean {
   }
 }
 
-/** Create a detached tmux session with no status bar. Optionally set the terminal tab title. */
-export function tmuxCreateSession(session: string, title?: string): void {
+/**
+ * Geometry for agent sessions.
+ *
+ * A detached tmux session defaults to 80x24, which is cramped for either
+ * agent CLI — and, more importantly, the bridges decide what an agent is
+ * doing by pattern-matching `capture-pane` output. Narrow panes wrap text
+ * mid-pattern, so the geometry is a correctness input, not a cosmetic one.
+ */
+export const AGENT_PANE_COLS = 200;
+export const AGENT_PANE_ROWS = 50;
+
+/**
+ * Create a detached tmux session with no status bar. Optionally set the
+ * terminal tab title.
+ *
+ * The size is pinned with `window-size manual`. Without it tmux resizes a
+ * session to fit whichever client attached most recently, so merely opening a
+ * window to watch an agent reflows its pane — 200x50 down to an 80x24
+ * terminal's size — and the bridge's screen patterns start missing. Read-only
+ * clients resize too, so `attach -r` is not protection.
+ */
+export function tmuxCreateSession(
+  session: string,
+  title?: string,
+  size: { cols: number; rows: number } = { cols: AGENT_PANE_COLS, rows: AGENT_PANE_ROWS },
+): void {
   const name = sanitizeSessionName(session);
-  execFileSync("tmux", ["new-session", "-d", "-s", name]);
+  execFileSync("tmux", [
+    "new-session", "-d", "-s", name,
+    "-x", String(size.cols), "-y", String(size.rows),
+  ]);
   execFileSync("tmux", ["set", "-t", name, "status", "off"]);
+  // Pin the geometry so an attaching watcher cannot reflow the agent's pane.
+  try {
+    execFileSync("tmux", ["set-option", "-t", name, "window-size", "manual"]);
+    execFileSync("tmux", ["resize-window", "-t", name, "-x", String(size.cols), "-y", String(size.rows)]);
+  } catch {
+    // tmux < 3.1 has no window-size option; the agent still runs, it just
+    // reflows when watched.
+  }
   if (title) {
     execFileSync("tmux", ["set", "-t", name, "set-titles", "on"]);
     execFileSync("tmux", ["set", "-t", name, "set-titles-string", title]);
@@ -108,10 +143,29 @@ export function tmuxCapturePane(session: string): string[] {
     const output = execFileSync("tmux", ["capture-pane", "-t", name, "-p"], {
       encoding: "utf-8",
     });
-    return output.split("\n");
+    return trimTrailingBlankLines(output.split("\n"));
   } catch {
     return [];
   }
+}
+
+/**
+ * Drop trailing blank lines from a capture.
+ *
+ * `capture-pane` returns every row of the pane, blank ones included. Both
+ * bridges then read "the bottom of the screen" as `lines.slice(-N)` to decide
+ * what the CLI is doing — which silently stops working the moment the pane is
+ * taller than the CLI's rendered output: the slice lands entirely in the empty
+ * rows, every state reads as "unknown", and the bridge queues events forever
+ * instead of delivering them.
+ *
+ * Trimming here rather than in each detector keeps "the last N lines" meaning
+ * "the last N lines of actual content" for every caller.
+ */
+export function trimTrailingBlankLines(lines: string[]): string[] {
+  let end = lines.length;
+  while (end > 0 && lines[end - 1].trim() === "") end--;
+  return lines.slice(0, end);
 }
 
 /**

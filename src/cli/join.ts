@@ -24,6 +24,8 @@ import { extractToken, buildShareUrl } from "./auth.js";
 import { can } from "../core/authority.js";
 import { tmuxSessionExists, tmuxCapturePane, tmuxInjectText, tmuxSendEnter } from "./tmux.js";
 import { listRoomSessions, saveRoomSession } from "./serve.js";
+import { listAgentSessions, isAgentAlive } from "./agent-session.js";
+import { openAgentWatcher } from "./watch.js";
 
 /**
  * Update one participant's persisted model in ~/.apiary/sessions/room_X.json.
@@ -71,6 +73,26 @@ export interface JoinOptions {
    *  `⏳ booting` in the footer until ParticipantJoined fires for each, then
    *  flips to `⚠ stalled` after 30s if they never show up. */
   expectedAgents?: string[];
+}
+
+/**
+ * The tmux session for a locally-started agent, or null.
+ *
+ * Agent names in a room are display names chosen at join time; the tmux
+ * session is keyed on the alias the runtime was started with. They match by
+ * convention (the wizard uses one string for both), so compare
+ * case-insensitively and fall back to the naming scheme.
+ */
+function findAgentTmuxSession(agentName: string): string | null {
+  const wanted = agentName.toLowerCase();
+  for (const runtime of ["claude", "codex"] as const) {
+    for (const s of listAgentSessions(runtime)) {
+      if (s.agentName.toLowerCase() !== wanted) continue;
+      if (!isAgentAlive(s)) return null;
+      return s.tmuxSession ?? `apiary_${s.agentName}`;
+    }
+  }
+  return null;
 }
 
 export async function join(options: JoinOptions): Promise<void> {
@@ -316,6 +338,34 @@ export async function join(options: JoinOptions): Promise<void> {
           );
         }
         systemEvent(lines.join("\n"));
+        return;
+      }
+
+      // ── /watch ────────────────────────────────────────────────────
+      // Opens the agent's tmux session in a NEW terminal window. The room TUI
+      // is untouched and stays usable — this attaches a second client rather
+      // than moving the agent's pane anywhere.
+      case "watch": {
+        const target = args[0];
+        if (!target) {
+          systemEvent("Usage: /watch <agent> [--control]   (read-only unless --control)");
+          return;
+        }
+        const control = args.includes("--control");
+        const session = findAgentTmuxSession(target);
+        if (!session) {
+          systemEvent(
+            `No local tmux session for "${target}". ` +
+            `/watch only works for agents started on this machine by apiary claude/codex.`,
+          );
+          return;
+        }
+        const res = openAgentWatcher(session, { control });
+        systemEvent(
+          res.ok
+            ? `Opened ${target} in a new ${res.terminal} window (${res.readOnly ? "read-only" : "INTERACTIVE — your keystrokes go to the agent"}).`
+            : `Could not open a window for ${target}: ${res.reason}`,
+        );
         return;
       }
 
@@ -669,6 +719,22 @@ export async function join(options: JoinOptions): Promise<void> {
         // Server may be down — silently fail
       }
     },
+    onWatchAgent: (agentName: string) => {
+      const session = findAgentTmuxSession(agentName);
+      if (!session) {
+        systemEvent(
+          `No local tmux session for "${agentName}". ` +
+          `Watching only works for agents started on this machine by apiary claude/codex.`,
+        );
+        return;
+      }
+      const res = openAgentWatcher(session);
+      systemEvent(
+        res.ok
+          ? `Opened ${agentName} in a new ${res.terminal} window (read-only). Use "/watch ${agentName} --control" to type into it.`
+          : `Could not open a window for ${agentName}: ${res.reason}`,
+      );
+    },
     onCtrlC: (() => {
       // Two-step exit: single Ctrl+C shows a hint, second within 2s actually
       // leaves. Prevents the "I closed it by mistake and lost my admin
@@ -911,8 +977,14 @@ export async function join(options: JoinOptions): Promise<void> {
                 const detail = (event as { detail?: Record<string, unknown> }).detail ?? {};
                 const name = typeof detail.participant_name === "string" ? detail.participant_name : undefined;
                 const label = typeof detail.label === "string" ? detail.label : null;
+                const observed = detail.state === "idle" || detail.state === "working" || detail.state === "blocked"
+                  ? detail.state
+                  : undefined;
                 if (name && currentAgents.has(name)) {
                   tui.setAgentActivity(name, label);
+                  // Ground truth from the agent's own screen — outranks the
+                  // "someone spoke, so everyone must be working" guess below.
+                  if (observed) tui.setAgentState(name, observed, { observed: true });
                 }
               }
               if (event.type === "Activity" && (event as { action?: string }).action === "metrics") {

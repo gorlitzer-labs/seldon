@@ -60,6 +60,16 @@ function mergeParts(arrays: ContentPart[][]): ContentPart[] {
 
 // ── EventProcessor ──────────────────────────────────────────────────────────────
 
+/**
+ * What an agent runtime observed on its CLI's screen, as reported to the room.
+ *
+ * Deliberately coarser than each bridge's internal TUI states: the room only
+ * needs to distinguish "getting on with it" from "stuck until a human acts",
+ * because those look identical from the outside and only one of them resolves
+ * by waiting.
+ */
+export type AgentActivityState = "idle" | "working" | "blocked";
+
 export class EventProcessor implements RoomResolver {
   private _participantId: string;
   private _participantName: string;
@@ -203,7 +213,7 @@ export class EventProcessor implements RoomResolver {
    * Called from the CLI runtime's tmux poll loop. Best-effort: failures are
    * swallowed so a flaky network never crashes the agent.
    */
-  async broadcastActivity(label: string | null): Promise<void> {
+  async broadcastActivity(label: string | null, state?: AgentActivityState): Promise<void> {
     for (const conn of this._registry.values()) {
       const ds = conn.dataSource;
       if (!(ds instanceof RemoteRoomDataSource)) continue;
@@ -214,7 +224,7 @@ export class EventProcessor implements RoomResolver {
             "Content-Type": "application/json",
             Authorization: `Bearer ${ds.sessionToken}`,
           },
-          body: JSON.stringify({ label }),
+          body: JSON.stringify(state === undefined ? { label } : { label, state }),
         });
       } catch { /* best-effort */ }
     }

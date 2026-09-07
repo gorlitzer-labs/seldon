@@ -127,6 +127,9 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/help",    description: "Show commands" },
   { name: "/who",     description: "List participants" },
   { name: "/rules",   description: "Show the room rules" },
+  { name: "/watch",   description: "Open an agent's terminal in a new window", params: [
+    { label: "name", completions: "participants" },
+  ]},
   { name: "/leave",   description: "Disconnect and exit" },
   { name: "/share",   description: "Generate share links", op: "create_share_link" },
   { name: "/kick",    description: "Remove a participant", op: "kick", params: [
@@ -172,11 +175,57 @@ export type DisplayEvent =
   | { id: string; ts: string; kind: "ping";    pingerName: string }
   | { id: string; ts: string; kind: "system";  content: string };
 
-export type AgentState = "pending" | "stalled" | "idle" | "working" | "unknown" | "unresponsive";
+/**
+ * How long a state read off an agent's screen outranks one inferred from room
+ * traffic. Runtimes heartbeat every ~1.5s, so a living agent stays comfortably
+ * fresh; a dead one falls back to inference within seconds.
+ */
+export const OBSERVED_TTL_MS = 10_000;
+
+/**
+ * Should this state update be applied?
+ *
+ * The room infers "working" for every agent on every human message. That must
+ * not overwrite a state the runtime actually read off the agent's screen —
+ * otherwise "needs you", the one state the user has to act on, is buried the
+ * moment anybody speaks. Observed updates always apply and refresh the window;
+ * inferred ones are dropped while an observed state is still fresh.
+ */
+export function shouldApplyAgentState(opts: {
+  observed: boolean;
+  lastObservedAt: number | undefined;
+  now: number;
+  ttlMs?: number;
+}): boolean {
+  if (opts.observed) return true;
+  if (opts.lastObservedAt === undefined) return true;
+  return opts.now - opts.lastObservedAt >= (opts.ttlMs ?? OBSERVED_TTL_MS);
+}
+
+export type AgentState =
+  | "pending" | "stalled" | "idle" | "working" | "unknown" | "unresponsive"
+  /**
+   * The agent's CLI is sitting on a prompt only a human can clear — a tool or
+   * command approval, a sign-in screen, an onboarding step. Distinct from
+   * "working" on purpose: both look like a spinner from the room's side, but
+   * this one never resolves on its own.
+   */
+  | "blocked";
 
 export interface SetAgentStateOpts {
   /** When `state === "working"`, auto-revert to "unknown" after this many ms. Default 60_000. */
   decayMs?: number;
+  /**
+   * True when the state was read off the agent's own screen rather than
+   * guessed from room traffic.
+   *
+   * The room otherwise infers "working" for every agent on every human
+   * message, which would immediately overwrite a reported "needs you" and
+   * hide the one state the user has to act on. Observed states therefore win
+   * for OBSERVED_TTL_MS, refreshed by each runtime heartbeat; if a runtime
+   * dies its state goes stale and inference takes over again.
+   */
+  observed?: boolean;
 }
 
 export interface TUIHandle {
@@ -207,6 +256,8 @@ export interface TUIOptions {
   roomName: string;
   onSend?(content: string): void;
   onCtrlC?(): void;
+  /** Ctrl+<n> — open that agent's terminal in a new window. */
+  onWatchAgent?(agentName: string): void;
   readOnly?: boolean;
   /** Server-granted authority. Drives which slash commands appear and run. */
   authority?: AuthorityLevel;
@@ -543,6 +594,7 @@ function App({
   roomName,
   onSend,
   onCtrlC,
+  onWatchAgent,
   onReady,
   readOnly,
   authority,
@@ -551,6 +603,12 @@ function App({
   roomName: string;
   onSend?: (content: string) => void;
   onCtrlC?: () => void;
+  /**
+   * Ctrl+<n> — open that agent's terminal in a new window. The TUI only
+   * reports the intent; the host wires it to the watcher so this component
+   * stays free of tmux and terminal-spawning concerns.
+   */
+  onWatchAgent?: (agentName: string) => void;
   onReady: (handle: AppHandle) => void;
   readOnly?: boolean;
   authority?: AuthorityLevel;
@@ -651,11 +709,21 @@ function App({
     return next;
   }, []);
 
+  // name → when its state was last read off the agent's own screen.
+  const observedAtRef = React.useRef<Map<string, number>>(new Map());
+
   const DEFAULT_WORKING_DECAY_MS = 300_000;
   const PENDING_STALL_MS = 30_000;
-
   const setAgentState = useCallback(
     (name: string, state: AgentState, opts?: SetAgentStateOpts) => {
+      const observed = opts?.observed === true;
+      if (!shouldApplyAgentState({
+        observed,
+        lastObservedAt: observedAtRef.current.get(name),
+        now: Date.now(),
+      })) return;
+      if (observed) observedAtRef.current.set(name, Date.now());
+
       // Cancel any existing decay timer — every state change is a fresh signal.
       const existing = decayTimers.current.get(name);
       if (existing) { clearTimeout(existing); decayTimers.current.delete(name); }
@@ -830,6 +898,18 @@ function App({
 
   useInput((char, key) => {
     if (key.ctrl && char === "c") { onCtrlC?.(); return; }
+
+    // Ctrl+1..9 — open that agent's terminal in a new window. Works while
+    // read-only (watching is not participating), and never blocks the room.
+    // A keybinding rather than a click: mouse reporting would take over
+    // selection for the whole view, costing click-to-copy everywhere.
+    if (key.ctrl && char >= "1" && char <= "9") {
+      const idx = Number(char) - 1;
+      const target = agentNames[idx];
+      if (target) onWatchAgent?.(target);
+      return;
+    }
+
     if (readOnly || !onSend) return;
 
     // Suggestion navigation
@@ -1025,6 +1105,7 @@ function App({
                 case "pending":      return { glyph: " ⏳ booting",  color: C.yellow };
                 case "stalled":      return { glyph: " ⚠ stalled",  color: C.danger };
                 case "idle":         return { glyph: " ✓",          color: C.green  };
+                case "blocked":      return { glyph: " ⏸ needs you", color: C.orange };
                 case "working":      return { glyph: " …",          color: C.yellow };
                 case "unresponsive": return { glyph: " ⚠",          color: C.danger };
                 case "unknown":
@@ -1046,6 +1127,9 @@ function App({
                 {i > 0 && <Text color={C.border}>{" · "}</Text>}
                 <Text color={color}>{sigil}{" "}{name}</Text>
                 <Text color={stateSuffix.color}>{stateSuffix.glyph}</Text>
+                {/* The affordance for Ctrl+<n> / "/watch <name>". Only shown
+                    for the first 9, which are the ones the binding reaches. */}
+                {i < 9 && <Text color={C.border}>{` ⧉${i + 1}`}</Text>}
                 {activity && <Text color={activityColor}>{" "}{activity.label}</Text>}
                 {metricsText && <Text color={C.muted}>{metricsText}</Text>}
               </React.Fragment>
@@ -1183,6 +1267,7 @@ export function startTUI(opts: TUIOptions): TUIHandle {
       roomName={opts.roomName}
       onSend={opts.onSend}
       onCtrlC={opts.onCtrlC}
+      onWatchAgent={opts.onWatchAgent}
       onReady={onReady}
       readOnly={opts.readOnly}
       authority={opts.authority}

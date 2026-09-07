@@ -301,4 +301,37 @@ authenticate:
 `);
     expect(detectCodexStateFromLines(lines)).toBe("idle");
   });
+
+  // ── Casing ──────────────────────────────────────────────────────────────
+
+  test("detects approval regardless of Codex's hint casing", () => {
+    // v0.153.4 writes "Press enter to confirm or esc to cancel"; an earlier
+    // build capitalised both words. A case-sensitive miss falls through to
+    // "idle" and the bridge answers a live dialog on the agent's behalf.
+    for (const hint of [
+      "Press enter to confirm or esc to cancel",
+      "Press Enter to confirm or Esc to cancel",
+      "PRESS ENTER TO CONFIRM OR ESC TO CANCEL",
+    ]) {
+      const lines = screen(`
+  Codex wants to run a command
+
+    node scripts/smoke.mjs
+
+  › 1. Yes, proceed (y)
+    3. No, and tell Codex what to do differently (esc)
+
+  ${hint}
+`);
+      expect(detectCodexStateFromLines(lines)).toBe("approval");
+    }
+  });
+
+  test("detects a sign-in screen regardless of casing", () => {
+    const lines = screen(`
+  welcome to codex, openai's command-line coding agent
+  finish signing in via your browser
+`);
+    expect(detectCodexStateFromLines(lines)).toBe("blocked");
+  });
 });

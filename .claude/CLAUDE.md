@@ -132,6 +132,7 @@ npx apiary stop [<name> | --all]                                                
 - `/clear` — admin: wipe room history (storage + all clients)
 - `/tunnel` — admin: start a cloudflared tunnel mid-session
 - `/sound` — toggle notification sounds (on by default, persisted)
+- `/watch <name> [--control]` — open that agent's terminal in a new window (read-only by default). `Ctrl+<n>` does the same for the nth agent in the strip
 
 ## Dev commands
 
