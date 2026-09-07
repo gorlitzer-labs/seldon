@@ -33,6 +33,18 @@ from .record import record_utterance
 from .factory import Item, Urgency, Watcher
 
 WATCH_INTERVAL_S = 2.0
+
+# One browser at a time. ears/brain/voice are module-level singletons: a second
+# session would call ears.open() and wipe the first speaker's buffer, and both
+# would share one KV cache, so each would hear replies to the other's questions.
+# Turns serialise on the single GPU thread, so this never crashed -- it was just
+# quietly wrong, which is worse. Refusing is honest until the models are
+# per-session (they are 20.5 GB, so they will not be).
+_active: dict = {"session": None}
+
+# Writes Boomer can make: resolving a factory decision is permanent, and memory
+# is durable. Off behind a shared link.
+READONLY = os.environ.get("BOOMER_READONLY", "").lower() in {"1", "true", "yes"}
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
 worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="boomer-gpu")
 
@@ -171,9 +183,16 @@ async def watch_factory(session: "Session") -> None:
 
 async def handler(ws):
     loop = asyncio.get_running_loop()
+    if _active["session"] is not None:
+        await ws.send(json.dumps(P.msg(
+            "busy", detail="Another session already has Boomer. "
+                           "Close the other tab and reload.")))
+        await ws.close()
+        return
     s = Session(ws, loop)
+    _active["session"] = s
     s.emit(P.state(State.IDLE))
-    s.emit(P.msg("ready", hangoverMs=s.ep.hangover_ms))
+    s.emit(P.msg("ready", hangoverMs=s.ep.hangover_ms, readonly=READONLY))
     watcher_task = asyncio.create_task(watch_factory(s))
     try:
         async for message in ws:
@@ -190,6 +209,8 @@ async def handler(ws):
         pass
     finally:
         watcher_task.cancel()
+        if _active["session"] is s:
+            _active["session"] = None
 
 
 def serve_http():

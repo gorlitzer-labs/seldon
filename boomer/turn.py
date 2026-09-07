@@ -95,6 +95,8 @@ def _handle_factory(transcript: str, ctx: dict) -> str | None:
     if awaiting:
         if fac.is_affirmative(transcript):
             ctx.pop("awaiting_confirm", None)
+            if _readonly():
+                return "I am in read-only mode, so I did not send that."
             ok, line = fac.answer_decision(awaiting["id"], awaiting["answer"])
             return line
         if fac.is_negative(transcript):
@@ -125,9 +127,16 @@ def _handle_factory(transcript: str, ctx: dict) -> str | None:
     return None
 
 
+def _readonly() -> bool:
+    import os
+    return os.environ.get("BOOMER_READONLY", "").lower() in {"1", "true", "yes"}
+
+
 def _handle_memory(intent: str, payload: str) -> str:
     """Do the memory operation and return exactly what should be said back."""
     if intent == "remember":
+        if _readonly():
+            return "I am in read-only mode, so I cannot save that."
         item = mem.remember(payload)
         if item is None:
             return "I already had that, or there was nothing to store."
@@ -135,6 +144,8 @@ def _handle_memory(intent: str, payload: str) -> str:
         # which was measured turning "Postgres" into "poskers".
         return f"Noted: {item.text}."
     if intent == "forget":
+        if _readonly():
+            return "I am in read-only mode, so I cannot change what I remember."
         dropped = mem.forget(payload)
         if not dropped:
             return "I had nothing matching that."

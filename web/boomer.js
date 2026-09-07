@@ -56,7 +56,14 @@ function onMessage(ev) {
         `stt ${m.stt_ms|0}ms   ttft ${m.ttft_ms|0}ms   first audio ${m.tts_first_ms|0}ms`;
       break;
     case 'ready':
-      el('metrics').textContent = `endpoint hangover ${m.hangoverMs|0}ms`;
+      el('metrics').textContent = `endpoint hangover ${m.hangoverMs|0}ms`
+        + (m.readonly ? '  -  READ-ONLY (no writes)' : '');
+      break;
+    case 'busy':
+      // Only one browser can hold her: the models are shared singletons.
+      setState('busy');
+      el('hint').textContent = m.detail;
+      el('go').disabled = false;
       break;
     case 'announce':
       // She spoke first. Mark it so it doesn't read as a reply to you.
