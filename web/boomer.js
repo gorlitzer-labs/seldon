@@ -130,6 +130,17 @@ function pumpAudio() {
 // --- voices ---------------------------------------------------------------
 const sheet = el('voicesheet');
 
+/** Say plainly whether an unrecognised voice would be refused. */
+function setGuard(on) {
+  const g = el('guard');
+  g.dataset.on = on ? '1' : '0';
+  g.textContent = on ? 'voice check on' : 'anyone can talk';
+  g.title = on
+    ? 'Only enrolled voices are answered.'
+    : 'Nobody is enrolled, so she answers any voice. Click to enrol.';
+  g.onclick = () => el('voices').click();
+}
+
 function renderRoster(voices) {
   const ul = el('roster');
   ul.innerHTML = '';
@@ -180,6 +191,7 @@ function endEnrolment() {
 function handleVoiceMessage(m) {
   switch (m.type) {
     case 'roster':
+      setGuard(!!(m.voices && m.voices.length));
       renderRoster(m.voices);
       if (m.removed) toast('voices', 'Voice forgotten.');
       return true;
@@ -207,6 +219,7 @@ function handleVoiceMessage(m) {
         el('ename').value = '';
         el('eowner').checked = false;
         renderRoster(m.roster);
+        setGuard(true);
         const q = m.report.self_similarity_min;
         if (q < 0.6) {
           toast('enrolled', `${m.name} saved, but the samples only agree ${q}. `
@@ -289,12 +302,17 @@ function onMessage(ev) {
       break;
 
     case 'ready':
+      setGuard(m.voiceCheck);
       renderRoster(m.voices);
       el('enrol').disabled = !m.canEnrol;
       if (!m.canEnrol) {
         toast('voices', 'Voice model missing. Run scripts/fetch-models.py to enable voices.', 'bad', 9000);
       }
       if (m.readonly) toast('read-only', 'Writes are disabled for this session.');
+      if (m.canEnrol && !m.voiceCheck) {
+        toast('anyone can talk', 'No voice is enrolled, so she answers whoever '
+          + 'speaks. Enrol yourself in voices to change that.', '', 9000);
+      }
       hint(`Say "${m.wakeWord || 'boomer'}" to start. `
         + 'Follow-ups need no wake word; "that\'s all" ends it.');
       break;

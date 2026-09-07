@@ -301,6 +301,7 @@ async def handler(ws):
     s.emit_attention("connected")
     s.emit(P.msg("ready", hangoverMs=s.ep.hangover_ms, readonly=READONLY,
                  wakeWord="boomer",
+                 voiceCheck=bool(speaker and speaker.enrolled),
                  voices=speaker.roster() if speaker else [],
                  canEnrol=speaker is not None))
     watcher_task = asyncio.create_task(watch_factory(s))
