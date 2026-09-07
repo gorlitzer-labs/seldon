@@ -3,82 +3,69 @@
 <title>Boomer</title>
 <link rel="icon" href="data:,">
 <style>
-  /* Boomer is an instrument, not an app. The console vocabulary -- hairlines,
-     calibration marks, a monospace face -- is earned here: it is a
-     terminal-launched local tool, and the avatar already speaks in radial
-     tick marks. What it must NOT look like is a settings form, which is what
-     four equal rounded buttons in a row made it.
-
-     --accent is rewritten from JS on every state change, so the chrome is
-     wired to the instrument rather than sitting next to it. */
+  /* The console fills the viewport and never scrolls. Everything that is an
+     ACTION opens a modal; everything that is a STATUS becomes a toast. The page
+     itself holds only the instrument, the log, and the rail -- previously all
+     three plus a voices form stacked into one tall scroll with the avatar cut
+     off the top. */
   :root{
-    --ink:#05080b;
-    --panel:#080c11;
-    --line:#141d27;
-    --line-lit:#22303f;
-    --fg:#c9dcef;
-    --dim:#54697f;
-    --accent:#4a6377;          /* offline; JS drives this */
-    --mine:#ff9e3d;
-    --pad:clamp(1.25rem, 4vw, 2.5rem);
+    --ink:#05080b; --line:#141d27; --line-lit:#22303f;
+    --fg:#c9dcef; --dim:#54697f;
+    --accent:#4a6377;            /* offline; JS drives this from her state */
+    --mine:#FF9E3D;
+    --pad:clamp(1rem, 3vw, 2rem);
   }
   *{box-sizing:border-box}
-  html,body{height:100%}
+  html,body{height:100%;overflow:hidden}
   body{
     margin:0;background:var(--ink);color:var(--fg);
     font:13px/1.6 ui-monospace,"SF Mono",Menlo,monospace;
-    display:grid;place-items:center;padding:var(--pad);
     -webkit-font-smoothing:antialiased;
   }
-  main{width:min(30rem,100%)}
+  main{
+    height:100dvh;padding:var(--pad);margin:0 auto;width:min(30rem,100%);
+    display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;gap:.75rem;
+  }
 
-  /* --- identity: small, not a hero. The avatar is the hero. --- */
-  .id{display:flex;align-items:baseline;gap:.6rem;margin-bottom:1rem}
-  .id b{font-weight:500;letter-spacing:.02em;font-size:13px}
+  .id{display:flex;align-items:baseline;gap:.6rem}
+  .id b{font-weight:500;font-size:13px}
   .id i{font-style:normal;color:var(--dim);font-size:11px}
   .id .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);
            box-shadow:0 0 8px var(--accent);transition:background .4s,box-shadow .4s}
+  .id .spacer{flex:1}
+  .id #readout{font-size:11px;color:var(--dim);white-space:nowrap}
 
-  /* --- the instrument --- */
-  #avatar{display:none;width:100%;aspect-ratio:1;border-radius:2px}
+  /* The instrument takes whatever vertical space is left, so it is never cut
+     off and never needs scrolling to. */
+  .stage{min-height:0;display:grid;place-items:center}
+  #avatar{display:none;width:100%;height:100%;max-height:100%}
   body[data-avatar=on] #avatar{display:block}
   body[data-avatar=on] #orb{display:none}
-  #orb{width:72px;height:72px;border-radius:50%;margin:2rem auto;
+  #orb{width:64px;height:64px;border-radius:50%;
        background:radial-gradient(circle at 35% 30%,#1c2b3a,#0a1017 70%)}
 
-  /* --- transcript: framed blocks, named and colour-coded ---
-     Alignment alone stopped being enough once several people can be enrolled:
-     the label now carries a real name (Franko / Giulia / Boomer), so it is
-     information rather than the redundant "you:" prefix it replaced.
-
-     The frame is a left gutter rule in the speaker's colour plus a faint tint
-     of the same hue -- a patch-bay channel strip, not a chat bubble. */
-  #log{margin:1.25rem 0 0;min-height:5rem;display:flex;flex-direction:column;
-       gap:.55rem;max-height:17rem;overflow-y:auto;scrollbar-width:thin}
-  /* Log colours are FIXED, not state-driven. --accent turns amber while she is
-     thinking, which collided with the user's amber; and an escalation was amber
-     too, so three different things shared one hue. The avatar carries state; the
-     log carries identity, and identity must not move.
-
-     Three devices were doing one job here (full border, gutter rule, tint).
-     The rule and the tint are enough; the border came off. */
+  /* --- log: framed channels, fixed identity colours --- */
+  /* A terminal, not a panel: newest message sits flush against the rail and
+     older ones scroll off the top. The mask fades the overflow so a partly
+     visible message reads as scrolled rather than chopped in half, which is
+     what a hard max-height looked like. */
+  #log{display:flex;flex-direction:column;justify-content:flex-end;gap:.5rem;
+       max-height:12rem;overflow-y:auto;overscroll-behavior:contain;
+       scrollbar-width:none;
+       mask-image:linear-gradient(to bottom,transparent,#000 2.2rem);
+       -webkit-mask-image:linear-gradient(to bottom,transparent,#000 2.2rem)}
+  #log::-webkit-scrollbar{display:none}
   .msg{--c:#35C8FF;
-       margin:0;padding:.42rem .7rem;max-width:88%;line-height:1.55;
+       margin:0;padding:.42rem .7rem;max-width:88%;line-height:1.5;
        border-left:2px solid var(--c);
        background:color-mix(in oklab, var(--c) 8%, transparent);
        transition:background .3s}
   .msg .who{display:block;font-size:10px;letter-spacing:.14em;
-            color:var(--c);margin-bottom:.22rem;opacity:.85}
+            color:var(--c);margin-bottom:.2rem;opacity:.85}
   .msg .txt{display:block;color:var(--fg)}
   .msg.them{align-self:flex-start}
-  /* Each person carries their own hue, set inline from their name. Role is not
-     encoded here: it belongs in the voices panel and in the refusal she gives
-     when a guest tries to write, not on every line they say. */
   .msg.me{--c:var(--mine);align-self:flex-end}
   .msg.me .txt{opacity:.85}
-  /* She started this one. Still her voice, so still her hue -- the escalation is
-     marked by a heavier gutter and the hive in the label, not by borrowing the
-     user's colour. A blocker is louder than a decision, so it gets its own. */
   .msg.unprompted{border-left-width:4px;
        background:color-mix(in oklab, var(--c) 14%, transparent)}
   .msg.alert{--c:#FF4D6D}
@@ -87,84 +74,122 @@
        animation:cursor 1s steps(2) infinite}
   @keyframes cursor{50%{opacity:0}}
 
-  /* --- the rail: one hairline, controls sitting on it --- */
-  .rail{display:flex;align-items:center;gap:1.1rem;margin-top:1.5rem;
-        padding-top:.85rem;border-top:1px solid var(--line)}
+  /* --- rail --- */
+  .rail{display:flex;align-items:center;gap:1.1rem;
+        padding-top:.8rem;border-top:1px solid var(--line)}
   .rail .spacer{flex:1}
-  button{
-    font:inherit;font-size:12px;color:var(--dim);background:none;border:0;
-    padding:.2rem 0;cursor:pointer;letter-spacing:.01em;
-    border-bottom:1px solid transparent;transition:color .15s,border-color .15s;
+  /* --- one button system ---
+     Everything clickable is .btn plus at most one modifier. Previously these
+     were styled by id and element with ad-hoc overrides, so the rail, the sheet
+     and the roster all drifted apart. */
+  .btn{
+    font:inherit;font-size:12px;line-height:1.4;
+    color:var(--dim);background:none;border:0;border-bottom:1px solid transparent;
+    padding:.2rem 0;cursor:pointer;
+    display:inline-flex;align-items:center;gap:.45rem;
+    transition:color .15s,border-color .15s,opacity .15s;
   }
-  button:hover:not(:disabled){color:var(--fg);border-bottom-color:var(--line-lit)}
-  button:focus-visible{outline:1px solid var(--accent);outline-offset:3px}
-  button:disabled{opacity:.35;cursor:default}
-  /* the primary action carries a dot, echoing the core */
-  #go{color:var(--fg);display:inline-flex;align-items:center;gap:.45rem}
-  #go::before{content:"";width:6px;height:6px;border-radius:50%;
-              background:var(--accent);box-shadow:0 0 6px var(--accent)}
-  #readout{font-size:11px;color:var(--dim);white-space:nowrap}
+  .btn:hover:not(:disabled){color:var(--fg);border-bottom-color:var(--line-lit)}
+  .btn:focus-visible{outline:1px solid var(--accent);outline-offset:3px;border-radius:1px}
+  .btn:disabled{opacity:.35;cursor:default}
+  /* the one action you press first, marked by a lit dot echoing the core */
+  .btn--primary{color:var(--fg)}
+  .btn--primary::before{content:"";width:6px;height:6px;border-radius:50%;
+      background:var(--accent);box-shadow:0 0 6px var(--accent);
+      transition:background .4s,box-shadow .4s}
+  .btn--primary:disabled{opacity:1;color:var(--dim)}
+  /* destructive, and quiet until you reach for it */
+  .btn--danger:hover:not(:disabled){color:#FF4D6D;border-bottom-color:#FF4D6D55}
 
-  /* --- voices: a roster readout, not a form --- */
-  #voicepanel{margin-top:1.1rem;border-top:1px solid var(--line);padding-top:.9rem}
-  #roster{list-style:none;padding:0;margin:0 0 .9rem;font-size:12px}
-  #roster li{display:grid;grid-template-columns:1fr auto auto auto;gap:.8rem;
-             align-items:center;padding:.32rem 0;border-bottom:1px solid var(--line)}
+  /* --- toasts: transient status, never in the layout --- */
+  #toasts{position:fixed;top:var(--pad);right:var(--pad);z-index:20;
+          display:flex;flex-direction:column;gap:.4rem;
+          width:min(20rem,calc(100vw - 2*var(--pad)));pointer-events:none}
+  .toast{--c:var(--accent);pointer-events:auto;
+         padding:.5rem .7rem;font-size:12px;line-height:1.45;
+         border-left:2px solid var(--c);background:#0b1219;
+         box-shadow:0 6px 20px -8px #000;
+         animation:toastin .18s ease-out}
+  .toast.bad{--c:#FF4D6D}
+  .toast.good{--c:#18E08A}
+  .toast .k{display:block;font-size:10px;letter-spacing:.14em;color:var(--c);
+            margin-bottom:.15rem}
+  @keyframes toastin{from{opacity:0;transform:translateY(-4px)}}
+
+  /* --- modal: actions live here --- */
+  dialog{border:0;padding:0;background:none;max-width:none;max-height:none}
+  dialog::backdrop{background:#03060990;backdrop-filter:blur(3px)}
+  .sheet{width:min(26rem,calc(100vw - 2*var(--pad)));background:#080d13;
+         border:1px solid var(--line-lit);padding:1.1rem 1.2rem 1.2rem;
+         color:var(--fg);font:inherit}
+  .sheet h2{font-size:12px;font-weight:500;letter-spacing:.1em;color:var(--dim);
+            margin:0 0 .9rem;display:flex;align-items:center}
+  .sheet h2 .spacer{flex:1}
+  #roster{list-style:none;padding:0;margin:0 0 1rem;font-size:12px}
+  #roster li{display:grid;grid-template-columns:1fr auto auto auto;gap:.7rem;
+             align-items:center;padding:.35rem 0;border-bottom:1px solid var(--line)}
   #roster li:last-child{border-bottom:0}
   #roster .pname{color:var(--c,var(--fg))}
-  #roster .owner-mark{color:var(--mine);font-size:11px}
-  #roster .guest-mark{color:var(--dim);font-size:11px}
+  #roster .mark{font-size:11px;color:var(--dim)}
+  #roster .mark.owner{color:var(--mine)}
   #roster .q{color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums}
   #roster .none{display:block;color:var(--dim)}
-  .enrol{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;font-size:12px}
-  .enrol input[type=text]{
-    font:inherit;font-size:12px;background:none;color:var(--fg);
-    border:0;border-bottom:1px solid var(--line-lit);padding:.25rem 0;width:8rem;
-  }
+  .enrol{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;font-size:12px;
+         padding-top:.9rem;border-top:1px solid var(--line)}
+  .enrol input[type=text]{font:inherit;font-size:12px;background:none;color:var(--fg);
+         border:0;border-bottom:1px solid var(--line-lit);padding:.25rem 0;width:8rem}
   .enrol input[type=text]::placeholder{color:var(--dim)}
   .enrol input[type=text]:focus{outline:0;border-bottom-color:var(--accent)}
-  .enrol label{color:var(--dim);display:inline-flex;align-items:center;gap:.35rem;cursor:pointer}
+  .enrol label{color:var(--dim);display:inline-flex;align-items:center;gap:.35rem;
+               cursor:pointer}
   .enrol input[type=checkbox]{accent-color:var(--mine);margin:0}
-  #phrases{margin:.9rem 0 0;padding:0;list-style:none;font-size:12px;
-           counter-reset:p}
-  #phrases li{color:var(--dim);padding:.22rem 0 .22rem 1.5rem;position:relative}
+  .enrol .spacer{flex:1}
+  #phrases{margin:1rem 0 0;padding:0;list-style:none;font-size:12px;counter-reset:p}
+  #phrases li{color:var(--dim);padding:.24rem 0 .24rem 1.5rem;position:relative}
   #phrases li::before{counter-increment:p;content:counter(p);position:absolute;left:0;
                       color:var(--line-lit);font-size:11px}
   #phrases li.now{color:var(--fg)}
   #phrases li.now::before{color:var(--accent)}
-  #phrases li.done{opacity:.4}
-  #estatus{font-size:11px;color:var(--dim);margin-top:.7rem;min-height:1.2em}
+  #phrases li.done{opacity:.35;text-decoration:line-through}
 
-  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 <main>
-  <div class="id"><span class="dot"></span><b>Boomer</b><i id="state">offline</i></div>
+  <div class="id">
+    <span class="dot"></span><b>Boomer</b><i id="state">offline</i>
+    <span class="spacer"></span><span id="readout"></span>
+  </div>
 
-  <canvas id="avatar" width="480" height="480"></canvas>
-  <div id="orb"></div>
+  <div class="stage">
+    <canvas id="avatar" width="480" height="480"></canvas>
+    <div id="orb"></div>
+  </div>
 
   <div id="log" aria-live="polite"></div>
 
   <div class="rail">
-    <button id="go">listen</button>
-    <button id="stop">interrupt</button>
-    <button id="reset">clear</button>
+    <button id="go" class="btn btn--primary">listen</button>
+    <button id="stop" class="btn">interrupt</button>
+    <button id="clear" class="btn">clear</button>
     <span class="spacer"></span>
-    <button id="voices">voices</button>
-    <span id="readout"></span>
+    <button id="voices" class="btn">voices</button>
   </div>
+</main>
 
-  <section id="voicepanel" hidden>
+<div id="toasts" aria-live="polite"></div>
+
+<dialog id="voicesheet">
+  <div class="sheet">
+    <h2>Voices <span class="spacer"></span><button id="sheetclose" class="btn">close</button></h2>
     <ul id="roster"></ul>
     <div class="enrol">
       <input id="ename" type="text" placeholder="name" maxlength="40" autocomplete="off">
       <label><input id="eowner" type="checkbox"> can answer the factory</label>
       <span class="spacer"></span>
-      <button id="enrol">enrol</button>
-      <button id="ecancel" hidden>cancel</button>
+      <button id="enrol" class="btn btn--primary">enrol</button>
+      <button id="ecancel" class="btn" hidden>cancel</button>
     </div>
     <ol id="phrases" hidden></ol>
-    <div id="estatus"></div>
-  </section>
-</main>
+  </div>
+</dialog>
 <script type="module" src="./boomer.js"></script>

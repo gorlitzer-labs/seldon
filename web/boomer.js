@@ -1,58 +1,103 @@
 // Boomer's face: microphone in, speech out, state on screen.
 //
+// Structure, after Franko pointed out that one long scrolling page is unusable:
+//   the console  -- instrument, log, rail. Fixed to the viewport, never scrolls.
+//   a modal      -- anything that is an ACTION (managing and enrolling voices).
+//   toasts       -- anything that is a STATUS. Transient, never in the layout.
+//
 // Two audio contexts on purpose. Capture runs at 16 kHz so the browser does the
-// resampling the STT needs (and does it properly, rather than us decimating and
-// aliasing). Playback runs at the device rate so her voice is not downsampled.
+// resampling the STT needs, properly, rather than us decimating and aliasing.
+// Playback runs at the device rate so her voice is not downsampled.
 
 import { WS_PORT, MIC_SR, TTS_SR } from './protocol.js';
 import { createAvatar } from './avatar.js';
 
 const el = (id) => document.getElementById(id);
-// One accent, driven by her actual state. Matches the avatar palette so the
-// dot, the focus ring and her transcript lines all shift together.
-const LOG_MAX = 8;          // a console log, not a transcript archive
 
-// Colours are assigned server-side at enrolment and stored with the profile, so
-// the log and the voices panel agree and nothing can collide. Hashing the name
-// locally was tried and put Franko and Giulia on the same hue.
-const UNKNOWN_COLOR = '#FF9E3D';        // nobody enrolled yet: "YOU"
-let pending = null;         // her reply block while it is still streaming
+let ws, micCtx, playCtx, nextPlayTime = 0, pendingAudio = null;
+let avatar = null;
+// Two analysers: hers on the playback graph, yours on the microphone, both read
+// every frame so talking over her makes the two spectra meet.
+let playAnalyser = null, micAnalyser = null, timeData = null, freqData = null;
+// Only stream the mic while she is idle or listening. During thinking/speaking
+// the frames would queue in the socket and flood in when the turn ends -- with
+// her own voice among them, which reads as a new utterance.
+let sending = true;
 
-/** Append one message block. `who` is a display name, already resolved. */
+const UNKNOWN_COLOR = '#FF9E3D';     // nobody enrolled yet: "YOU"
+let speakerName = 'YOU', speakerColor = UNKNOWN_COLOR;
+let enrolPhrases = [];
+let pending = null;                  // her reply block while it still streams
+
+// --- status: toasts, never layout ----------------------------------------
+function toast(kind, text, tone = '', ms = 4200) {
+  const box = el('toasts');
+  const t = document.createElement('div');
+  t.className = `toast ${tone}`;
+  t.innerHTML = '<span class="k"></span><span class="b"></span>';
+  t.querySelector('.k').textContent = kind;
+  t.querySelector('.b').textContent = text;
+  box.appendChild(t);
+  const kill = () => t.remove();
+  t.onclick = kill;                  // dismissable: some are worth re-reading
+  if (ms) setTimeout(kill, ms);
+  while (box.children.length > 4) box.firstChild.remove();
+}
+
+// --- the log --------------------------------------------------------------
+function hint(text) {
+  const log = el('log');
+  log.dataset.empty = '1';
+  log.innerHTML =
+    `<p class="msg them" style="--c:var(--line-lit)">` +
+    `<span class="txt" style="color:var(--dim)">${text}</span></p>`;
+}
+
 function addMessage(who, text, cls, color) {
   const log = el('log');
+  if (log.dataset.empty === '1') { log.innerHTML = ''; delete log.dataset.empty; }
   const p = document.createElement('p');
   p.className = `msg ${cls}`;
   if (color) p.style.setProperty('--c', color);
-  const w = document.createElement('span');
-  w.className = 'who';
-  w.textContent = who;
-  const t = document.createElement('span');
-  t.className = 'txt';
-  t.textContent = text;
-  p.append(w, t);
+  p.innerHTML = '<span class="who"></span><span class="txt"></span>';
+  p.querySelector('.who').textContent = who;
+  p.querySelector('.txt').textContent = text;
   log.appendChild(p);
   while (log.children.length > LOG_MAX) log.firstChild.remove();
-  log.scrollTop = log.scrollHeight;
+  // Next frame: scrollHeight is stale until the new block has been laid out,
+  // so scrolling in this frame lands short and clips the newest message.
+  requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
   return p;
 }
+const LOG_MAX = 8;
 
+// --- state ----------------------------------------------------------------
 const ACCENT = {
   offline: '#4a6377', idle: '#1FA8D8', listening: '#18E08A',
   thinking: '#FFB020', speaking: '#35C8FF', busy: '#FF4D6D',
 };
 
-const setState = (s) => {
+function setState(s) {
   el('state').textContent = s;
   document.body.dataset.state = s;
   document.documentElement.style.setProperty('--accent', ACCENT[s] || ACCENT.idle);
   sending = (s === 'idle' || s === 'listening');
   if (avatar) avatar.setState(s);
-};
+}
 
-// BOTH sides, every frame. Her voice grows the ring outward, yours inward, so
-// when you talk over her the bars meet and the overlap itself is the barge-in
-// indicator. Nothing here is a timer animation -- silence settles the core.
+// --- audio ----------------------------------------------------------------
+function playChunk(float32, sampleRate) {
+  const buf = playCtx.createBuffer(1, float32.length, sampleRate);
+  buf.copyToChannel(float32, 0);
+  const src = playCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(playAnalyser);
+  const now = playCtx.currentTime;
+  if (nextPlayTime < now) nextPlayTime = now + 0.03;
+  src.start(nextPlayTime);
+  nextPlayTime += buf.duration;
+}
+
 function readAnalyser(a) {
   if (!a || !timeData) return null;
   a.getByteTimeDomainData(timeData);
@@ -75,200 +120,32 @@ function pumpAudio() {
   requestAnimationFrame(pumpAudio);
 }
 
-let ws, micCtx, playCtx, nextPlayTime = 0, pendingAudio = null;
-let avatar = null;
-// Two analysers: hers on the playback graph, yours on the microphone. The core
-// reacts to whoever is actually talking, which is the point of it.
-let playAnalyser = null, micAnalyser = null;
-// Whoever she last recognised. Falls back to YOU when no voiceprint is enrolled,
-// which is the honest label for "someone, presumably you".
-let speakerName = 'YOU', speakerRole = 'owner', speakerColor = UNKNOWN_COLOR;
-let timeData = null, freqData = null;
-// Only stream the mic while she is idle or listening. During thinking/speaking
-// the frames would queue in the socket and flood in when the turn ends -- with
-// her own voice among them, which reads as a new utterance.
-let sending = true;
-
-function playChunk(float32, sampleRate) {
-  const buf = playCtx.createBuffer(1, float32.length, sampleRate);
-  buf.copyToChannel(float32, 0);
-  const src = playCtx.createBufferSource();
-  src.buffer = buf;
-  src.connect(playAnalyser);
-  // Schedule back-to-back so consecutive chunks play without a seam.
-  const now = playCtx.currentTime;
-  if (nextPlayTime < now) nextPlayTime = now + 0.03;
-  src.start(nextPlayTime);
-  nextPlayTime += buf.duration;
-}
-
-function onMessage(ev) {
-  if (ev.data instanceof ArrayBuffer) {
-    if (!pendingAudio) return;
-    playChunk(new Float32Array(ev.data), pendingAudio.sampleRate);
-    pendingAudio = null;
-    return;
-  }
-  const m = JSON.parse(ev.data);
-  if (handleVoiceMessage(m)) {
-    // 'ready' also carries pipeline info the main switch renders.
-    if (m.type !== 'ready') return;
-  }
-  switch (m.type) {
-    case 'state':      setState(m.value); break;
-    case 'audio':      pendingAudio = m; break;
-    case 'transcript':
-      // Only the final transcript is logged; the interim one changes under you.
-      if (m.final && m.text) {
-        addMessage(speakerName, m.text, 'me', speakerColor);
-      }
-      break;
-    case 'reply':
-      if (m.done) {
-        if (pending) pending.classList.remove('pending');
-        pending = null;
-        break;
-      }
-      if (!pending) {
-        pending = addMessage('BOOMER', m.text, 'them pending');
-      } else {
-        const t = pending.querySelector('.txt');
-        t.textContent += (t.textContent ? ' ' : '') + m.text;
-        el('log').scrollTop = el('log').scrollHeight;
-      }
-      break;
-    case 'metrics':
-      el('readout').textContent = `${m.tts_first_ms | 0} ms`;
-      break;
-    case 'ready':
-      el('readout').textContent = m.readonly ? 'read-only' : '';
-      break;
-    case 'busy':
-      // Only one browser can hold her: the models are shared singletons.
-      setState('busy');
-      el('estatus').textContent = m.detail;
-      el('voicepanel').hidden = false;
-      el('go').disabled = false;
-      break;
-    case 'announce':
-      // She spoke first: its own channel, so it never reads as a reply to you.
-      pending = null;
-      addMessage(`BOOMER / ${(m.hive || 'factory').toUpperCase()}`, m.text,
-                 `them unprompted${m.kind === 'blocker' ? ' alert' : ''}`);
-      el('readout').textContent = `${m.kind} - ${m.hive || 'factory'}`;
-      break;
-    case 'batched':
-      el('readout').textContent = `${m.count} waiting`;
-      break;
-    case 'error':
-      el('readout').textContent = `error: ${m.where}`;
-      el('estatus').textContent = `${m.where}: ${m.detail}`;
-      break;
-  }
-}
-
-async function start() {
-  el('go').disabled = true;
-  ws = new WebSocket(`ws://${location.hostname}:${WS_PORT}`);
-  ws.binaryType = 'arraybuffer';
-  ws.onmessage = onMessage;
-  ws.onclose = () => { setState('offline'); el('go').disabled = false; };
-  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-
-  // Echo cancellation on: measured 26.8 dB ERLE, which is what stops her
-  // hearing herself. AGC off: it moved the mic gain between phases and made
-  // the barge-in numbers meaningless.
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }
-  });
-
-  micCtx = new AudioContext({ sampleRate: MIC_SR });
-  playCtx = new AudioContext();
-  await micCtx.resume(); await playCtx.resume();
-
-  // Everything she says passes through this on its way to the speakers.
-  playAnalyser = playCtx.createAnalyser();
-  playAnalyser.fftSize = 512;
-  playAnalyser.smoothingTimeConstant = 0.7;
-  playAnalyser.connect(playCtx.destination);
-  timeData = new Uint8Array(playAnalyser.fftSize);
-  freqData = new Uint8Array(playAnalyser.frequencyBinCount);
-
-  const src = micCtx.createMediaStreamSource(stream);
-  // Your voice drives the core while she is listening. Tapped off the AEC'd
-  // stream, so it is the same audio the endpointer sees.
-  micAnalyser = micCtx.createAnalyser();
-  micAnalyser.fftSize = 512;
-  micAnalyser.smoothingTimeConstant = 0.6;
-  src.connect(micAnalyser);
-  const node = micCtx.createScriptProcessor(1024, 1, 1);
-  node.onaudioprocess = (e) => {
-    if (ws.readyState !== 1 || !sending) return;
-    const f = e.inputBuffer.getChannelData(0);
-    const i16 = new Int16Array(f.length);
-    for (let i = 0; i < f.length; i++) {
-      const s = Math.max(-1, Math.min(1, f[i]));
-      i16[i] = s * 32767;
-    }
-    ws.send(i16.buffer);
-  };
-  // A ScriptProcessorNode only runs if its output reaches the destination.
-  const sink = micCtx.createGain();
-  sink.gain.value = 0;
-  src.connect(node); node.connect(sink); sink.connect(micCtx.destination);
-
-  el('go').textContent = 'listening';
-  el('go').disabled = true;
-  setState('idle');
-}
-
-// WebGL can be unavailable (software rendering off, remote session). The CSS
-// orb stays in the markup as the fallback, so losing the avatar loses nothing
-// functional.
-try {
-  avatar = createAvatar(el('avatar'));
-  document.body.dataset.avatar = 'on';
-  // Debug hook: lets a headless check confirm the scene renders and step the
-  // states without a microphone. Read-only apart from the visual state.
-  window.__boomer = { avatar, setState };
-  requestAnimationFrame(pumpAudio);
-} catch (e) {
-  console.warn('avatar unavailable, falling back to the orb:', e);
-}
-
-el('go').onclick = start;
-el('stop').onclick = () => ws && ws.send(JSON.stringify({ type: 'stop' }));
-el('reset').onclick = () => {
-  if (!ws) return;
-  ws.send(JSON.stringify({ type: 'reset' }));
-  el('log').innerHTML = '';
-  pending = null;
-};
-
-// --- voices: who she knows, and enrolling new ones -------------------------
-// Enrolment reuses the endpointer that already segments speech: read three
-// phrases, each captured utterance becomes a sample. No separate recorder.
-
-const panel = el('voicepanel');
+// --- voices ---------------------------------------------------------------
+const sheet = el('voicesheet');
 
 function renderRoster(voices) {
   const ul = el('roster');
   ul.innerHTML = '';
   if (!voices || !voices.length) {
-    ul.innerHTML = '<li class="none">No voices enrolled. She answers anyone.</li>';
+    ul.innerHTML = '<li class="none">Nobody enrolled. She answers anyone who talks.</li>';
     return;
   }
   for (const v of voices) {
     const li = document.createElement('li');
-    const owner = v.role === 'owner';
     li.style.setProperty('--c', v.color || UNKNOWN_COLOR);
-    li.innerHTML = `<span class="pname">${v.name}</span>`
-      + `<span class="${owner ? 'owner-mark' : 'guest-mark'}">`
-      + `${owner ? 'answers the factory' : 'conversation only'}</span>`
-      + `<span class="q">${v.quality == null ? '' : v.quality}</span>`;
+    const owner = v.role === 'owner';
+    li.innerHTML =
+      `<span class="pname"></span>` +
+      `<span class="mark ${owner ? 'owner' : ''}"></span>` +
+      `<span class="q"></span>`;
+    li.querySelector('.pname').textContent = v.name;
+    li.querySelector('.mark').textContent =
+      owner ? 'answers the factory' : 'conversation only';
+    li.querySelector('.q').textContent = v.quality == null ? '' : v.quality;
     const btn = document.createElement('button');
+    btn.className = 'btn btn--danger';
     btn.textContent = 'forget';
-    btn.onclick = () => ws.send(JSON.stringify({ type: 'forget_voice', name: v.name }));
+    btn.onclick = () => ws && ws.send(JSON.stringify({ type: 'forget_voice', name: v.name }));
     li.appendChild(btn);
     ul.appendChild(li);
   }
@@ -286,79 +163,244 @@ function showPhrases(list, got) {
   });
 }
 
-let enrolPhrases = [];
+function endEnrolment() {
+  el('phrases').hidden = true;
+  el('ecancel').hidden = true;
+  el('enrol').disabled = false;
+}
 
-export function handleVoiceMessage(m) {
+/** Messages the voices layer owns. Returns true when fully handled. */
+function handleVoiceMessage(m) {
   switch (m.type) {
-    case 'ready':
-      renderRoster(m.voices);
-      el('enrol').disabled = !m.canEnrol;
-      if (!m.canEnrol) el('estatus').textContent =
-        'Voice model missing. Run scripts/fetch-models.py to enable voices.';
-      return true;
     case 'roster':
       renderRoster(m.voices);
-      if (m.removed) el('estatus').textContent = 'Voice forgotten.';
+      if (m.removed) toast('voices', 'Voice forgotten.');
       return true;
     case 'speaker':
       speakerName = m.name.toUpperCase();
-      speakerRole = m.role;
       speakerColor = m.color || UNKNOWN_COLOR;
       el('readout').textContent = `${m.name} ${m.similarity.toFixed(2)}`;
       return true;
     case 'rejected':
-      el('estatus').textContent =
-        `ignored: voice not recognised (best match ${(m.similarity ?? 0).toFixed(2)})`;
+      toast('ignored', `Voice not recognised (best match ${(m.similarity ?? 0).toFixed(2)}).`, 'bad');
       return true;
     case 'enrol':
       if (m.stage === 'start') {
         enrolPhrases = m.phrases;
         showPhrases(enrolPhrases, 0);
-        el('estatus').textContent = `Enrolling ${m.name}. Read the first line aloud.`;
         el('ecancel').hidden = false;
         el('enrol').disabled = true;
+        if (!sheet.open) sheet.showModal();
+        toast('enrolling', `${m.name}: read the highlighted line aloud.`);
       } else if (m.stage === 'progress') {
         showPhrases(enrolPhrases, m.got);
-        el('estatus').textContent = m.got < m.need
-          ? `${m.got} of ${m.need} captured. Read the next line.`
-          : 'Building the voiceprint.';
+        if (m.got >= m.need) toast('enrolling', 'Building the voiceprint.');
       } else if (m.stage === 'done') {
-        el('phrases').hidden = true;
-        el('ecancel').hidden = true;
-        el('enrol').disabled = false;
+        endEnrolment();
         el('ename').value = '';
+        el('eowner').checked = false;
         renderRoster(m.roster);
         const q = m.report.self_similarity_min;
-        el('estatus').textContent = q < 0.6
-          ? `${m.name} enrolled, but the samples only agree ${q}. `
-            + `Re-enrol somewhere quieter or she will confuse people.`
-          : `${m.name} enrolled. Samples agree ${q}.`;
-      } else if (m.stage === 'failed' || m.stage === 'cancelled') {
-        el('phrases').hidden = true;
-        el('ecancel').hidden = true;
-        el('enrol').disabled = false;
-        el('estatus').textContent = m.detail || 'cancelled';
+        if (q < 0.6) {
+          toast('enrolled', `${m.name} saved, but the samples only agree ${q}. `
+            + 'Re-enrol somewhere quieter or she will confuse people.', 'bad', 9000);
+        } else {
+          toast('enrolled', `${m.name} saved. Samples agree ${q}.`, 'good');
+        }
+      } else {
+        endEnrolment();
+        toast('enrolling', m.detail || 'Cancelled.', m.stage === 'failed' ? 'bad' : '');
       }
       return true;
   }
   return false;
 }
 
-el('voices').onclick = () => {
-  panel.hidden = !panel.hidden;
-  if (panel.hidden) return;
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'voices' }));
-  else el('estatus').textContent = 'press listen first, then enrol';
-};
+// --- websocket ------------------------------------------------------------
+function onMessage(ev) {
+  if (ev.data instanceof ArrayBuffer) {
+    if (!pendingAudio) return;
+    playChunk(new Float32Array(ev.data), pendingAudio.sampleRate);
+    pendingAudio = null;
+    return;
+  }
+  const m = JSON.parse(ev.data);
+  if (handleVoiceMessage(m)) return;
 
-// Render the empty state at load: opening the panel before connecting used to
-// show a blank box with no explanation.
-renderRoster([]);
+  switch (m.type) {
+    case 'state': setState(m.value); break;
+    case 'audio': pendingAudio = m; break;
+
+    case 'transcript':
+      // Only the final transcript is logged; the interim one changes under you.
+      if (m.final && m.text) addMessage(speakerName, m.text, 'me', speakerColor);
+      break;
+
+    case 'reply':
+      if (m.done) {
+        if (pending) pending.classList.remove('pending');
+        pending = null;
+      } else if (!pending) {
+        pending = addMessage('BOOMER', m.text, 'them pending');
+      } else {
+        const t = pending.querySelector('.txt');
+        t.textContent += (t.textContent ? ' ' : '') + m.text;
+        const lg = el('log');
+        requestAnimationFrame(() => { lg.scrollTop = lg.scrollHeight; });
+      }
+      break;
+
+    case 'announce':
+      pending = null;
+      addMessage(`BOOMER / ${(m.hive || 'factory').toUpperCase()}`, m.text,
+                 `them unprompted${m.kind === 'blocker' ? ' alert' : ''}`);
+      break;
+
+    case 'metrics':
+      el('readout').textContent = `${m.tts_first_ms | 0} ms`;
+      break;
+
+    case 'batched':
+      toast('waiting', `${m.count} item${m.count === 1 ? '' : 's'} held back. `
+        + 'Ask "anything need me?" when you want them.');
+      break;
+
+    case 'ready':
+      renderRoster(m.voices);
+      el('enrol').disabled = !m.canEnrol;
+      if (!m.canEnrol) {
+        toast('voices', 'Voice model missing. Run scripts/fetch-models.py to enable voices.', 'bad', 9000);
+      }
+      if (m.readonly) toast('read-only', 'Writes are disabled for this session.');
+      hint('Talk to her. Try "what is on the board?"');
+      break;
+
+    case 'busy':
+      setState('busy');
+      toast('busy', m.detail, 'bad', 0);
+      el('go').disabled = false;
+      el('go').textContent = 'listen';
+      break;
+
+    case 'error':
+      el('readout').textContent = 'error';
+      toast(m.where, m.detail, 'bad', 9000);
+      break;
+  }
+}
+
+// --- start ----------------------------------------------------------------
+async function start() {
+  el('go').disabled = true;
+  el('go').textContent = 'connecting';
+  try {
+    ws = new WebSocket(`ws://${location.hostname}:${WS_PORT}`);
+    ws.binaryType = 'arraybuffer';
+    ws.onmessage = onMessage;
+    ws.onclose = () => {
+      setState('offline');
+      el('go').disabled = false;
+      el('go').textContent = 'listen';
+      hint('Disconnected. Press listen to reconnect.');
+    };
+    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+
+    // Echo cancellation on: measured 26.8 dB ERLE, which is what stops her
+    // hearing herself. AGC off: it moved the mic gain between measurements and
+    // made the barge-in numbers meaningless.
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+    });
+
+    micCtx = new AudioContext({ sampleRate: MIC_SR });
+    playCtx = new AudioContext();
+    await micCtx.resume(); await playCtx.resume();
+
+    playAnalyser = playCtx.createAnalyser();
+    playAnalyser.fftSize = 512;
+    playAnalyser.smoothingTimeConstant = 0.7;
+    playAnalyser.connect(playCtx.destination);
+    timeData = new Uint8Array(playAnalyser.fftSize);
+    freqData = new Uint8Array(playAnalyser.frequencyBinCount);
+
+    const src = micCtx.createMediaStreamSource(stream);
+    // Your voice drives the core while she listens. Tapped off the AEC'd stream,
+    // so it is the same audio the endpointer sees.
+    micAnalyser = micCtx.createAnalyser();
+    micAnalyser.fftSize = 512;
+    micAnalyser.smoothingTimeConstant = 0.6;
+    src.connect(micAnalyser);
+
+    const node = micCtx.createScriptProcessor(1024, 1, 1);
+    node.onaudioprocess = (e) => {
+      if (ws.readyState !== 1 || !sending) return;
+      const f = e.inputBuffer.getChannelData(0);
+      const i16 = new Int16Array(f.length);
+      for (let i = 0; i < f.length; i++) {
+        i16[i] = Math.max(-1, Math.min(1, f[i])) * 32767;
+      }
+      ws.send(i16.buffer);
+    };
+    // A ScriptProcessorNode only runs if its output reaches the destination.
+    const sink = micCtx.createGain();
+    sink.gain.value = 0;
+    src.connect(node); node.connect(sink); sink.connect(micCtx.destination);
+
+    el('go').textContent = 'listening';
+    setState('idle');
+  } catch (e) {
+    el('go').disabled = false;
+    el('go').textContent = 'listen';
+    toast('microphone', e.name === 'NotAllowedError'
+      ? 'Microphone access was refused. Allow it in the address bar, then press listen.'
+      : `Could not start: ${e.message}`, 'bad', 9000);
+  }
+}
+
+// --- controls -------------------------------------------------------------
+el('go').onclick = start;
+el('stop').onclick = () => ws && ws.send(JSON.stringify({ type: 'stop' }));
+el('clear').onclick = () => {
+  if (ws) ws.send(JSON.stringify({ type: 'reset' }));
+  pending = null;
+  hint('Cleared. She has forgotten this conversation, not her memory.');
+};
+el('voices').onclick = () => {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'voices' }));
+  sheet.showModal();
+  // A dialog focuses its first focusable child, which was "close" -- the least
+  // useful control in the sheet. Point it at the thing you came here to type in.
+  el('ename').focus();
+};
+el('sheetclose').onclick = () => sheet.close();
+// Clicking the backdrop closes it, which is what people expect of a sheet.
+sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.close(); });
+
 el('enrol').onclick = () => {
-  if (!ws) { el('estatus').textContent = 'press listen first'; return; }
+  if (!ws || ws.readyState !== 1) {
+    toast('voices', 'Press listen first so she can hear you.', 'bad');
+    return;
+  }
   const name = el('ename').value.trim();
-  if (!name) { el('estatus').textContent = 'Type a name first.'; return; }
+  if (!name) { toast('voices', 'Type a name first.', 'bad'); return; }
   ws.send(JSON.stringify({ type: 'enrol', name,
                            role: el('eowner').checked ? 'owner' : 'guest' }));
 };
 el('ecancel').onclick = () => ws && ws.send(JSON.stringify({ type: 'enrol_cancel' }));
+
+// --- boot -----------------------------------------------------------------
+// WebGL can be unavailable (software rendering off, remote session). The CSS orb
+// stays in the markup as the fallback, so losing the avatar loses nothing
+// functional.
+try {
+  avatar = createAvatar(el('avatar'));
+  document.body.dataset.avatar = 'on';
+  window.__boomer = { avatar, setState, toast };   // headless checks
+  requestAnimationFrame(pumpAudio);
+} catch (e) {
+  console.warn('avatar unavailable, using the orb:', e);
+}
+
+renderRoster([]);
+hint('Press listen, allow the microphone, then just talk.');
+setState('offline');
