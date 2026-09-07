@@ -13,7 +13,7 @@
     --fg:#c9dcef; --dim:#54697f;
     --accent:#4a6377;            /* offline; JS drives this from her state */
     --mine:#FF9E3D;
-    --pad:clamp(1rem, 3vw, 2rem);
+    --pad:clamp(.7rem, 2.5vw, 2rem);
   }
   *{box-sizing:border-box}
   html,body{height:100%;overflow:hidden}
@@ -25,18 +25,26 @@
   /* Mobile first: one column, instrument over log over rail.
      A single 30rem column was the only layout, which wasted two thirds of a
      desktop window and made the log a 12rem letterbox. */
+  /* Mobile: the stage is sized to CONTENT (a square) and the log takes what is
+     left. It used to be the other way round -- the stage took 1fr, and because
+     the core is circular and sized by the narrower axis, a 358x525 cell left
+     about 167px of dead space above and below it while the log sat in a 192px
+     strip. */
   main{
     height:100dvh;padding:var(--pad);margin:0 auto;width:min(30rem,100%);
-    display:grid;gap:.75rem;
+    display:grid;gap:.6rem;
     grid-template-columns:minmax(0,1fr);
-    grid-template-rows:auto minmax(0,1fr) auto auto;
+    grid-template-rows:auto auto minmax(0,1fr) auto;
     grid-template-areas:"id" "stage" "log" "rail";
   }
   .id{grid-area:id} .stage{grid-area:stage} #log{grid-area:log} .rail{grid-area:rail}
 
   .stage{min-height:0;min-width:0;display:grid;place-items:center}
-  /* Square and bounded by the smaller axis, so it never overflows its cell. */
-  #avatar{display:none;width:100%;height:100%;max-width:100%;max-height:100%}
+  /* Square: the drawing is circular, so a non-square canvas is only padding.
+     Capped by viewport height as well as width so a tall phone does not get a
+     giant core and a two-line log. */
+  #avatar{display:none;aspect-ratio:1;width:100%;height:auto;
+          max-width:100%;max-height:min(46vh,100%)}
   body[data-avatar=on] #avatar{display:block}
   body[data-avatar=on] #orb{display:none}
   #orb{width:64px;height:64px;border-radius:50%;
@@ -52,10 +60,16 @@
      overflow at the start edge unreachably: scrollHeight equals clientHeight
      while the earliest messages sit above the top with no way to scroll to
      them. Measured 253px of content lost that way. */
+  /* No fixed cap: the log owns the flexible grid row and grows into whatever
+     the square core leaves behind. */
   #log{display:flex;flex-direction:column;gap:.5rem;
-       max-height:12rem;overflow-y:auto;overscroll-behavior:contain;
+       min-height:0;overflow-y:auto;overscroll-behavior:contain;
        scrollbar-width:none}
-  #log > :first-child{margin-top:auto}
+  /* Mobile top-anchors: the conversation starts directly under the core, so
+     short content leaves its slack above the rail instead of opening a gap
+     between the instrument and the first message. Desktop bottom-anchors
+     (below) because there the log owns a tall column of its own and keeping
+     the newest line beside the rail is what a console does. */
   #log::-webkit-scrollbar{display:none}
   /* The fade only means something when there is actually more above. */
   #log[data-over]{mask-image:linear-gradient(to bottom,transparent,#000 2rem);
@@ -168,19 +182,23 @@
   @media (min-width:56rem) and (min-height:34rem){
     main{
       width:min(72rem,100%);
-      grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
+      grid-template-columns:minmax(0,1fr) minmax(0,1fr);
       grid-template-rows:auto minmax(0,1fr) auto;
       grid-template-areas:"id id" "stage log" "rail rail";
       column-gap:clamp(1.25rem,3vw,2.5rem);
     }
+    /* Side by side there is a whole column of height to fill, so let the square
+       grow into it rather than capping at 46vh. */
+    #avatar{max-height:100%}
     #log{max-height:none;height:100%;padding-right:.25rem}
+    #log > :first-child{margin-top:auto}
   }
 
   /* Short and wide (a laptop in landscape, a phone on its side): the
      instrument shrinks before the log does, since the log carries the words. */
+  /* Short and wide: the core gives up height first, the log keeps the words. */
   @media (max-height:33rem){
-    main{grid-template-rows:auto minmax(0,1fr) auto auto}
-    #log{max-height:7rem}
+    #avatar{max-height:min(34vh,100%)}
   }
 
   .id{display:flex;align-items:baseline;gap:.6rem}
