@@ -8,9 +8,17 @@ import { WS_PORT, MIC_SR, TTS_SR } from './protocol.js';
 import { createAvatar } from './avatar.js';
 
 const el = (id) => document.getElementById(id);
+// One accent, driven by her actual state. Matches the avatar palette so the
+// dot, the focus ring and her transcript lines all shift together.
+const ACCENT = {
+  offline: '#4a6377', idle: '#1FA8D8', listening: '#18E08A',
+  thinking: '#FFB020', speaking: '#35C8FF', busy: '#FF4D6D',
+};
+
 const setState = (s) => {
   el('state').textContent = s;
   document.body.dataset.state = s;
+  document.documentElement.style.setProperty('--accent', ACCENT[s] || ACCENT.idle);
   sending = (s === 'idle' || s === 'listening');
   if (avatar) avatar.setState(s);
 };
@@ -88,31 +96,31 @@ function onMessage(ev) {
       el('boomer').textContent += (el('boomer').textContent ? ' ' : '') + m.text;
       break;
     case 'metrics':
-      el('metrics').textContent =
-        `stt ${m.stt_ms|0}ms   ttft ${m.ttft_ms|0}ms   first audio ${m.tts_first_ms|0}ms`;
+      el('readout').textContent = `${m.tts_first_ms | 0} ms`;
       break;
     case 'ready':
-      el('metrics').textContent = `endpoint hangover ${m.hangoverMs|0}ms`
-        + (m.readonly ? '  -  READ-ONLY (no writes)' : '');
+      el('readout').textContent = m.readonly ? 'read-only' : '';
       break;
     case 'busy':
       // Only one browser can hold her: the models are shared singletons.
       setState('busy');
-      el('hint').textContent = m.detail;
+      el('estatus').textContent = m.detail;
+      el('voicepanel').hidden = false;
       el('go').disabled = false;
       break;
     case 'announce':
       // She spoke first. Mark it so it doesn't read as a reply to you.
       el('you').textContent = '';
       el('boomer').textContent = m.text;
-      el('metrics').textContent = `unprompted - ${m.kind} on ${m.hive || 'the factory'}`;
+      el('readout').textContent = `${m.kind} - ${m.hive || 'factory'}`;
       document.body.dataset.unprompted = '1';
       break;
     case 'batched':
-      el('hint').textContent = `${m.count} item(s) waiting - ask "anything need me?"`;
+      el('readout').textContent = `${m.count} waiting`;
       break;
     case 'error':
-      el('metrics').textContent = `error in ${m.where}: ${m.detail}`;
+      el('readout').textContent = `error: ${m.where}`;
+      el('estatus').textContent = `${m.where}: ${m.detail}`;
       break;
   }
   if (m.type === 'transcript' && m.final === false) el('boomer').textContent = '';
@@ -168,7 +176,8 @@ async function start() {
   sink.gain.value = 0;
   src.connect(node); node.connect(sink); sink.connect(micCtx.destination);
 
-  el('hint').textContent = `mic ${micCtx.sampleRate} Hz / speaker ${playCtx.sampleRate} Hz - just talk`;
+  el('go').textContent = 'listening';
+  el('go').disabled = true;
   setState('idle');
 }
 
@@ -204,15 +213,16 @@ function renderRoster(voices) {
   const ul = el('roster');
   ul.innerHTML = '';
   if (!voices || !voices.length) {
-    ul.innerHTML = '<li style="color:var(--dim)">nobody yet — she answers everyone</li>';
+    ul.innerHTML = '<li class="none">No voices enrolled. She answers anyone.</li>';
     return;
   }
   for (const v of voices) {
     const li = document.createElement('li');
-    const q = v.quality == null ? '' : `match quality ${v.quality}`;
+    const owner = v.role === 'owner';
     li.innerHTML = `<span>${v.name}</span>`
-      + `<span class="role ${v.role}">${v.role}</span>`
-      + `<span class="q">${q}</span>`;
+      + `<span class="${owner ? 'owner-mark' : 'guest-mark'}">`
+      + `${owner ? 'answers the factory' : 'conversation only'}</span>`
+      + `<span class="q">${v.quality == null ? '' : v.quality}</span>`;
     const btn = document.createElement('button');
     btn.textContent = 'forget';
     btn.onclick = () => ws.send(JSON.stringify({ type: 'forget_voice', name: v.name }));
@@ -240,15 +250,15 @@ export function handleVoiceMessage(m) {
     case 'ready':
       renderRoster(m.voices);
       el('enrol').disabled = !m.canEnrol;
-      if (!m.canEnrol) el('estatus').textContent = 'speaker model not installed';
+      if (!m.canEnrol) el('estatus').textContent =
+        'Voice model missing. Run scripts/fetch-models.py to enable voices.';
       return true;
     case 'roster':
       renderRoster(m.voices);
-      if (m.removed) el('estatus').textContent = 'forgotten';
+      if (m.removed) el('estatus').textContent = 'Voice forgotten.';
       return true;
     case 'speaker':
-      el('hint').textContent =
-        `${m.name} (${m.role}) — match ${m.similarity.toFixed(2)}`;
+      el('readout').textContent = `${m.name} ${m.similarity.toFixed(2)}`;
       return true;
     case 'rejected':
       el('estatus').textContent =
@@ -258,14 +268,14 @@ export function handleVoiceMessage(m) {
       if (m.stage === 'start') {
         enrolPhrases = m.phrases;
         showPhrases(enrolPhrases, 0);
-        el('estatus').textContent = `enrolling ${m.name} — read phrase 1 aloud`;
+        el('estatus').textContent = `Enrolling ${m.name}. Read the first line aloud.`;
         el('ecancel').hidden = false;
         el('enrol').disabled = true;
       } else if (m.stage === 'progress') {
         showPhrases(enrolPhrases, m.got);
         el('estatus').textContent = m.got < m.need
-          ? `got ${m.got} of ${m.need} — read the next one`
-          : 'computing voiceprint...';
+          ? `${m.got} of ${m.need} captured. Read the next line.`
+          : 'Building the voiceprint.';
       } else if (m.stage === 'done') {
         el('phrases').hidden = true;
         el('ecancel').hidden = true;
@@ -273,9 +283,10 @@ export function handleVoiceMessage(m) {
         el('ename').value = '';
         renderRoster(m.roster);
         const q = m.report.self_similarity_min;
-        el('estatus').textContent = `enrolled ${m.name} as ${m.role}`
-          + (q < 0.6 ? ` — but quality is poor (${q}); re-record in a quieter room`
-                     : ` — match quality ${q}`);
+        el('estatus').textContent = q < 0.6
+          ? `${m.name} enrolled, but the samples only agree ${q}. `
+            + `Re-enrol somewhere quieter or she will confuse people.`
+          : `${m.name} enrolled. Samples agree ${q}.`;
       } else if (m.stage === 'failed' || m.stage === 'cancelled') {
         el('phrases').hidden = true;
         el('ecancel').hidden = true;
@@ -291,16 +302,16 @@ el('voices').onclick = () => {
   panel.hidden = !panel.hidden;
   if (panel.hidden) return;
   if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'voices' }));
-  else el('estatus').textContent = 'press start to connect, then enrol';
+  else el('estatus').textContent = 'press listen first, then enrol';
 };
 
 // Render the empty state at load: opening the panel before connecting used to
 // show a blank box with no explanation.
 renderRoster([]);
 el('enrol').onclick = () => {
-  if (!ws) { el('estatus').textContent = 'press start first'; return; }
+  if (!ws) { el('estatus').textContent = 'press listen first'; return; }
   const name = el('ename').value.trim();
-  if (!name) { el('estatus').textContent = 'give the voice a name'; return; }
+  if (!name) { el('estatus').textContent = 'Type a name first.'; return; }
   ws.send(JSON.stringify({ type: 'enrol', name,
                            role: el('eowner').checked ? 'owner' : 'guest' }));
 };

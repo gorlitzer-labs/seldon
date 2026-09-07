@@ -47,3 +47,4 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P3) Avatar next steps: thinking-state data lattice, gaze that tracks the listening state, and the performance-mode dashboard reading the same factory state --json.
 - [ ] (P3) Avatar polish: the amber (user) spectrum muddies where it overlaps hers. Consider a subtractive or offset baseline so the two voices stay legible when both are active.
 - [ ] (P1) Calibrate the voiceprint on Franko's real voice and real room: record with BOOMER_RECORD=1, enrol with scripts/enroll.py, and check the reported self-similarity. The current thresholds came from synthetic Kokoro voices, which share a vocoder and so may either overstate or understate how hard real impostors are.
+- [ ] (P3) UI polish: her transcript line is capped at 34ch which wraps early on a wide window, and the roster's forget action sits hard against the right edge. Both cosmetic.
