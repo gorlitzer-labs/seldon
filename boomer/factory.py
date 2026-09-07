@@ -181,20 +181,26 @@ def board_spoken(state: dict | None) -> str:
     hives, needs = s.get("hives", 0), s.get("needsYou", 0)
     if not hives and not s.get("pendingDecisions"):
         return "No hives registered yet, and nothing pending."
+    def plural(n, word):
+        return f"{n} {word}{'' if n == 1 else 's'}"
+
     parts = []
     if needs == 0:
-        parts.append(f"All {hives} hives nominal. Nothing needs you.")
+        parts.append(f"All {plural(hives, 'hive')} nominal. Nothing needs you."
+                     if hives else "Nothing needs you.")
     else:
         bits = []
         if s.get("pendingDecisions"):
-            bits.append(f"{s['pendingDecisions']} decision{'s' if s['pendingDecisions'] != 1 else ''} pending")
+            bits.append(f"{plural(s['pendingDecisions'], 'decision')} pending")
         if s.get("blockers"):
-            bits.append(f"{s['blockers']} blocker{'s' if s['blockers'] != 1 else ''}")
+            bits.append(plural(s["blockers"], "blocker"))
         if s.get("down"):
-            bits.append(f"{s['down']} hive{'s' if s['down'] != 1 else ''} down")
+            bits.append(f"{plural(s['down'], 'hive')} down")
         if s.get("drift"):
             bits.append(f"drift on {s['drift']}")
-        parts.append(f"{hives} hives. " + ", ".join(bits) + ".")
+        # Mentioning the hive count is only useful when there are any.
+        lead = f"{plural(hives, 'hive')}. " if hives else ""
+        parts.append(lead + ", ".join(bits).capitalize() + ".")
     if s.get("queueOpen"):
         parts.append(f"{s['queueOpen']} items in the queues.")
     return " ".join(parts)
