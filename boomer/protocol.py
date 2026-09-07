@@ -6,11 +6,21 @@ renders them, and the three.js avatar will drive its poses from the same
 
 Transport is a single websocket carrying both JSON and binary:
   client -> server   binary = microphone PCM, int16 mono 16 kHz
-  server -> client   binary = synthesized speech, float32 mono 24 kHz
+  server -> client   binary = one AUDIO FRAME (see below)
   both ways          JSON   = the messages below
+
+An audio frame is SELF-DESCRIBING: an 8-byte little-endian header
+(uint32 sampleRate, uint32 sampleCount) followed by that many float32 samples.
+
+It used to be a JSON header message followed by a separate binary frame, which
+was a race: the two were dispatched as independent coroutines, so two headers
+could arrive before their payloads, the client's pending header was overwritten,
+and the second payload was silently dropped -- an audible gap mid-sentence.
+One frame cannot be mispaired.
 """
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 
@@ -44,9 +54,14 @@ def reply(text: str, done: bool = False) -> dict:
     return msg("reply", text=text, done=done)
 
 
-def audio_header(samples: int, sr: int = TTS_SR) -> dict:
-    """Announces the binary frame that follows immediately after."""
-    return msg("audio", samples=samples, sampleRate=sr)
+AUDIO_HEADER = struct.Struct("<II")     # sampleRate, sampleCount
+
+
+def audio_frame(audio, sr: int = TTS_SR) -> bytes:
+    """One self-describing binary frame: header + float32 samples."""
+    import numpy as np
+    a = np.asarray(audio, dtype=np.float32)
+    return AUDIO_HEADER.pack(sr, len(a)) + a.tobytes()
 
 
 def error(where: str, detail: str) -> dict:

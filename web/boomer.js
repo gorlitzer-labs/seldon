@@ -14,7 +14,7 @@ import { createAvatar } from './avatar.js';
 
 const el = (id) => document.getElementById(id);
 
-let ws, micCtx, playCtx, nextPlayTime = 0, pendingAudio = null;
+let ws, micCtx, playCtx, nextPlayTime = 0;
 let avatar = null;
 // Two analysers: hers on the playback graph, yours on the microphone, both read
 // every frame so talking over her makes the two spectra meet.
@@ -226,9 +226,13 @@ function handleVoiceMessage(m) {
 // --- websocket ------------------------------------------------------------
 function onMessage(ev) {
   if (ev.data instanceof ArrayBuffer) {
-    if (!pendingAudio) return;
-    playChunk(new Float32Array(ev.data), pendingAudio.sampleRate);
-    pendingAudio = null;
+    // Self-describing frame: <uint32 sampleRate><uint32 count><float32 ...>.
+    // Nothing to pair, so nothing can be dropped.
+    if (ev.data.byteLength < 8) return;
+    const head = new DataView(ev.data, 0, 8);
+    const rate = head.getUint32(0, true);
+    const count = head.getUint32(4, true);
+    playChunk(new Float32Array(ev.data, 8, count), rate);
     return;
   }
   const m = JSON.parse(ev.data);
@@ -236,7 +240,6 @@ function onMessage(ev) {
 
   switch (m.type) {
     case 'state': setState(m.value); break;
-    case 'audio': pendingAudio = m; break;
 
     case 'transcript':
       // Only the final transcript is logged; the interim one changes under you.

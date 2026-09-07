@@ -77,9 +77,11 @@ class Session:
         asyncio.run_coroutine_threadsafe(self.ws.send(json.dumps(message)), self.loop)
 
     def emit_audio(self, audio: np.ndarray) -> None:
-        a = np.asarray(audio, dtype=np.float32)
-        self.emit(P.audio_header(len(a)))
-        asyncio.run_coroutine_threadsafe(self.ws.send(a.tobytes()), self.loop)
+        # One frame, one coroutine. Sending a JSON header and the payload as two
+        # independent coroutines did not guarantee ordering: two headers could
+        # land before their payloads, and the client dropped the orphaned one.
+        asyncio.run_coroutine_threadsafe(
+            self.ws.send(P.audio_frame(audio)), self.loop)
 
     def should_stop(self) -> bool:
         return self.stop_flag
