@@ -183,7 +183,6 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
     """Blocking. Call on a worker thread; emit callbacks marshal back to the loop."""
     m = Metrics()
     m.stt_ms = (time.perf_counter() - speech_ended_at) * 1000
-    emit(P.transcript(transcript, final=True))
 
     if not transcript:
         emit(P.state(State.IDLE))

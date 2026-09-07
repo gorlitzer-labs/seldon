@@ -208,6 +208,15 @@
            box-shadow:0 0 8px var(--accent);transition:background .4s,box-shadow .4s}
   .id .spacer{flex:1}
   .id #readout{font-size:11px;color:var(--dim);white-space:nowrap}
+  /* Whether she is waiting for her name or already in a conversation. This is
+     the single most useful thing to know at a glance. */
+  .id #attn{font-size:10px;letter-spacing:.12em;color:var(--dim);
+            padding:.1rem .4rem;border:1px solid var(--line);border-radius:2px}
+  .id #attn[data-s=open],.id #attn[data-s=held]{color:var(--accent);
+            border-color:color-mix(in oklab,var(--accent) 45%,transparent)}
+  /* Overheard speech: logged so you can see she heard it, but visibly not a turn. */
+  .msg.overheard{--c:var(--line-lit);opacity:.6}
+  .msg.overheard .txt{font-style:italic}
 
   /* The instrument takes whatever vertical space is left, so it is never cut
      off and never needs scrolling to. */
@@ -216,6 +225,7 @@
 <main>
   <div class="id">
     <span class="dot"></span><b>Boomer</b><i id="state">offline</i>
+    <span id="attn"></span>
     <span class="spacer"></span><span id="readout"></span>
   </div>
 

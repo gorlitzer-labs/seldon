@@ -265,6 +265,20 @@ function onMessage(ev) {
                  `them unprompted${m.kind === 'blocker' ? ' alert' : ''}`);
       break;
 
+    case 'attention': {
+      const a = el('attn');
+      a.dataset.s = m.state;
+      a.textContent = m.state === 'held' ? 'holding'
+        : m.state === 'open' ? `open ${m.secondsLeft ?? ''}s`.trim()
+        : 'say "boomer"';
+      break;
+    }
+
+    case 'overheard':
+      // Shown, but marked as not a turn: she heard you talking to someone else.
+      addMessage(speakerName, m.text, 'me overheard', 'var(--line-lit)');
+      break;
+
     case 'metrics':
       el('readout').textContent = `${m.tts_first_ms | 0} ms`;
       break;
@@ -281,7 +295,8 @@ function onMessage(ev) {
         toast('voices', 'Voice model missing. Run scripts/fetch-models.py to enable voices.', 'bad', 9000);
       }
       if (m.readonly) toast('read-only', 'Writes are disabled for this session.');
-      hint('Talk to her. Try "what is on the board?"');
+      hint(`Say "${m.wakeWord || 'boomer'}" to start. `
+        + 'Follow-ups need no wake word; "that\'s all" ends it.');
       break;
 
     case 'busy':

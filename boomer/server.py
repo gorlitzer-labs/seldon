@@ -30,6 +30,7 @@ from .runtime import load_all
 from .protocol import HTTP_PORT, WS_PORT, State
 from .turn import run_turn
 from .record import record_utterance
+from .attention import Attention, State as Attn
 from .factory import Item, Urgency, Watcher
 from .speaker import GUEST, OWNER, Speaker, available as speaker_available
 
@@ -71,6 +72,8 @@ class Session:
         # Enrolment reuses the endpointer that already segments utterances, so
         # "read three phrases" costs no new audio plumbing.
         self.enrolling: dict | None = None
+        # Her name opens a session, not a turn. See boomer/attention.py.
+        self.attention = Attention()
 
     # --- emitting back to the page (called from the worker thread) ---
     def emit(self, message: dict) -> None:
@@ -86,6 +89,12 @@ class Session:
     def should_stop(self) -> bool:
         return self.stop_flag
 
+    def emit_attention(self, reason: str = "") -> None:
+        left = self.attention.seconds_left()
+        self.emit(P.msg("attention", state=self.attention.state.value,
+                        secondsLeft=None if left == float("inf") else round(left),
+                        reason=reason))
+
     async def announce(self, item: Item) -> None:
         """Speak a factory escalation. TTS only -- no LLM, no transcript.
 
@@ -99,8 +108,13 @@ class Session:
         self.busy = True
         loop = asyncio.get_running_loop()
         try:
-            # Remember what she raised, so "answer SQLite" has a referent.
+            # Remember what she raised, so "answer SQLite" has a referent, and
+            # open the window: she started this, so you should not have to say
+            # her name to reply to it.
             self.ctx["last_decision"] = {"id": item.id, "hive": item.hive}
+            self.attention.state = Attn.OPEN
+            self.attention._extend()
+            self.emit_attention("she raised it")
             line = item.spoken()
             self.emit(P.msg("announce", id=item.id, kind=item.kind,
                             hive=item.hive, text=line))
@@ -195,7 +209,6 @@ class Session:
         loop = asyncio.get_running_loop()
         try:
             transcript = await loop.run_in_executor(worker, ears.close)
-            self.emit(P.transcript(transcript, final=False))
             record_utterance(self.last_utterance, transcript)
             # Who was that? Open-set, so an unenrolled voice comes back as
             # nobody rather than the nearest profile.
@@ -214,11 +227,34 @@ class Session:
                     self.emit(P.msg("speaker", name=profile["name"],
                                     role=profile["role"], similarity=sim,
                                     color=profile.get("color")))
+
+            # Is she being spoken TO? Overheard speech is logged and dropped:
+            # requiring her name on every sentence would stop it being a
+            # conversation, so the name opens a window instead.
+            decision = self.attention.consider(transcript)
+            self.emit_attention(decision.reason)
+            if not decision.act:
+                self.emit(P.msg("overheard", text=transcript,
+                                reason=decision.reason))
+                self.emit(P.state(State.IDLE))
+                print(f"  overheard | {decision.reason} | {transcript!r}", flush=True)
+                return
+            if decision.reason == "dismissed":
+                # A dismissal needs an acknowledgement, not a generated reply.
+                self.emit(P.transcript(transcript, final=True))
+                self.emit(P.state(State.SPEAKING))
+                await loop.run_in_executor(worker, self._say, "Right. I will be here.")
+                self.emit(P.state(State.IDLE))
+                print(f"  dismissed | {transcript!r}", flush=True)
+                return
+            self.emit(P.transcript(transcript, final=True))
+            transcript = decision.text
             await loop.run_in_executor(worker, functools.partial(
                 run_turn, ears, brain, voice,
                 transcript=transcript, speech_ended_at=self.speech_ended_at,
                 emit=self.emit, emit_audio=self.emit_audio,
                 should_stop=self.should_stop, ctx=self.ctx))
+            self.emit_attention("turn done")
         except Exception as e:                       # never wedge the session
             self.emit(P.error("turn", f"{type(e).__name__}: {e}"))
             self.emit(P.state(State.IDLE))
@@ -262,7 +298,9 @@ async def handler(ws):
     s = Session(ws, loop)
     _active["session"] = s
     s.emit(P.state(State.IDLE))
+    s.emit_attention("connected")
     s.emit(P.msg("ready", hangoverMs=s.ep.hangover_ms, readonly=READONLY,
+                 wakeWord="boomer",
                  voices=speaker.roster() if speaker else [],
                  canEnrol=speaker is not None))
     watcher_task = asyncio.create_task(watch_factory(s))
