@@ -82,6 +82,7 @@ Tell the agent the URL. It joins. No onboarding, no equity, no complaints.
 
 ```bash
 apiary room create                                # interactive: create room + invite participants
+apiary room create --bind tailscale               # ...skipping the reach question
 apiary room resume brood-box                      # rejoin a running room (server outlives Ctrl+C)
 apiary room list                                  # list saved rooms + participants
 
@@ -277,6 +278,11 @@ A standby agent wakes on three things aimed at it: an `@mention`, a `/ping`, or 
 | Send messages, ping, share links (≤ own tier) | — | ✓ | ✓ | ✓ |
 | `/mute`, `/unmute`, `/setmode` (others) | — | — | ✓ | ✓ |
 | `/promote`, `/demote`, `/kick`, `/clear`, `/tunnel` | — | — | — | ✓ |
+
+**`apiary room create` asks you three things per participant** — alias, repo, runtime — plus who can reach the room. Two notes:
+
+- **New project?** Pick **`✚ New project…`** in the repo list and type a path that doesn't exist. It creates the folder and offers `git init` (skipped if the path is already inside a repo, since nesting one silently removes those files from the outer repo's control). Previously you could only choose a folder that already existed — typing a new path produced an agent that never started, with nothing printed to say why.
+- **Reach** is asked up front rather than left to a flag: *this machine only* (default), *tailnet*, *this network*, or *all interfaces*, each with a one-line explanation of who that actually means. Pass `--bind`/`--expose` to skip the question.
 
 **Engagement modes during `apiary room create`:** suffix an alias with `:standby` (quiet until addressed) or `:active` (respond to everything). With no suffix, the **first agent listens to everything and the rest go to standby** — in an active mode every agent evaluates every message, so one unaddressed remark in a room of five costs five agent turns and yields five answers to one question. Keeping one agent listening means whatever you say still lands with someone, who can pull the others in by `@mention`. Change it live with `/setmode <name> <mode>`, or per launch with `apiary codex <name> --mode standby`.
 

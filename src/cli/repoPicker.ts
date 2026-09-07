@@ -7,6 +7,7 @@
  * falls back to plain text input when stdin isn't a TTY or the user hits ESC.
  */
 
+import { createRepoDir, isInsideGitRepo, isNonEmptyDir } from "./new-repo.js";
 import {
   existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync,
 } from "node:fs";
@@ -118,6 +119,7 @@ export interface PickerItem<T> {
 }
 
 const CUSTOM = Symbol("custom");
+const NEW_REPO = Symbol("new-repo");
 
 function arrowPicker<T>(
   items: PickerItem<T | typeof CUSTOM>[],
@@ -215,7 +217,7 @@ export async function askRepoPath(opts: AskRepoPathOpts): Promise<string> {
   const discovered = discoverRepos();
 
   const seen = new Set<string>();
-  const items: PickerItem<string | typeof CUSTOM>[] = [];
+  const items: PickerItem<string | typeof CUSTOM | typeof NEW_REPO>[] = [];
   const add = (path: string, hint?: string) => {
     const r = resolve(path);
     if (seen.has(r)) return;
@@ -228,6 +230,7 @@ export async function askRepoPath(opts: AskRepoPathOpts): Promise<string> {
   for (const p of discovered) add(p);
 
   items.push({ label: `${M}✎${R}  Type a custom path…`, value: CUSTOM });
+  items.push({ label: `${M}✚${R}  New project…`, value: NEW_REPO, hint: "creates the folder" });
 
   const header = `    📁 ${B}Repo${R} ${D}for ${opts.alias}${R}`;
 
@@ -241,15 +244,65 @@ export async function askRepoPath(opts: AskRepoPathOpts): Promise<string> {
   const picked = await arrowPicker(items, header, "to type a path");
 
   let final: string;
-  if (!picked || picked.value === CUSTOM) {
+  if (picked && picked.value === NEW_REPO) {
+    final = await askNewRepoPath(opts, cwd);
+  } else if (!picked || picked.value === CUSTOM) {
     const typed = await opts.ask(`    Custom repo path ${D}[${shortenPath(cwd)}]${R}: `);
     final = typed ? resolve(expandTilde(typed)) : cwd;
+    // A typed path is just as likely to be somewhere that does not exist yet.
+    await ensureExists(final, opts);
   } else {
     final = picked.value as string;
   }
 
   recordRecentRepo(final);
   return final;
+}
+
+/** Ask where the new project goes, create it, and offer to `git init`. */
+async function askNewRepoPath(opts: AskRepoPathOpts, cwd: string): Promise<string> {
+  const typed = await opts.ask(`    New project path ${D}(e.g. ~/Desktop/my-thing)${R}: `);
+  const target = typed ? resolve(expandTilde(typed)) : cwd;
+  await ensureExists(target, opts, { assumeNew: true });
+  return target;
+}
+
+/**
+ * Create `dir` if it is missing, having said so, and offer a git repo.
+ *
+ * Silence here is what made this worth fixing: the wizard accepted a path it
+ * never created, and the agent spawn then failed with no message at all.
+ */
+async function ensureExists(
+  dir: string,
+  opts: AskRepoPathOpts,
+  hints?: { assumeNew?: boolean },
+): Promise<void> {
+  if (existsSync(dir)) {
+    if (!hints?.assumeNew) return;
+    if (isNonEmptyDir(dir)) console.log(`    ${D}${shortenPath(dir)} already exists — using it.${R}`);
+    return;
+  }
+
+  const answer = hints?.assumeNew
+    ? "y"
+    : (await opts.ask(`    ${shortenPath(dir)} doesn't exist. Create it? ${D}[Y/n]${R}: `)) || "y";
+  if (!/^y(es)?$/i.test(answer.trim())) {
+    console.log(`    ${D}Left alone — the agent for this repo won't start until it exists.${R}`);
+    return;
+  }
+
+  const wantsGit = isInsideGitRepo(dir) ? false
+    : /^y(es)?$/i.test(((await opts.ask(`    Run git init in it? ${D}[Y/n]${R}: `)) || "y").trim());
+
+  const res = createRepoDir(dir, { gitInit: wantsGit });
+  if (!res.ok) {
+    console.log(`    ${M}✗${R} ${res.error}`);
+    return;
+  }
+  const bits = [res.created ? "created" : "exists"];
+  if (res.gitInitialised) bits.push("git initialised");
+  console.log(`    ${G}✓${R} ${shortenPath(dir)} ${D}(${bits.join(", ")})${R}`);
 }
 
 // ── askRuntime ────────────────────────────────────────────────────────────────
@@ -284,4 +337,38 @@ export async function askRuntime(opts: AskRuntimeOpts): Promise<string | undefin
 
   const picked = await arrowPicker(items, header, "to skip");
   return picked ? (picked.value as string) : opts.available[0];
+}
+
+// ── askReach ──────────────────────────────────────────────────────────────────
+
+export interface ReachOption {
+  label: string;
+  value: string;
+  hint?: string;
+}
+
+export interface AskReachOpts {
+  options: ReachOption[];
+  ask: Asker;
+}
+
+/**
+ * Ask who should be able to reach the room.
+ *
+ * Worth a question rather than a flag people have to discover: the default
+ * (this machine only) is not what anyone wants once they have a phone and a
+ * VPN, and the wrong answer is invisible — you find out when a join link does
+ * not work from somewhere else.
+ */
+export async function askReach(opts: AskReachOpts): Promise<string> {
+  const items: PickerItem<string>[] = opts.options.map((o) => ({
+    label: o.label, value: o.value, hint: o.hint,
+  }));
+  const header = `    🌐 ${B}Who can reach this room?${R}`;
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return opts.options[0].value;
+
+  const picked = await arrowPicker(items, header, "for this machine only");
+  if (!picked || typeof picked.value !== "string") return opts.options[0].value;
+  return picked.value;
 }

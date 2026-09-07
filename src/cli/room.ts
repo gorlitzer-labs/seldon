@@ -16,7 +16,8 @@ import { createInterface } from "node:readline";
 
 import { buildShareUrl, extractToken } from "./auth.js";
 import { agentEmoji, roomEmoji } from "./config.js";
-import { askRepoPath, askRuntime, shortenPath } from "./repoPicker.js";
+import { askRepoPath, askRuntime, askReach, shortenPath } from "./repoPicker.js";
+import { tailnetAddress, lanAddress, ALL_INTERFACES, LOOPBACK } from "./bind.js";
 import { foundationInit } from "./foundation.js";
 import type { AuthorityLevel } from "../core/types.js";
 import type { EngagementMode } from "../agent/engagement.js";
@@ -416,8 +417,13 @@ const BEE_BANNER = [
  * the participant's cwd. The child creates its own tmux session and runs until
  * SIGTERM (sent by `roomStop`).
  *
- * Returns true on success, false if the cwd doesn't exist or spawn fails.
+ * Returns why it failed rather than a bare false: the caller only logged the
+ * success case, so a participant pointed at a directory that did not exist
+ * produced no agent and no message — you were left guessing.
  */
+/** Why an agent did not start, so the caller can say so. */
+type SpawnAgentResult = { ok: true } | { ok: false; reason: string };
+
 function spawnAgentBackground(
   alias: string,
   cwd: string,
@@ -425,9 +431,9 @@ function spawnAgentBackground(
   tier: AuthorityLevel = "member",
   model?: string,
   mode?: string,
-): boolean {
+): SpawnAgentResult {
   const resolvedCwd = cwd.replace(/^~/, homedir());
-  if (!existsSync(resolvedCwd)) return false;
+  if (!existsSync(resolvedCwd)) return { ok: false, reason: `${shortenPath(cwd)} doesn't exist` };
   // For agents at admin or product_owner tier, pass --admin so the local MCP
   // server exposes the privileged tool set. The server still enforces the
   // real tier via the share token; --admin only affects which tools the
@@ -443,9 +449,9 @@ function spawnAgentBackground(
       cwd: resolvedCwd,
     });
     child.unref();
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : "spawn failed" };
   }
 }
 
@@ -592,9 +598,37 @@ export async function roomCreate(opts: {
     console.log(divider);
   }
 
-  close();
-
   applyDefaultModes(participants);
+
+  // Network reach. Skipped entirely when --bind/--expose already said so on
+  // the command line, so scripted use is unaffected.
+  let bindAddress = opts.bind;
+  if (!bindAddress && !opts.expose) {
+    const ts = tailnetAddress();
+    const lan = lanAddress();
+    const reach = await askReach({
+      ask,
+      options: [
+        { label: "This machine only", value: LOOPBACK, hint: "safest default" },
+        ...(ts ? [{
+          label: `Tailnet  ${D}(${ts})${R}`,
+          value: ts,
+          // The room is on your VPN only: reachable from your other devices
+          // anywhere, invisible to whatever wifi this machine is on.
+          hint: "your devices anywhere, via Tailscale — not the local network",
+        }] : []),
+        ...(lan ? [{
+          label: `This network  ${D}(${lan})${R}`,
+          value: lan,
+          hint: "anyone on the same wifi",
+        }] : []),
+        { label: "All interfaces", value: ALL_INTERFACES, hint: "including untrusted networks — rarely what you want" },
+      ],
+    });
+    if (reach !== LOOPBACK) bindAddress = reach;
+  }
+
+  close();
 
   // ── Foundation: bootstrap the project workflow into each repo (always follows) ──
   if (opts.foundation !== false) {
@@ -619,6 +653,7 @@ export async function roomCreate(opts: {
     port: opts.port,
     share: opts.share,
     expose: opts.expose,
+    bind: bindAddress,
     shareTtlMs,
   });
   if (!isDaemonResult(daemonRes)) {
@@ -674,12 +709,15 @@ export async function roomCreate(opts: {
       const joinUrl = tieredJoinUrls[p.tier] ?? memberJoinUrl;
       printInvite(p.alias, joinUrl, sameHost);
       if (sameHost && canSpawn && p.runtime) {
-        const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model, p.mode);
-        if (ok) {
+        const spawned = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model, p.mode);
+        if (spawned.ok) {
           const modeNote = p.mode?.startsWith("standby-")
             ? ` ${D}·${R} ${Y}standby${R} ${D}(wakes on @mention, /ping or a whisper)${R}`
             : p.mode ? ` ${D}· listening to everything${R}` : "";
           console.log(`    ${D}→ spawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}${modeNote}`);
+        } else {
+          console.log(`    ${Y}✗${R} ${B}${p.alias}${R} not started — ${spawned.reason}.`);
+          console.log(`      ${D}Create it, then: ${R}${C}apiary room resume ${roomName}${R}`);
         }
       }
     }
@@ -819,9 +857,11 @@ export async function roomResume(name: string): Promise<void> {
         const sameHost = allLocal || isLocalPath(p.cwd);
         printInvite(p.alias, memberJoinUrl, sameHost);
         if (sameHost && tmuxAvailable() && p.runtime && !tmuxSessionExists(`apiary_${p.alias}`)) {
-          const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model, p.mode);
-          if (ok) {
+          const spawned = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model, p.mode);
+          if (spawned.ok) {
             console.log(`    ${D}→ respawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}`);
+          } else {
+            console.log(`    ${W}✗${R} ${B}${p.alias}${R} not restarted — ${spawned.reason}.`);
           }
         }
       }
