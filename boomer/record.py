@@ -2,7 +2,7 @@
 
 Two open questions cannot be settled with synthesized audio:
 
-  * whether Qwen3-ASR actually hears David's accent better than Parakeet
+  * whether Qwen3-ASR actually hears Franko's accent better than Parakeet
   * whether Smart Turn v3 can tell a finished sentence from a pause
 
 Both need real speech. Rather than staging more live sessions, the server can

@@ -145,7 +145,7 @@ def as_prompt() -> str:
     if not items:
         return ""
     lines = "\n".join(f"- {m.text}" for m in items[-MAX_ITEMS:])
-    return ("\n\nThings you have been asked to remember about David. Treat them as "
+    return ("\n\nThings you have been asked to remember about Franko. Treat them as "
             "true and use them without being asked:\n" + lines)
 
 

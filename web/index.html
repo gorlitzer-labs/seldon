@@ -10,6 +10,10 @@
   main{width:min(46rem,100%)}
   h1{font-size:1.1rem;letter-spacing:.35em;text-transform:uppercase;color:var(--dim);
      font-weight:400;margin:0 0 2rem}
+  #avatar{display:none;width:100%;max-width:22rem;height:28rem;margin:0 auto .5rem}
+  /* the avatar replaces the orb only once WebGL has actually started */
+  body[data-avatar=on] #avatar{display:block}
+  body[data-avatar=on] #orb{display:none}
   #orb{width:96px;height:96px;border-radius:50%;margin:0 auto 1.5rem;
        background:radial-gradient(circle at 35% 30%,#2a4763,#0d1520 70%);
        box-shadow:0 0 0 1px #1d2c3d, 0 0 40px -8px #2a4763;transition:.35s}
@@ -34,6 +38,7 @@
 </style>
 <main>
   <h1>Boomer</h1>
+  <canvas id="avatar" width="360" height="460"></canvas>
   <div id="orb"></div>
   <div id="state">offline</div>
   <div class="row"><span class="who">you</span><span id="you"></span></div>

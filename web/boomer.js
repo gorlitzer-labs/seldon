@@ -5,15 +5,33 @@
 // aliasing). Playback runs at the device rate so her voice is not downsampled.
 
 import { WS_PORT, MIC_SR, TTS_SR } from './protocol.js';
+import { createAvatar } from './avatar.js';
 
 const el = (id) => document.getElementById(id);
 const setState = (s) => {
   el('state').textContent = s;
   document.body.dataset.state = s;
   sending = (s === 'idle' || s === 'listening');
+  if (avatar) avatar.setState(s);
 };
 
+// The figure is driven by the audio actually being played, not by a guess:
+// an AnalyserNode on the playback graph, sampled once per frame.
+function pumpLevel() {
+  if (analyser && avatar) {
+    analyser.getByteTimeDomainData(levelData);
+    let peak = 0;
+    for (let i = 0; i < levelData.length; i++) {
+      const v = Math.abs(levelData[i] - 128) / 128;
+      if (v > peak) peak = v;
+    }
+    avatar.setLevel(peak * 1.6);
+  }
+  requestAnimationFrame(pumpLevel);
+}
+
 let ws, micCtx, playCtx, nextPlayTime = 0, pendingAudio = null;
+let avatar = null, analyser = null, levelData = null;
 // Only stream the mic while she is idle or listening. During thinking/speaking
 // the frames would queue in the socket and flood in when the turn ends -- with
 // her own voice among them, which reads as a new utterance.
@@ -24,7 +42,7 @@ function playChunk(float32, sampleRate) {
   buf.copyToChannel(float32, 0);
   const src = playCtx.createBufferSource();
   src.buffer = buf;
-  src.connect(playCtx.destination);
+  src.connect(analyser);
   // Schedule back-to-back so consecutive chunks play without a seam.
   const now = playCtx.currentTime;
   if (nextPlayTime < now) nextPlayTime = now + 0.03;
@@ -101,6 +119,12 @@ async function start() {
   playCtx = new AudioContext();
   await micCtx.resume(); await playCtx.resume();
 
+  // Everything she says passes through the analyser on its way to the speakers.
+  analyser = playCtx.createAnalyser();
+  analyser.fftSize = 512;
+  levelData = new Uint8Array(analyser.fftSize);
+  analyser.connect(playCtx.destination);
+
   const src = micCtx.createMediaStreamSource(stream);
   const node = micCtx.createScriptProcessor(1024, 1, 1);
   node.onaudioprocess = (e) => {
@@ -120,6 +144,20 @@ async function start() {
 
   el('hint').textContent = `mic ${micCtx.sampleRate} Hz / speaker ${playCtx.sampleRate} Hz - just talk`;
   setState('idle');
+}
+
+// WebGL can be unavailable (software rendering off, remote session). The CSS
+// orb stays in the markup as the fallback, so losing the avatar loses nothing
+// functional.
+try {
+  avatar = createAvatar(el('avatar'));
+  document.body.dataset.avatar = 'on';
+  // Debug hook: lets a headless check confirm the scene renders and step the
+  // states without a microphone. Read-only apart from the visual state.
+  window.__boomer = { avatar, setState };
+  requestAnimationFrame(pumpLevel);
+} catch (e) {
+  console.warn('avatar unavailable, falling back to the orb:', e);
 }
 
 el('go').onclick = start;
