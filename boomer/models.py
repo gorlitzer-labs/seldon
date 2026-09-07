@@ -117,7 +117,33 @@ class Ears:
             out = self.model.generate(mel)
             return (out[0].text or "").strip() if out else ""
         out = self.model.generate(mx.array(audio), hotwords=HOTWORDS)
-        return (getattr(out, "text", "") or "").strip()
+        return self._reject_hotword_echo((getattr(out, "text", "") or "").strip())
+
+    @staticmethod
+    def _reject_hotword_echo(text: str) -> str:
+        """Drop a transcript that is really just the bias list read back.
+
+        Observed live: Boomer transcribed an utterance as the entire hotword
+        list -- "Boomer, netreach, apiary, foundation, factory, gorlitzer,
+        Postgres, SQLite, ..." -- and the model then answered it as if Franko had
+        said it. Biasing lists can leak into the output of an
+        attention-based ASR, and it is not reproducible on demand (silence,
+        noise, clipping, garbling and pitch shifts all transcribe correctly), so
+        this guards the symptom rather than waiting to find the trigger.
+
+        Deliberately conservative: a sentence that merely mentions two of these
+        terms is real speech and must survive.
+        """
+        words = [w.strip(",.;:!?").lower() for w in text.split()]
+        if len(words) < 4:
+            return text
+        hot = {h.lower() for h in HOTWORDS}
+        hits = sum(1 for w in words if w in hot)
+        if hits >= 4 and hits / len(words) >= 0.5:
+            print(f"  rejected | hotword echo ({hits}/{len(words)}) | {text[:60]!r}",
+                  flush=True)
+            return ""
+        return text
 
     def warm(self) -> None:
         self.transcribe(np.zeros(MIC_SR, dtype=np.float32))

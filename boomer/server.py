@@ -234,10 +234,14 @@ class Session:
             decision = self.attention.consider(transcript)
             self.emit_attention(decision.reason)
             if not decision.act:
-                self.emit(P.msg("overheard", text=transcript,
-                                reason=decision.reason))
+                # An empty transcript is a VAD false start or audio she could
+                # not decode -- there is nothing to show, and logging it left
+                # blank bubbles in the transcript.
+                if decision.reason != "empty" and transcript.strip():
+                    self.emit(P.msg("overheard", text=transcript,
+                                    reason=decision.reason))
+                    print(f"  overheard | {decision.reason} | {transcript!r}", flush=True)
                 self.emit(P.state(State.IDLE))
-                print(f"  overheard | {decision.reason} | {transcript!r}", flush=True)
                 return
             if decision.reason == "dismissed":
                 # A dismissal needs an acknowledgement, not a generated reply.
