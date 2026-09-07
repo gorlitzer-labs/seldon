@@ -128,8 +128,21 @@ class Attention:
 
     @staticmethod
     def _strip(text: str) -> str:
-        out = _WAKE.sub(" ", text, count=1)
-        out = re.sub(r"^\s*[,.:;!?-]+\s*", "", out)
+        """Remove the address, and the punctuation that only held it in place.
+
+        Naive removal leaves debris the model then has to interpret:
+        "Hello, Boomer, how you doing?" became "Hello, , how you doing?" -- a
+        real transcript from Franko's first conversation.
+        """
+        out = _WAKE.sub("\x00", text, count=1)
+        # Collapse the punctuation on BOTH sides of where the name was, keeping
+        # at most one separator.
+        out = re.sub(r"\s*[,;:]?\s*\x00\s*[,;:]?\s*", lambda m: (
+            ", " if "," in m.group(0) and not m.group(0).strip().startswith("\x00") else " "
+        ), out)
+        out = re.sub(r"^\s*[,.:;!?\-]+\s*", "", out)          # nothing leads with punctuation
+        out = re.sub(r"\s+([,.:;!?])", r"\1", out)             # no space before punctuation
+        out = re.sub(r"([,;:])\s*([,.;:!?])", r"\2", out)      # no doubled separators
         return " ".join(out.split()).strip()
 
     def close(self) -> None:
