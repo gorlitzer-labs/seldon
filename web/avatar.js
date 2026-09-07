@@ -13,36 +13,63 @@
 
 import * as THREE from './vendor/three.module.js';
 
-// Humanoid radius profile: [height 0..1 from feet, radius]. Hand-tuned rather
-// than anatomical -- it needs to read as a person in silhouette, at small size.
-const PROFILE = [
-  [0.00, 0.070], [0.04, 0.055], [0.08, 0.048],   // feet, ankles
-  [0.20, 0.075], [0.34, 0.090], [0.44, 0.098],   // calves, knees, thighs
-  [0.50, 0.135], [0.55, 0.140],                  // hips
-  [0.62, 0.120], [0.70, 0.128],                  // waist, ribs
-  [0.76, 0.150], [0.80, 0.165],                  // chest, shoulders
-  [0.84, 0.070], [0.86, 0.058],                  // neck
-  [0.90, 0.085], [0.94, 0.092], [0.97, 0.080],   // head
-  [1.00, 0.045],
+// The figure is assembled from limbed parts, not one lathe. A single
+// radius-per-height body of revolution was the first attempt and it reads as a
+// robed column: below the hips it tapers to one trunk, and there are no arms.
+// Verified by reading the framebuffer back as a coverage map.
+//
+// Each part is a stack of contour rings around its own axis, so legs and arms
+// are separate volumes that happen to share the scan plane.
+
+const FIGURE_HEIGHT = 2.6;
+const SEGMENTS = 40;        // points per ring
+
+// [t, radius] up each part, t normalised within the part's own span.
+const TORSO = [
+  [0.00, 0.140], [0.14, 0.122], [0.30, 0.128],   // hips, waist, ribs
+  [0.52, 0.150], [0.66, 0.168],                  // chest, shoulders
+  [0.76, 0.072], [0.80, 0.058],                  // neck
+  [0.88, 0.086], [0.94, 0.094], [0.99, 0.074], [1.00, 0.040],   // head
+];
+const LEG = [
+  [0.00, 0.052], [0.06, 0.044], [0.10, 0.040],   // foot, ankle
+  [0.42, 0.058], [0.62, 0.062], [0.72, 0.066],   // calf, knee
+  [1.00, 0.082],                                 // thigh into the hip
+];
+const ARM = [
+  [0.00, 0.030], [0.10, 0.026],                  // hand, wrist
+  [0.45, 0.034], [0.60, 0.036],                  // forearm, elbow
+  [1.00, 0.052],                                 // upper arm into the shoulder
 ];
 
-const RINGS = 132;          // vertical resolution
-const SEGMENTS = 84;        // points per ring
-const FIGURE_HEIGHT = 2.6;
+// Where each part sits: vertical span as a fraction of FIGURE_HEIGHT, plus a
+// lateral offset so limbs are side by side rather than concentric.
+const PARTS = [
+  { profile: TORSO, y0: 0.50, y1: 1.00, dx: 0.000, rings: 60, squash: 0.72 },
+  { profile: LEG,   y0: 0.00, y1: 0.53, dx: -0.062, rings: 34, squash: 0.95 },
+  { profile: LEG,   y0: 0.00, y1: 0.53, dx: 0.062, rings: 34, squash: 0.95 },
+  { profile: ARM,   y0: 0.44, y1: 0.80, dx: -0.196, rings: 26, squash: 0.95 },
+  { profile: ARM,   y0: 0.44, y1: 0.80, dx: 0.196, rings: 26, squash: 0.95 },
+];
 
-function radiusAt(t) {
-  for (let i = 0; i < PROFILE.length - 1; i++) {
-    const [y0, r0] = PROFILE[i], [y1, r1] = PROFILE[i + 1];
-    if (t >= y0 && t <= y1) {
-      const k = (t - y0) / (y1 - y0);
+function sampleProfile(profile, t) {
+  for (let i = 0; i < profile.length - 1; i++) {
+    const [a, r0] = profile[i], [b, r1] = profile[i + 1];
+    if (t >= a && t <= b) {
+      const k = (t - a) / (b - a || 1);
       return r0 + (r1 - r0) * (k * k * (3 - 2 * k));   // smoothstep
     }
   }
-  return PROFILE[PROFILE.length - 1][1];
+  return profile[profile.length - 1][1];
 }
 
 const VERT = `
   uniform float uTime, uScan, uBreath, uAgitation, uLevel;
+  // Perspective-correct point sizing. uPointK = drawingBufferHeight /
+  // (2 * tan(fov/2)), so a world-space radius maps to pixels. An earlier
+  // hardcoded 300.0/-z produced 86-268 px points, which merged 7200 points into
+  // one blob and hid the limbs entirely.
+  uniform float uPointK;
   attribute float aT;        // 0..1 up the body
   attribute float aAngle;
   varying float vGlow;
@@ -73,7 +100,11 @@ const VERT = `
 
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.6 + vGlow * 3.4) * (300.0 / -mv.z);
+    // Size and alpha both used to spike at the scan plane, compounding to a
+    // ~36x brightness ratio that made the band the only visible thing. Keep the
+    // size boost modest and let colour carry the highlight.
+    float worldSize = 0.0085 + vGlow * 0.005;
+    gl_PointSize = clamp(worldSize * uPointK / -mv.z, 1.0, 9.0);
   }`;
 
 const FRAG = `
@@ -93,7 +124,7 @@ const FRAG = `
     // Fade the extremities so the figure dissolves rather than being cut off.
     float ends = smoothstep(0.0, 0.10, vT) * (1.0 - smoothstep(0.94, 1.05, vT));
     vec3 col = mix(uColor, uScanColor, clamp(vGlow, 0.0, 1.0));
-    float a = uOpacity * soft * ends * (0.30 + vGlow * 0.95);
+    float a = uOpacity * soft * ends * (0.55 + vGlow * 0.55);
     gl_FragColor = vec4(col, a);
   }`;
 
@@ -121,23 +152,26 @@ export function createAvatar(canvas) {
   camera.lookAt(0, 1.25, 0);
 
   // --- the figure ---------------------------------------------------------
-  const count = RINGS * SEGMENTS;
+  const count = PARTS.reduce((n, p) => n + p.rings * SEGMENTS, 0);
   const pos = new Float32Array(count * 3);
   const aT = new Float32Array(count);
   const aAngle = new Float32Array(count);
   let n = 0;
-  for (let i = 0; i < RINGS; i++) {
-    const t = i / (RINGS - 1);
-    const r = radiusAt(t);
-    for (let j = 0; j < SEGMENTS; j++) {
-      const a = (j / SEGMENTS) * Math.PI * 2;
-      // Slight ellipse: people are deeper than they are wide at the chest.
-      pos[n * 3] = Math.cos(a) * r;
-      pos[n * 3 + 1] = t * FIGURE_HEIGHT;
-      pos[n * 3 + 2] = Math.sin(a) * r * 0.72;
-      aT[n] = t;
-      aAngle[n] = a;
-      n++;
+  for (const part of PARTS) {
+    for (let i = 0; i < part.rings; i++) {
+      const local = i / (part.rings - 1);
+      const r = sampleProfile(part.profile, local);
+      // aT is height over the WHOLE figure, so one scan plane crosses every part.
+      const t = part.y0 + (part.y1 - part.y0) * local;
+      for (let j = 0; j < SEGMENTS; j++) {
+        const a = (j / SEGMENTS) * Math.PI * 2;
+        pos[n * 3] = part.dx + Math.cos(a) * r;
+        pos[n * 3 + 1] = t * FIGURE_HEIGHT;
+        pos[n * 3 + 2] = Math.sin(a) * r * part.squash;
+        aT[n] = t;
+        aAngle[n] = a;
+        n++;
+      }
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -148,6 +182,7 @@ export function createAvatar(canvas) {
   const uniforms = {
     uTime: { value: 0 }, uScan: { value: 0 }, uBreath: { value: 0 },
     uAgitation: { value: 0 }, uLevel: { value: 0 },
+    uPointK: { value: 600 },
     uColor: { value: new THREE.Color(PALETTE.offline.color) },
     uScanColor: { value: new THREE.Color(PALETTE.offline.scan) },
     uOpacity: { value: PALETTE.offline.opacity },
@@ -203,6 +238,9 @@ export function createAvatar(canvas) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    // Recomputed on resize so point size is stable across window sizes and DPR.
+    const bufH = renderer.getContext().drawingBufferHeight || h;
+    uniforms.uPointK.value = bufH / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
   }
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);
@@ -257,9 +295,13 @@ export function createAvatar(canvas) {
       const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
       const px = new Uint8Array(w * h * 4);
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      const grid = [];
+      // Two passes: measure, then threshold relative to what is actually there.
+      // A fixed threshold cannot tell "the figure is dim" from "my cutoff is
+      // wrong", which cost a debugging round.
+      const cell = [];
+      let max = 0, sum2 = 0, lit = 0;
       for (let r = 0; r < rows; r++) {
-        let line = '';
+        cell.push([]);
         for (let c = 0; c < cols; c++) {
           // readPixels is bottom-up, so invert the row.
           const y0 = Math.floor((rows - 1 - r) * h / rows);
@@ -269,16 +311,26 @@ export function createAvatar(canvas) {
           for (let y = y0; y < y1; y += 2) {
             for (let x = x0; x < x1; x += 2) {
               const i = (y * w + x) * 4;
-              sum += (px[i] + px[i + 1] + px[i + 2]) / 3 * (px[i + 3] / 255);
+              // RGB only. Multiplying by alpha double-attenuates on a
+              // transparent additively-blended canvas and made the figure look
+              // 100x dimmer than it renders.
+              sum += (px[i] + px[i + 1] + px[i + 2]) / 3;
               n++;
             }
           }
           const v = n ? sum / n : 0;
-          line += v > 40 ? '#' : v > 16 ? '+' : v > 5 ? '.' : ' ';
+          cell[r].push(v);
+          if (v > max) max = v;
+          sum2 += v; if (v > 0.5) lit++;
         }
-        grid.push(line);
       }
-      return grid;
+      const grid = cell.map((row) => row.map((v) => {
+        const k = max > 0 ? v / max : 0;
+        return k > 0.55 ? '#' : k > 0.28 ? '+' : k > 0.08 ? '.' : ' ';
+      }).join(''));
+      return { art: grid.join('\n'), maxBrightness: +max.toFixed(2),
+               meanBrightness: +(sum2 / (rows * cols)).toFixed(3),
+               litCells: lit, totalCells: rows * cols };
     },
     dispose() {
       cancelAnimationFrame(raf); ro.disconnect();
