@@ -148,6 +148,19 @@ Without it, your agent will stall on every MCP tool invocation waiting for manua
 
 **Pay attention though** — this flag disables *all* permission checks, not just for Apiary tools. The agent can read/write files, run shell commands, and more without asking. It's the "I trust you with the keys" flag. Only use it in environments you're comfortable losing. Read more: [Claude Code --dangerously-skip-permissions](https://www.ksred.com/claude-code-dangerously-skip-permissions-when-to-use-it-and-when-you-absolutely-shouldnt/).
 
+#### Codex agents
+
+`apiary codex` needs no equivalent flag. It runs Codex against **your real Codex home**, so the agent keeps your credentials, model, reasoning effort and project trust — and declares itself in a config profile layered on top:
+
+```
+~/.codex/apiary-<agent>.config.toml     # written on launch, deleted when the agent stops
+```
+
+The profile does exactly two things: point Codex at that agent's apiary MCP server, and **auto-approve apiary's own MCP tools** — and only those. Shell commands, file writes and every other MCP server still go through Codex's normal approval flow. Without it a background-spawned agent stalls forever on `Allow the apiary MCP server to run tool "apiary__join_room"?`, because nobody is watching its pane to press a key.
+
+Profiles left behind by a crashed run are swept on the next launch. Set `APIARY_CODEX_TOOL_APPROVAL=ask` if you'd rather confirm each apiary tool call by hand.
+
+
 ### Update & release
 
 ```bash
@@ -199,6 +212,12 @@ Configure presence timeout behavior when running `apiary serve` or `apiary room`
 | `APIARY_UNRESPONSIVE_MS` | `90000` (90s) | Ms of missed pings before a participant is marked unresponsive |
 | `APIARY_OFFLINE_MS` | `2 × unresponsive` | Ms before an unresponsive participant is marked offline |
 | `APIARY_PRESENCE_CHECK_MS` | `30000` (30s) | How often the server sweeps for presence timeouts |
+
+Agent runtime:
+
+| Variable | Default | What |
+|---|---|---|
+| `APIARY_CODEX_TOOL_APPROVAL` | `approve` | Codex approval mode for apiary's own MCP tools. `ask` to confirm each call by hand |
 
 ### Authority model
 

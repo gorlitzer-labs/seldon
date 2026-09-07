@@ -10,9 +10,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir, homedir } from "node:os";
+import { rmSync } from "node:fs";
+import { homedir } from "node:os";
 
 import {
   tmuxAvailable,
@@ -27,7 +26,12 @@ import { CodexTmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
 import { contentPartsToString } from "../../agent/prompts.js";
 import { agentEmoji } from "../config.js";
-import { consumeInvite } from "../invites.js";
+import { deliverInvite, sameApiaryServer } from "../invites.js";
+import {
+  clearCodexProfile,
+  prepareCodexLaunch,
+  pruneCodexProfiles,
+} from "./launch.js";
 import {
   saveAgentSession,
   clearAgentSession,
@@ -96,27 +100,14 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
 
   const setup = await setupAgentRuntime({ ...options, joinUrls: undefined });
 
-  // ── Write MCP config for Codex ──────────────────────────────────────────
-  // Codex supports remote MCP servers natively via url in config.toml.
-  // No stdio bridge needed (unlike Claude Code which has an OAuth bug).
-
-  const tmpDir = mkdtempSync(join(tmpdir(), "apiary_codex_"));
+  // ── Codex MCP wiring ────────────────────────────────────────────────────
+  // Codex supports remote MCP servers natively, so no stdio bridge is needed
+  // (unlike Claude Code, which has an OAuth bug). apiary declares itself in a
+  // config profile layered over the user's real Codex home, so the agent keeps
+  // their credentials, model and project trust — see launch.ts.
 
   const mcpPort = new URL(setup.mcpServer.url).port;
   const mcpUrl = `http://127.0.0.1:${mcpPort}/mcp`;
-
-  // Write config.toml in a .codex directory structure
-  const codexConfigDir = join(tmpDir, ".codex");
-  mkdirSync(codexConfigDir, { recursive: true });
-
-  const configToml = [
-    "[mcp_servers.apiary]",
-    `url = "${mcpUrl}"`,
-    `startup_timeout_sec = 15`,
-    `tool_timeout_sec = 60`,
-  ].join("\n");
-
-  writeFileSync(join(codexConfigDir, "config.toml"), configToml);
 
   // ── Create tmux session + launch Codex ──────────────────────────────────
 
@@ -134,10 +125,17 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
   console.log("Launching Codex...");
   tmuxCreateSession(tmuxSession, tabTitle);
 
-  // Launch codex with config dir pointing to our temp directory + passthrough args
-  const extraArgs = options.extraArgs ?? [];
-  const codexCmd = [`CODEX_HOME=${codexConfigDir} codex`, ...extraArgs].join(" ");
-  tmuxSendCommand(tmuxSession, codexCmd);
+  // Sweep profiles orphaned by a runtime that was killed before it could clean
+  // up. "Live" means the process is actually alive — a stale session record
+  // would otherwise keep a dead agent's profile around forever. This agent
+  // counts as live so a concurrent launch cannot sweep what we are about to
+  // write, and vice versa.
+  pruneCodexProfiles([
+    setup.agentName,
+    ...listCodexSessions().filter(isAgentAlive).map((s) => s.agentName),
+  ]);
+  const { command } = prepareCodexLaunch(setup.agentName, mcpUrl, options.extraArgs ?? []);
+  tmuxSendCommand(tmuxSession, command);
 
   // ── Start event loop + attach ──────────────────────────────────────────
 
@@ -153,9 +151,9 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
     await new Promise((r) => setTimeout(r, 500));
     if (!tmuxSessionExists(tmuxSession)) {
       console.error("Error: Codex exited during startup. Try running again.");
+      clearCodexProfile(setup.agentName);
       bridge.stop();
       await setup.cleanup();
-      try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
       resetTerminal();
       return;
     }
@@ -167,19 +165,32 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
     agentName: setup.agentName,
     pid: process.pid,
     tmuxSession,
-    tmpDir,
   });
 
-  // ── Consume queued invite (auto-join) ─────────────────────────────────
+  // ── Deliver queued invite (auto-join) ─────────────────────────────────
   // If the wizard background-spawned this agent, ~/.apiary/invites/<name>
-  // holds the room's join URL. Inject a prompt asking the agent to join.
-  const inviteUrl = consumeInvite(setup.agentName);
-  if (inviteUrl) {
-    await bridge.deliver([{
-      type: "text",
-      text: `Please join the apiary room you were invited to by calling the join_room tool with this URL: ${inviteUrl}`,
-    }]);
-  }
+  // holds the room's join URL. deliverInvite keeps asking until the agent is
+  // really in the room, and only then deletes the file — a Codex that boots
+  // into a sign-in or onboarding screen gets another go once it reaches a
+  // prompt, instead of losing the URL to a menu that swallowed it.
+  const inviteAbort = new AbortController();
+  const invitePromise = deliverInvite({
+    agentName: setup.agentName,
+    deliver: (parts) => bridge.deliver(parts, { dedupe: true }),
+    hasJoined: (url) => setup.joinResults.some((jr) => sameApiaryServer(jr.serverUrl, url)),
+    signal: inviteAbort.signal,
+  }).then((outcome) => {
+    // Don't let a failed auto-join be silent — that is exactly how an agent
+    // ends up sitting outside the room it was spawned for. The invite is kept
+    // on disk, so `apiary room resume <room>` will hand it over again.
+    if (outcome === "abandoned" && !options.background) {
+      console.log(
+        `Note: "${setup.agentName}" did not join the room it was invited to. ` +
+        `The invite is still queued — check the pane, then re-run or use "apiary room resume".`,
+      );
+    }
+    return outcome;
+  }).catch(() => "cancelled" as const);
 
   // Background mode: spawned by room create — run silently until SIGTERM.
   if (options.background) {
@@ -191,10 +202,12 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
       process.on("SIGTERM", resolve);
       process.on("SIGINT", resolve);
     });
+    inviteAbort.abort();
+    await invitePromise;
     bridge.stop();
     await setup.cleanup();
     if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
-    try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
+    clearCodexProfile(setup.agentName);
     clearAgentSession("codex", setup.agentName);
     return;
   }
@@ -209,10 +222,12 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
 
   // ── Cleanup ─────────────────────────────────────────────────────────────
 
+  inviteAbort.abort();
+  await invitePromise;
   bridge.stop();
   await setup.cleanup();
   tmuxKillSession(tmuxSession);
-  try { rmSync(tmpDir, { recursive: true }); } catch { /* ok */ }
+  clearCodexProfile(setup.agentName);
   clearAgentSession("codex", setup.agentName);
   resetTerminal();
 
@@ -260,6 +275,8 @@ function stopCodexSession(session: AgentSession): void {
   if (isAgentAlive(session)) {
     try { process.kill(session.pid, "SIGTERM"); } catch { /* ok */ }
   }
+  clearCodexProfile(session.agentName);
+  // Sessions recorded by an older apiary still carry a sandboxed CODEX_HOME.
   if (session.tmpDir) {
     try { rmSync(session.tmpDir, { recursive: true }); } catch { /* ok */ }
   }

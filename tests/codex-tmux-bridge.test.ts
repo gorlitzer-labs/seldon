@@ -206,4 +206,99 @@ describe("detectCodexStateFromLines", () => {
 `);
     expect(detectCodexStateFromLines(lines)).toBe("approval");
   });
+
+  // ── Blocked: no composer exists yet ─────────────────────────────────────
+
+  test("detects blocked: OAuth sign-in screen", () => {
+    // Verbatim from a Codex v0.153.4 launch with an empty CODEX_HOME — the
+    // screen that swallowed a room invite and left the agent "not found".
+    const lines = screen(`
+  Welcome to Codex, OpenAI's command-line coding agent
+
+  Finish signing in via your browser
+
+  If the link doesn't open automatically, open the following link to
+authenticate:
+
+  https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_x
+
+  On a remote or headless machine? Press esc and choose Sign in with Device
+  Code.
+
+  Press esc to cancel
+`);
+    expect(detectCodexStateFromLines(lines)).toBe("blocked");
+  });
+
+  test("detects blocked: sign-in method menu", () => {
+    const lines = screen(`
+  > 1. Sign in with ChatGPT
+       Usage included with Plus, Pro, Business, and Enterprise plans
+
+    2. Sign in with Device Code
+       Sign in from another device with a one-time code
+
+    3. Provide your own API key
+       Pay for what you use
+
+  Press enter to continue
+`);
+    expect(detectCodexStateFromLines(lines)).toBe("blocked");
+  });
+
+  test("detects blocked: directory trust prompt", () => {
+    const lines = screen(`
+  You are running Codex in ~/Desktop/apiary-game
+
+  Do you trust the files in this folder?
+
+  > 1. Yes, allow Codex to work in this folder
+    2. No, choose a different folder
+`);
+    expect(detectCodexStateFromLines(lines)).toBe("blocked");
+  });
+
+  test("blocked takes priority over idle", () => {
+    // Without this, "no approval + no spinner ⇒ idle" pastes into a login menu.
+    const lines = screen(`
+  Some earlier conversation output
+
+  Welcome to Codex, OpenAI's command-line coding agent
+  Finish signing in via your browser
+`);
+    expect(detectCodexStateFromLines(lines)).not.toBe("idle");
+    expect(detectCodexStateFromLines(lines)).toBe("blocked");
+  });
+
+  // ── Approval: current Codex UI ──────────────────────────────────────────
+
+  test("detects approval: MCP tool approval (v0.15x wording)", () => {
+    // Verbatim from Codex v0.153.4 on apiary__join_room. None of the original
+    // APPROVAL_PATTERNS match this screen, so it was classified idle.
+    const lines = screen(`
+  Field 1/1
+  Allow the apiary MCP server to run tool "apiary__join_room"?
+
+  url: http://127.0.0.1:7890/?token=5c1dc48b
+
+  > 1. Allow                   Run the tool and continue.
+    2. Allow for this session  Run the tool and remember this choice for this
+                                session.
+    3. Always allow            Run the tool and remember this choice for
+                                future tool calls.
+    4. Cancel                  Cancel this tool call
+  enter to submit | esc to cancel
+`);
+    expect(detectCodexStateFromLines(lines)).toBe("approval");
+  });
+
+  test("normal conversation containing the word allow is still idle", () => {
+    const lines = screen(`
+  I'll allow the build to finish before running the tests.
+  Done — 320 tests passed.
+
+  > Ask Codex to do anything
+`);
+    expect(detectCodexStateFromLines(lines)).toBe("idle");
+  });
 });

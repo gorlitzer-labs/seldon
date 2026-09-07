@@ -150,6 +150,31 @@ function formatJoinResponse(result: JoinRoomResult): string {
   return lines.join("\n");
 }
 
+/**
+ * Every tool the runtime MCP server registers.
+ *
+ * Exported so launchers can name apiary's own tools to the agent CLI — Codex
+ * only auto-approves per tool, not per server, so an agent spawned to sit in a
+ * room needs each of these named or it blocks on a keypress nobody will press.
+ * `runtime-tool-names.test.ts` fails if this drifts from what is registered.
+ */
+export const RUNTIME_TOOL_NAMES = [
+  "apiary__catch_up",
+  "apiary__search_by_text",
+  "apiary__search_by_message",
+  "apiary__send_message",
+  "apiary__set_mode",
+  "apiary__join_room",
+  "apiary__leave_room",
+  "apiary__ping",
+  "apiary__admin__set_mode_for",
+  "apiary__admin__mute",
+  "apiary__admin__unmute",
+  "apiary__admin__kick",
+  "apiary__admin__promote",
+  "apiary__admin__demote",
+] as const;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
   const { resolver, toolOptions } = opts;

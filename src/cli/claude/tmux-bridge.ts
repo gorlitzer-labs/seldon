@@ -54,6 +54,14 @@ const PERMISSION_PATTERNS = [
   "Yes / No",
 ];
 
+export interface DeliverOptions {
+  /**
+   * Drop this text if an identical copy is already queued. For callers that
+   * retry a delivery they cannot observe landing (the room invite loop).
+   */
+  dedupe?: boolean;
+}
+
 export interface TmuxBridgeOptions {
   /** How often to poll when events are queued (ms). Default: 200 */
   pollIntervalMs?: number;
@@ -81,11 +89,11 @@ export class TmuxBridge {
    * Delivery callback — drop-in replacement for the raw tmuxDeliver lambda.
    * Pass `bridge.deliver.bind(bridge)` to EventProcessor.run().
    */
-  async deliver(parts: ContentPart[]): Promise<void> {
+  async deliver(parts: ContentPart[], opts?: DeliverOptions): Promise<void> {
     const text = contentPartsToString(parts);
     if (!text.trim()) return;
 
-    this.inject(text);
+    this.inject(text, opts?.dedupe === true);
   }
 
   /**
@@ -119,7 +127,7 @@ export class TmuxBridge {
    * `send-keys -l`, Claude Code detects it as a paste and collapses it into
    * "[Pasted text #1 +N lines]" which may not reliably submit with Enter.
    */
-  private inject(text: string): void {
+  private inject(text: string, dedupe: boolean): void {
     const flat = text.replace(/\n/g, " ");
     const state = this.detectState();
 
@@ -132,7 +140,7 @@ export class TmuxBridge {
         break;
       default:
         // dialog, permission, streaming, unknown — queue it
-        this.enqueue(flat);
+        this.enqueue(flat, dedupe);
         break;
     }
   }
@@ -178,7 +186,10 @@ export class TmuxBridge {
   }
 
   /** Add to queue and start polling if not already. */
-  private enqueue(text: string): void {
+  private enqueue(text: string, dedupe: boolean): void {
+    // Off by default — room events must never be collapsed. Only callers that
+    // retry a delivery they cannot observe landing (the invite loop) opt in.
+    if (dedupe && this.queue.includes(text)) return;
     this.queue.push(text);
     this.startPolling();
   }

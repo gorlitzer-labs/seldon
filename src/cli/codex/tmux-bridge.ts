@@ -8,6 +8,7 @@
  *   typing     → Ctrl+U (cut), bracketed paste + Enter, Ctrl+Y (restore)
  *   approval   → queue and poll
  *   streaming  → queue and poll
+ *   blocked    → queue and poll (sign-in / onboarding — no composer exists yet)
  *   unknown    → queue and poll (safe default)
  *
  * Uses bracketed paste escape sequences to bypass Codex's timing-based
@@ -30,17 +31,41 @@ export type CodexTuiState =
   | "typing"
   | "approval"
   | "streaming"
+  | "blocked"
   | "unknown";
 
 // Braille spinner characters used by Codex during streaming
 const SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
-// Patterns that indicate an approval overlay
-const APPROVAL_PATTERNS = [
+// Patterns that indicate an approval overlay.
+// Codex has shipped several approval UIs; match all of them, since injecting
+// into an approval menu answers a question the agent never saw.
+const APPROVAL_PATTERNS: Array<string | RegExp> = [
   "Would you like to",
   "needs your approval",
   "Press Enter to confirm or Esc to cancel",
   "Do you want to approve",
+  // v0.15x MCP tool approval: "Allow the apiary MCP server to run tool "x"?"
+  /Allow the .+ MCP server to run tool/,
+  "Allow for this session",
+  "enter to submit | esc to cancel",
+];
+
+// Patterns that indicate Codex has not reached a composer at all — the
+// sign-in flow, the onboarding wizard, or a directory-trust prompt. There is
+// no prompt to paste into, so anything injected here is typed into a menu and
+// lost. Queue instead, and the text lands once the human clears the screen.
+const BLOCKED_PATTERNS: Array<string | RegExp> = [
+  // Not a bare "Welcome to Codex" — the ordinary ready banner opens
+  // "Welcome to Codex! Type a message to get started."
+  /Welcome to Codex, /,
+  "Finish signing in via your browser",
+  "Sign in with ChatGPT",
+  "Sign in with Device Code",
+  "Provide your own API key",
+  "Sign in to continue",
+  /You are running Codex in .+ Do you want to allow/,
+  "Do you trust the files in this folder",
 ];
 
 // Patterns that indicate the agent is actively working
@@ -49,6 +74,14 @@ const STREAMING_PATTERNS = [
   /Working\s*$/,                  // "Working" at end of line (just started)
   /esc to interrupt/,             // hint text during streaming
 ];
+
+export interface DeliverOptions {
+  /**
+   * Drop this text if an identical copy is already queued. For callers that
+   * retry a delivery they cannot observe landing (the room invite loop).
+   */
+  dedupe?: boolean;
+}
 
 export interface CodexTmuxBridgeOptions {
   /** How often to poll when events are queued (ms). Default: 200 */
@@ -79,11 +112,11 @@ export class CodexTmuxBridge {
    * Delivery callback — drop-in replacement for EventProcessor's deliver.
    * Pass `bridge.deliver.bind(bridge)` to EventProcessor.run().
    */
-  async deliver(parts: ContentPart[]): Promise<void> {
+  async deliver(parts: ContentPart[], opts?: DeliverOptions): Promise<void> {
     const text = contentPartsToString(parts);
     if (!text.trim()) return;
 
-    this.inject(text);
+    this.inject(text, opts?.dedupe === true);
   }
 
   /**
@@ -98,7 +131,7 @@ export class CodexTmuxBridge {
    * Try to inject text, choosing strategy based on TUI state.
    * Text is flattened to a single line to avoid multi-line paste issues.
    */
-  private inject(text: string): void {
+  private inject(text: string, dedupe: boolean): void {
     const flat = text.replace(/\n/g, " ");
     const state = this.detectState();
 
@@ -110,8 +143,8 @@ export class CodexTmuxBridge {
         this.injectWhileTyping(flat);
         break;
       default:
-        // approval, streaming, unknown — queue it
-        this.enqueue(flat);
+        // approval, streaming, blocked, unknown — queue it
+        this.enqueue(flat, dedupe);
         break;
     }
   }
@@ -160,8 +193,19 @@ export class CodexTmuxBridge {
     tmuxSendKey(this.session, "C-y");
   }
 
-  /** Add to queue and start polling if not already. */
-  private enqueue(text: string): void {
+  /**
+   * Add to queue and start polling if not already.
+   *
+   * With `dedupe`, identical pending text is dropped: a caller that retries a
+   * delivery it never saw land (the invite loop) would otherwise stack up N
+   * copies of the same prompt, all flushing at once when the TUI frees up.
+   *
+   * Off by default, and deliberately so — room events must never be collapsed.
+   * Two formatted events carry distinct `#ref`s so they should differ anyway,
+   * but "should" is not a guarantee worth silently dropping a message on.
+   */
+  private enqueue(text: string, dedupe: boolean): void {
+    if (dedupe && this.queue.includes(text)) return;
     this.queue.push(text);
     this.startPolling();
   }
@@ -236,6 +280,13 @@ export class CodexTmuxBridge {
  *
  * Detection priority: approval > streaming > idle/typing > unknown
  */
+function matchesAny(text: string, patterns: Array<string | RegExp>): boolean {
+  for (const pattern of patterns) {
+    if (typeof pattern === "string" ? text.includes(pattern) : pattern.test(text)) return true;
+  }
+  return false;
+}
+
 export function detectCodexStateFromLines(lines: string[]): CodexTuiState {
   if (lines.length === 0) return "unknown";
 
@@ -243,12 +294,15 @@ export function detectCodexStateFromLines(lines: string[]): CodexTuiState {
   const tail = lines.slice(-20);
   const tailText = tail.join("\n");
 
-  // 1. Approval overlay — highest priority
-  for (const pattern of APPROVAL_PATTERNS) {
-    if (tailText.includes(pattern)) return "approval";
-  }
+  // 1. Not-yet-usable screens — highest priority. A login or onboarding
+  //    screen has no composer, so "no approval, no spinner ⇒ idle" would
+  //    otherwise paste straight into a menu.
+  if (matchesAny(tailText, BLOCKED_PATTERNS)) return "blocked";
 
-  // 2. Streaming — agent is working
+  // 2. Approval overlay
+  if (matchesAny(tailText, APPROVAL_PATTERNS)) return "approval";
+
+  // 3. Streaming — agent is working
   for (const pattern of STREAMING_PATTERNS) {
     if (pattern.test(tailText)) return "streaming";
   }
@@ -259,7 +313,7 @@ export function detectCodexStateFromLines(lines: string[]): CodexTuiState {
     if (lastFew.includes(ch)) return "streaming";
   }
 
-  // 3. Idle/Typing — look for the composer input area at the bottom.
+  // 4. Idle/Typing — look for the composer input area at the bottom.
   //    Codex renders the composer as the last interactive element.
   //    When idle, the bottom lines contain just the placeholder or empty input.
   //    When typing, the bottom lines contain user-entered text.

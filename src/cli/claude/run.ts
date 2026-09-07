@@ -26,7 +26,7 @@ import { TmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
 import { contentPartsToString } from "../../agent/prompts.js";
 import { agentEmoji } from "../config.js";
-import { consumeInvite } from "../invites.js";
+import { deliverInvite, sameApiaryServer } from "../invites.js";
 import { readAgentMetrics } from "./jsonl-stats.js";
 
 export { type AgentRuntimeOptions as RunClaudeOptions };
@@ -338,16 +338,30 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     }
   }
 
-  // ── Consume queued invite (auto-join) ─────────────────────────────────
+  // ── Deliver queued invite (auto-join) ─────────────────────────────────
   // If the wizard background-spawned this agent, ~/.apiary/invites/<name>
-  // holds the room's join URL. Inject a prompt asking the agent to join.
-  const inviteUrl = consumeInvite(setup.agentName);
-  if (inviteUrl) {
-    await bridge.deliver([{
-      type: "text",
-      text: `Please join the apiary room you were invited to by calling the join_room tool with this URL: ${inviteUrl}`,
-    }]);
-  }
+  // holds the room's join URL. deliverInvite keeps asking until the agent is
+  // really in the room, and only then deletes the file — a CLI still sitting
+  // on a trust or onboarding prompt gets another go once it reaches a prompt,
+  // instead of losing the URL to a menu that swallowed it.
+  const inviteAbort = new AbortController();
+  const invitePromise = deliverInvite({
+    agentName: setup.agentName,
+    deliver: (parts) => bridge.deliver(parts, { dedupe: true }),
+    hasJoined: (url) => setup.joinResults.some((jr) => sameApiaryServer(jr.serverUrl, url)),
+    signal: inviteAbort.signal,
+  }).then((outcome) => {
+    // Don't let a failed auto-join be silent — that is exactly how an agent
+    // ends up sitting outside the room it was spawned for. The invite is kept
+    // on disk, so `apiary room resume <room>` will hand it over again.
+    if (outcome === "abandoned" && !options.background) {
+      console.log(
+        `Note: "${setup.agentName}" did not join the room it was invited to. ` +
+        `The invite is still queued — check the pane, then re-run or use "apiary room resume".`,
+      );
+    }
+    return outcome;
+  }).catch(() => "cancelled" as const);
 
   // ── Save session state for resume ──────────────────────────────────────
 
@@ -370,6 +384,8 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
       process.on("SIGINT", resolve);
     });
     clearInterval(activityTimer); clearInterval(metricsTimer);
+    inviteAbort.abort();
+    await invitePromise;
     bridge.stop();
     await setup.cleanup();
     if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
@@ -410,6 +426,8 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   // ── Full cleanup (session ended or process killed) ─────────────────────
 
   clearInterval(activityTimer); clearInterval(metricsTimer);
+  inviteAbort.abort();
+  await invitePromise;
   bridge.stop();
   await setup.cleanup();
   if (tmuxSessionExists(tmuxSession)) tmuxKillSession(tmuxSession);
