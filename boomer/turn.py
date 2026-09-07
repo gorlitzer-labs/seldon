@@ -21,23 +21,44 @@ from .protocol import Metrics, State
 Emit = Callable[[dict], None]
 EmitAudio = Callable[[np.ndarray], None]
 
-_BOUNDARY = re.compile(r"[.!?,;:]")
+# A sentence ender is always a safe place to break: Kokoro renders each chunk
+# with a terminal contour, which is correct there and wrong anywhere else.
+_SENTENCE = re.compile(r"[.!?]")
+# A comma is only used when a sentence runs long enough that waiting for its end
+# would delay first audio more than a slightly odd break costs. Whether Kokoro
+# gives a trailing comma a continuation contour is untested by ear, so this is
+# deliberately the fallback and not the default.
+_CLAUSE = re.compile(r"[,;:]")
 
 
 class ClauseBuffer:
     """Accumulates streamed tokens and releases speakable chunks.
 
-    The first chunk is deliberately released early and short -- Kokoro
-    synthesizes a whole chunk before emitting any audio, so the opener sets the
-    time-to-first-word. Later chunks are allowed to be longer because they are
-    synthesized while earlier audio is still playing.
+    Chunks are released ONLY at punctuation. An earlier version also cut at a
+    word count to get first audio out sooner, and that was the wrong trade:
+    Kokoro synthesizes every chunk as a complete utterance with a falling
+    terminal contour, so "I am here when you need me." was cut into
+
+        "I am here when you"   +   "need me."
+
+    and spoken as two finished sentences with an audible hole between them.
+    Franko heard it as "I am here when you ....... need me". No amount of
+    scheduling fixes that -- the pause is in the prosody, not the timing.
+
+    So a clause boundary is a punctuation mark, full stop. The cost is that
+    first audio waits for the first real clause (~395 ms rather than ~330 ms on
+    a short one), which is a price worth paying for not sounding broken.
     """
 
-    def __init__(self, opener_words: int = 5, later_words: int = 14) -> None:
+    # Only a runaway sentence with no punctuation at all should ever be cut on
+    # length, and then at a word boundary as a last resort.
+    RUNAWAY_WORDS = 30       # no punctuation at all: cut as a last resort
+    LONG_SENTENCE = 12       # past this, a comma beats waiting
+    MIN_WORDS = 3
+
+    def __init__(self, min_words: int = MIN_WORDS) -> None:
         self.buf = ""
-        self.first_done = False
-        self.opener_words = opener_words
-        self.later_words = later_words
+        self.min_words = min_words
 
     def push(self, text: str) -> list[str]:
         self.buf += text
@@ -50,28 +71,32 @@ class ClauseBuffer:
         return out
 
     def _take(self) -> str | None:
-        limit = self.later_words if self.first_done else self.opener_words
         words = self.buf.split()
         if not words:
             return None
-        m = list(_BOUNDARY.finditer(self.buf))
-        # Release at a punctuation boundary once we have a couple of words...
-        if m and len(self.buf[:m[0].end()].split()) >= 2:
-            cut = m[0].end()
-        # ...or when the buffer has grown past the word limit, at a space.
-        elif len(words) > limit:
-            cut = len(" ".join(words[:limit])) + 1
-        else:
-            return None
-        chunk, self.buf = self.buf[:cut].strip(), self.buf[cut:]
-        if not chunk:
-            return None
-        self.first_done = True
-        return chunk
+        # Sentence enders first, always.
+        for m in _SENTENCE.finditer(self.buf):
+            cut = m.end()
+            # A boundary only counts once there is enough before it to be worth
+            # speaking; "I." is not a clause.
+            if len(self.buf[:cut].split()) >= self.min_words:
+                return self._cut(cut)
+        # Only once the sentence is long does a comma become the better break.
+        if len(words) > self.LONG_SENTENCE:
+            for m in _CLAUSE.finditer(self.buf):
+                cut = m.end()
+                if len(self.buf[:cut].split()) >= self.min_words:
+                    return self._cut(cut)
+        if len(words) > self.RUNAWAY_WORDS:
+            return self._cut(len(" ".join(words[:self.RUNAWAY_WORDS])) + 1)
+        return None
+
+    def _cut(self, at: int) -> str | None:
+        chunk, self.buf = self.buf[:at].strip(), self.buf[at:]
+        return chunk or None
 
     def flush(self) -> str | None:
         chunk, self.buf = self.buf.strip(), ""
-        self.first_done = True
         return chunk or None
 
 
