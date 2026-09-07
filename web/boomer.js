@@ -64,12 +64,19 @@ function addMessage(who, text, cls, color) {
   p.querySelector('.txt').textContent = text;
   log.appendChild(p);
   while (log.children.length > LOG_MAX) log.firstChild.remove();
-  // Next frame: scrollHeight is stale until the new block has been laid out,
-  // so scrolling in this frame lands short and clips the newest message.
-  requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+  // Next frame: scrollHeight is stale until the new block has been laid out.
+  requestAnimationFrame(() => stickBottom());
   return p;
 }
 const LOG_MAX = 8;
+
+/** Keep the newest message visible, and only fade the top when there IS a top. */
+function stickBottom() {
+  const log = el('log');
+  log.scrollTop = log.scrollHeight;
+  if (log.scrollHeight > log.clientHeight + 1) log.dataset.over = '1';
+  else delete log.dataset.over;
+}
 
 // --- state ----------------------------------------------------------------
 const ACCENT = {
@@ -245,8 +252,7 @@ function onMessage(ev) {
       } else {
         const t = pending.querySelector('.txt');
         t.textContent += (t.textContent ? ' ' : '') + m.text;
-        const lg = el('log');
-        requestAnimationFrame(() => { lg.scrollTop = lg.scrollHeight; });
+        requestAnimationFrame(() => stickBottom());
       }
       break;
 
