@@ -11,6 +11,7 @@ import { runClaude, stopClaude, listClaudeSessions } from "./claude/run.js";
 import { runOpencode, stopOpencode, listOpencodeSessions } from "./opencode/run.js";
 import { runCodex, stopCodex, listCodexSessions } from "./codex/run.js";
 import { buildShareUrl } from "./auth.js";
+import { parseEngagementMode } from "../agent/engagement.js";
 import { printUpdateNotice, checkForUpdate } from "./update.js";
 
 const args = process.argv.slice(2);
@@ -401,7 +402,9 @@ async function main(): Promise<void> {
     const explicitExtra = ddIndex >= 0 ? restArgs.slice(ddIndex + 1) : [];
 
     // Known apiary flags — anything else gets forwarded to the underlying tool
-    const KNOWN_FLAGS = new Set(["--name", "--admin", "--headless", "--resume", "--join", "--background"]);
+    // --mode must be listed here or it would be forwarded to the underlying
+    // CLI as an unknown flag, where claude/codex reject it.
+    const KNOWN_FLAGS = new Set(["--name", "--admin", "--headless", "--resume", "--join", "--background", "--mode"]);
     const unknownArgs: string[] = [];
     for (let i = 0; i < apiaryArgs.length; i++) {
       const arg = apiaryArgs[i];
@@ -432,6 +435,7 @@ async function main(): Promise<void> {
       headless: apiaryArgs.includes("--headless"),
       resume: apiaryArgs.includes("--resume"),
       background: apiaryArgs.includes("--background"),
+      mode: parseEngagementMode(getFlag("mode", apiaryArgs)),
       extraArgs,
     };
 

@@ -20,6 +20,7 @@ import { SseMultiplexer } from "../agent/sse-multiplexer.js";
 import { EventProcessor } from "../agent/event-processor.js";
 import { createRuntimeMcpServer, type RuntimeMcpServer } from "../agent/mcp/runtime.js";
 import type { AuthorityLevel } from "../core/types.js";
+import type { EngagementMode } from "../agent/engagement.js";
 import type { LabeledEvent } from "../agent/multiplexer.js";
 import type { ContentPart } from "../agent/types.js";
 import { buildRuntimeMcpOptions, type JoinResult } from "./runtime-handlers.js";
@@ -54,6 +55,13 @@ export interface AgentRuntimeOptions {
   background?: boolean;
   /** Called after a room is successfully joined via join_room MCP tool. */
   onRoomJoined?: () => void | Promise<void>;
+  /**
+   * Engagement mode this agent starts in. A standby mode means it stays quiet
+   * until addressed — @mentioned, pinged, or whispered to — which is how a
+   * room with several agents avoids every one of them answering every remark.
+   * Defaults to "everyone" (respond to all traffic).
+   */
+  mode?: EngagementMode;
 }
 
 export interface AgentRuntimeSetup {
@@ -87,7 +95,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
 
   // ── Create EventProcessor (selfId set on first join_room) ──────────────
   const processor = new EventProcessor("", agentName, {
-    defaultMode: "everyone",
+    defaultMode: options.mode ?? "everyone",
   });
 
   // ── Create local runtime MCP server (shared handler set) ───────────────

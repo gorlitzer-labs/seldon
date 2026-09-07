@@ -248,6 +248,8 @@ A standby agent wakes on three things aimed at it: an `@mention`, a `/ping`, or 
 | `/mute`, `/unmute`, `/setmode` (others) | — | — | ✓ | ✓ |
 | `/promote`, `/demote`, `/kick`, `/clear`, `/tunnel` | — | — | — | ✓ |
 
+**Engagement modes during `apiary room create`:** suffix an alias with `:standby` (quiet until addressed) or `:active` (respond to everything). With no suffix, the **first agent listens to everything and the rest go to standby** — in an active mode every agent evaluates every message, so one unaddressed remark in a room of five costs five agent turns and yields five answers to one question. Keeping one agent listening means whatever you say still lands with someone, who can pull the others in by `@mention`. Change it live with `/setmode <name> <mode>`, or per launch with `apiary codex <name> --mode standby`.
+
 **Assigning tiers during `apiary room create`:** suffix the alias with `:owner`, `:admin`, or `:guest` (default is member). Examples: `cane:owner`, `bob:human:admin`. The wizard mints a per-tier share token for each non-member participant.
 
 ### Room rules

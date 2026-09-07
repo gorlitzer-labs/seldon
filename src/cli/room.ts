@@ -19,6 +19,7 @@ import { agentEmoji, roomEmoji } from "./config.js";
 import { askRepoPath, askRuntime, shortenPath } from "./repoPicker.js";
 import { foundationInit } from "./foundation.js";
 import type { AuthorityLevel } from "../core/types.js";
+import type { EngagementMode } from "../agent/engagement.js";
 import { roomRulesPath } from "../core/rules.js";
 import {
   listRoomSessions, saveRoomSession, removeRoomSession, INVITES_DIR,
@@ -44,6 +45,7 @@ interface Prompter {
 // modifies one independent axis:
 //   - type:  `human` (default `agent`)
 //   - tier:  `owner` (= product_owner), `admin`, `guest` (default `member`)
+//   - mode:  `standby` (= standby-everyone), or any engagement mode verbatim
 //   - role:  any unrecognized token is preserved as a cosmetic role label.
 //
 // Examples:
@@ -54,6 +56,7 @@ interface Prompter {
 //   `cane:owner:human`  → human / product_owner (order doesn't matter)
 //   `bf:opus`           → agent / member, claude --model opus
 //   `anvil:sonnet:owner`→ agent / product_owner, claude --model sonnet
+//   `cane:standby`      → agent / member, only wakes when addressed
 //
 // Model tokens: short aliases (opus, sonnet, haiku) map to the latest of each
 // family — claude resolves them. Full model ids also pass through verbatim.
@@ -68,6 +71,18 @@ const TIER_TOKENS: Record<string, AuthorityLevel> = {
 const TYPE_TOKENS: Record<string, "agent" | "human"> = {
   agent: "agent",
   human: "human",
+};
+// Engagement mode. `standby` is the shorthand people actually want: quiet
+// until addressed, by anyone. The full mode names pass through verbatim.
+const MODE_TOKENS: Record<string, EngagementMode> = {
+  standby: "standby-everyone",
+  "standby-everyone": "standby-everyone",
+  "standby-people": "standby-people",
+  "standby-agents": "standby-agents",
+  active: "everyone",
+  everyone: "everyone",
+  people: "people",
+  agents: "agents",
 };
 const MODEL_TOKENS = new Set([
   "opus", "sonnet", "haiku",
@@ -86,6 +101,7 @@ export function parseAliasSpec(input: string): {
   tier: AuthorityLevel;
   role: string;
   model?: string;
+  mode?: EngagementMode;
 } | null {
   const parts = input.split(":").map((p) => p.trim()).filter(Boolean);
   if (parts.length === 0) return null;
@@ -94,6 +110,7 @@ export function parseAliasSpec(input: string): {
   let tier: AuthorityLevel = "member";
   let role = "agent";
   let model: string | undefined;
+  let mode: EngagementMode | undefined;
   for (const tok of parts.slice(1)) {
     const lc = tok.toLowerCase();
     if (TYPE_TOKENS[lc]) {
@@ -101,13 +118,54 @@ export function parseAliasSpec(input: string): {
       role = type;
     } else if (TIER_TOKENS[lc]) {
       tier = TIER_TOKENS[lc];
+    } else if (MODE_TOKENS[lc]) {
+      mode = MODE_TOKENS[lc];
     } else if (isModelToken(tok)) {
       model = lc;
     } else {
       role = lc;
     }
   }
-  return { alias, type, tier, role, model };
+  return { alias, type, tier, role, model, mode };
+}
+
+/**
+ * Keep the first agent listening, quiet the rest.
+ *
+ * In an active mode every agent evaluates every message, so an unaddressed
+ * remark in a room of five costs five agent turns and yields five answers to
+ * one question. Standby is the fix, but making it the blanket default means a
+ * room that ignores you until you remember to @mention somebody.
+ *
+ * So exactly one agent stays active: whatever you say lands with someone who
+ * can answer, or pull in the others by @mentioning them. The rest wake only
+ * when addressed — @mentioned, pinged, or whispered to.
+ *
+ * An explicit `:standby` / `:active` suffix always wins; this only fills in
+ * agents that said nothing. Solo-agent rooms are untouched (that one agent is
+ * the first), and humans are never assigned a mode.
+ *
+ * Exported for tests.
+ */
+export function applyDefaultModes(
+  participants: Array<{ role: string; mode?: EngagementMode }>,
+): void {
+  let seenActiveAgent = false;
+  for (const p of participants) {
+    if (p.role !== "agent") continue;
+    if (p.mode !== undefined) {
+      // An explicit active mode counts as the listener, so we don't then
+      // promote a second agent and end up with two.
+      if (!p.mode.startsWith("standby-")) seenActiveAgent = true;
+      continue;
+    }
+    if (!seenActiveAgent) {
+      p.mode = "everyone";
+      seenActiveAgent = true;
+    } else {
+      p.mode = "standby-everyone";
+    }
+  }
 }
 
 function makePrompt(): Prompter {
@@ -363,6 +421,7 @@ function spawnAgentBackground(
   runtime: string,
   tier: AuthorityLevel = "member",
   model?: string,
+  mode?: string,
 ): boolean {
   const resolvedCwd = cwd.replace(/^~/, homedir());
   if (!existsSync(resolvedCwd)) return false;
@@ -373,6 +432,7 @@ function spawnAgentBackground(
   const args = [process.argv[1], runtime, alias, "--background"];
   if (tier === "admin" || tier === "product_owner") args.push("--admin");
   if (model) args.push("--model", model);
+  if (mode) args.push("--mode", mode);
   try {
     const child = spawn(process.execPath, args, {
       detached: true,
@@ -487,6 +547,7 @@ export async function roomCreate(opts: {
     runtime?: string;
     tier: AuthorityLevel;
     model?: string;
+    mode?: EngagementMode;
   }> = [];
   const G = "\x1b[32m";
   const M = "\x1b[35m";
@@ -497,7 +558,7 @@ export async function roomCreate(opts: {
     const n = participants.length + 1;
     console.log(`\n  🐝 ${M}${B}Participant ${n}${R}`);
     const aliasInput = await ask(
-      `     ${C}→${R} Alias ${D}(blank ↵ to finish · suffix :human, :owner, :admin, :guest)${R}: `,
+      `     ${C}→${R} Alias ${D}(blank ↵ to finish · suffix :human, :owner, :admin, :guest, :standby)${R}: `,
     );
     if (!aliasInput) {
       const count = participants.length;
@@ -509,23 +570,26 @@ export async function roomCreate(opts: {
     }
     const spec = parseAliasSpec(aliasInput);
     if (!spec) continue;
-    const { alias, role, tier, model } = spec;
+    const { alias, role, tier, model, mode } = spec;
     const cwd = await askRepoPath({ alias, defaultPath: process.cwd(), ask });
     const runtime = role === "agent"
       ? await askRuntime({ alias, available: availableRuntimes, ask })
       : undefined;
-    participants.push({ alias, cwd, role, runtime, tier, model });
+    participants.push({ alias, cwd, role, runtime, tier, model, mode });
     const bug = role === "agent" ? agentEmoji(alias) : role === "human" ? "👤" : "✎";
     const runtimeBadge = runtime ? ` · ${C}${runtime}${R}` : "";
     const modelBadge = model ? `  ${Y}[${model}]${R}` : "";
     const tierBadge = tier !== "member" ? `  ${Y}[${tier === "product_owner" ? "owner" : tier}]${R}` : "";
+    const modeBadge = mode ? `  ${Y}[${mode}]${R}` : "";
     console.log(
-      `  ${G}✅${R} ${bug} ${B}${alias}${R}${tierBadge}${modelBadge}  ${D}${role}${R}${runtimeBadge}  ${D}${shortenPath(cwd)}${R}`,
+      `  ${G}✅${R} ${bug} ${B}${alias}${R}${tierBadge}${modelBadge}${modeBadge}  ${D}${role}${R}${runtimeBadge}  ${D}${shortenPath(cwd)}${R}`,
     );
     console.log(divider);
   }
 
   close();
+
+  applyDefaultModes(participants);
 
   // ── Foundation: bootstrap the project workflow into each repo (always follows) ──
   if (opts.foundation !== false) {
@@ -605,11 +669,22 @@ export async function roomCreate(opts: {
       const joinUrl = tieredJoinUrls[p.tier] ?? memberJoinUrl;
       printInvite(p.alias, joinUrl, sameHost);
       if (sameHost && canSpawn && p.runtime) {
-        const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model);
+        const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model, p.mode);
         if (ok) {
-          console.log(`    ${D}→ spawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}`);
+          const modeNote = p.mode?.startsWith("standby-")
+            ? ` ${D}·${R} ${Y}standby${R} ${D}(wakes on @mention, /ping or a whisper)${R}`
+            : p.mode ? ` ${D}· listening to everything${R}` : "";
+          console.log(`    ${D}→ spawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}${modeNote}`);
         }
       }
+    }
+    // A room that answers only when addressed is surprising if nobody said so.
+    if (participants.some((p) => p.role === "agent" && p.mode?.startsWith("standby-"))) {
+      console.log(
+        `\n  ${D}Only the first agent listens to everything — the rest wake when addressed,${R}` +
+        `\n  ${D}so one remark costs one agent turn instead of all of them.${R}` +
+        `\n  ${D}Change any of it live with ${R}${C}/setmode <name> <mode>${R}${D}, or up front with ${R}${C}alias:standby${R}${D} / ${R}${C}alias:active${R}${D}.${R}`,
+      );
     }
     console.log("");
   } else {
@@ -738,7 +813,7 @@ export async function roomResume(name: string): Promise<void> {
         const sameHost = allLocal || isLocalPath(p.cwd);
         printInvite(p.alias, memberJoinUrl, sameHost);
         if (sameHost && tmuxAvailable() && p.runtime && !tmuxSessionExists(`apiary_${p.alias}`)) {
-          const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model);
+          const ok = spawnAgentBackground(p.alias, p.cwd, p.runtime, p.tier, p.model, p.mode);
           if (ok) {
             console.log(`    ${D}→ respawned ${p.runtime} session (tmux attach -t apiary_${p.alias})${R}`);
           }

@@ -108,6 +108,14 @@ export interface PersistedRoomSession {
      * grammar (e.g. `bf:opus`, `anvil:sonnet`). Undefined = runtime default.
      */
     model?: string;
+    /**
+     * Engagement mode the runtime starts in. Set by alias-suffix grammar
+     * (e.g. `cane:standby`), or by the wizard's default of keeping the first
+     * agent listening and the rest quiet. Undefined = runtime default
+     * ("everyone"). Persisted so `room resume` respawns agents as configured
+     * rather than reverting them all to active.
+     */
+    mode?: string;
   }>;
 }
 

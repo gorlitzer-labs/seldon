@@ -124,6 +124,27 @@ export type EngagementMode =
   | "people" | "agents" | "everyone" | "fight"
   | "standby-people" | "standby-agents" | "standby-everyone";
 
+/** Every mode the CLI accepts, for validation and help text. */
+export const ENGAGEMENT_MODE_NAMES: readonly EngagementMode[] = [
+  "everyone", "people", "agents", "fight",
+  "standby-everyone", "standby-people", "standby-agents",
+];
+
+/**
+ * Validate a mode coming off the command line.
+ *
+ * Returns undefined for absent OR unrecognised input, so a typo falls back to
+ * the default rather than starting an agent in a mode nobody chose.
+ */
+export function parseEngagementMode(value: string | undefined): EngagementMode | undefined {
+  if (!value) return undefined;
+  const lc = value.trim().toLowerCase();
+  if (lc === "standby") return "standby-everyone";
+  return (ENGAGEMENT_MODE_NAMES as readonly string[]).includes(lc)
+    ? (lc as EngagementMode)
+    : undefined;
+}
+
 // ── Core classification logic (shared) ────────────────────────────────────────
 
 function senderMatches(
