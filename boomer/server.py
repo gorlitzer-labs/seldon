@@ -95,6 +95,23 @@ class Session:
                         secondsLeft=None if left == float("inf") else round(left),
                         reason=reason))
 
+    async def speak_now(self, line: str) -> None:
+        """Say one line unprompted. No LLM: the text is already written."""
+        if self.busy:
+            return
+        self.busy = True
+        loop = asyncio.get_running_loop()
+        try:
+            self.emit(P.msg("announce", id="", kind="timer", hive="", text=line))
+            self.emit(P.state(State.SPEAKING))
+            await loop.run_in_executor(worker, self._say, line)
+        except Exception as e:
+            self.emit(P.error("speak", f"{type(e).__name__}: {e}"))
+        finally:
+            self.emit(P.state(State.IDLE))
+            self.busy = False
+            self.ep.reset()
+
     async def announce(self, item: Item) -> None:
         """Speak a factory escalation. TTS only -- no LLM, no transcript.
 
@@ -276,8 +293,20 @@ async def watch_factory(session: "Session") -> None:
     """
     watcher = Watcher()
     watcher.prime()
+    from .skills.timers import due_now
     while True:
         try:
+            # A due reminder is the same shape as an agent escalation: something
+            # happened, she says so unprompted, and the window opens so the
+            # reply needs no wake word.
+            for t in due_now():
+                while session.busy:
+                    await asyncio.sleep(0.4)
+                session.attention.state = Attn.OPEN
+                session.attention._extend()
+                session.emit_attention("timer")
+                await session.speak_now(
+                    f"Time is up{', ' + t.label if t.label else ''}.")
             for item in watcher.poll():
                 if item.urgency is Urgency.NOW:
                     while session.busy:            # never talk over a turn

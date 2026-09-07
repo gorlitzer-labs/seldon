@@ -51,3 +51,5 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P2) Cut TTS first-audio by pre-synthesizing a small fixed set of openers (One moment / Right / Noted) and caching the AUDIO, since cost tracks spoken duration at RTF 0.23 and not text novelty. Would take the opener from ~395 ms to near zero while the real reply streams behind it.
 - [ ] (P3) Log anchoring differs by breakpoint on purpose: mobile top-anchors so the conversation starts under the core, desktop bottom-anchors so the newest line sits by the rail. Revisit if it ever reads as inconsistent.
 - [ ] (P2) try a shorter opening phrase
+- [ ] (P2) MCP client as a skill: one integration turns every MCP server into a capability (apiary already exposes one, and playwright plus agent-coord are configured). Needed before search, calendar or mail can arrive without hardcoding each.
+- [ ] (P1) Search and news are still absent by choice -- Franko chose to stay fully local for now. When revisited, decide the tier: self-hosted SearXNG (his infra) versus a provider API (hands queries out), and surface it per-capability in the UI the way the voice-check chip is.

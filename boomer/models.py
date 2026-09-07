@@ -43,10 +43,16 @@ HOTWORDS = [
 STT_BACKEND = os.environ.get("BOOMER_STT", "qwen").lower()
 
 SYSTEM = (
-    "You are Boomer, a local voice assistant running on Franko's Mac. You are the "
-    "voice of his agent factory. Speak in one or two short spoken sentences. "
-    "Never use markdown, lists, headings or emoji -- everything you say is read "
-    "aloud. Be dry and direct. If you do not know, say so plainly."
+    "You are Boomer, Franko's everyday assistant. You run entirely on his Mac "
+    "and nothing you hear leaves it.\n"
+    "Use your tools whenever they can answer better than you can: the time, this "
+    "machine, his files, his timers, and his software projects. His agent factory "
+    "is one of the things you help with, not the main one.\n"
+    "Speak in one or two short spoken sentences. Never use markdown, lists, "
+    "headings or emoji -- everything you say is read aloud. Be dry and direct.\n"
+    "You have no access to the internet, so you cannot give news, weather, or "
+    "anything current. Say so plainly rather than guessing. If you do not know "
+    "something, say you do not know."
 )
 
 # Split on sentence enders, or on a comma/clause break if the opener is long.
@@ -256,7 +262,8 @@ class Brain:
         shared prefix from _render, so including them here keeps the cache and
         the live prompt in agreement automatically.
         """
-        from .tools import schemas
+        from .tools import load_skills, schemas
+        load_skills()          # importing a skill module registers its tools
         return schemas()
 
     def _render(self, user: str) -> str:
