@@ -12,6 +12,7 @@ import { runOpencode, stopOpencode, listOpencodeSessions } from "./opencode/run.
 import { runCodex, stopCodex, listCodexSessions } from "./codex/run.js";
 import { buildShareUrl } from "./auth.js";
 import { parseEngagementMode } from "../agent/engagement.js";
+import { resolveBindAddress } from "./bind.js";
 import { printUpdateNotice, checkForUpdate } from "./update.js";
 
 const args = process.argv.slice(2);
@@ -158,6 +159,22 @@ function printExamples(): void {
   log("");
 }
 
+/**
+ * Resolve `--bind` for a command, exiting with an explanation if it cannot be
+ * satisfied. Returns undefined when the flag was not passed.
+ */
+function bindFlag(args: string[]): string | undefined {
+  const spec = getFlag("bind", args);
+  if (!spec) return undefined;
+  const res = resolveBindAddress(spec);
+  if (!res.ok) {
+    console.error(`Error: ${res.error}`);
+    process.exit(1);
+  }
+  if (res.note) console.log(`  Listening on ${res.address} — ${res.note}`);
+  return res.address;
+}
+
 async function main(): Promise<void> {
   // ── apiary examples ──────────────────────────────────────────────────
   if (args[0] === "examples") {
@@ -283,6 +300,7 @@ async function main(): Promise<void> {
         port,
         share: roomArgs.includes("--share"),
         expose: roomArgs.includes("--expose"),
+        bind: bindFlag(roomArgs),
         foundation: !roomArgs.includes("--no-foundation"),
       });
       return;
@@ -339,6 +357,7 @@ async function main(): Promise<void> {
         port,
         share: allRoomArgs.includes("--share"),
         expose: allRoomArgs.includes("--expose"),
+        bind: bindFlag(allRoomArgs),
       });
       if (!isDaemonResult(daemonRes)) {
         console.error(`Failed to start server: ${daemonRes.reason}`);
@@ -483,6 +502,7 @@ async function main(): Promise<void> {
       share: args.includes("--share"),
       headless: args.includes("--headless"),
       expose: args.includes("--expose"),
+      bind: bindFlag(args),
       corsOrigins: getAllFlags("cors-origin"),
       shareTtlMs,
     });
@@ -503,6 +523,7 @@ async function main(): Promise<void> {
       share: args.includes("--share"),
       quiet: true,
       expose: args.includes("--expose"),
+      bind: bindFlag(args),
       corsOrigins: getAllFlags("cors-origin"),
     });
 

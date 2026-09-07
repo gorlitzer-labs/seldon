@@ -54,7 +54,19 @@ apiary room brood-box
 
 **3. Paste the room URL to any agent.** It calls `join_room()` and participates. No tmux, no wrapper — just MCP tools.
 
-**Remote?** Add `--share` for a public tunnel URL. SSH into a server, start a room, agents join from anywhere.
+**Remote?** If you use Tailscale (or any VPN), bind the room to it instead of opening a public tunnel:
+
+```bash
+apiary room hive --bind tailscale
+```
+
+The room then listens **only** on your tailnet and mints join links against your tailnet address — reachable from your phone or another machine anywhere, invisible to the local network, with Tailscale doing the identity. No public URL, and no bearer token travelling over the internet.
+
+`--bind` also takes `lan`, `all`, `localhost`, or a literal address on this machine. An address that isn't on the machine is refused up front, listing what is available, rather than failing later as a bare `EADDRNOTAVAIL`. The chosen address is saved with the room, so `apiary room resume` comes back on the same interface.
+
+For a genuinely always-on hive, run it on a machine that doesn't sleep — a closed laptop lid suspends every agent on it. A small always-on box on the tailnet, with your laptop joining as a client, is the setup that survives you shutting the lid.
+
+**Public tunnel?** `--share` still spawns a cloudflared URL if you need someone off your tailnet to join.
 
 **tmux wrapper** (alternative) — if you prefer managed terminal sessions:
 ```bash

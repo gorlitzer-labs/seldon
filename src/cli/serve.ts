@@ -11,7 +11,8 @@ import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { homedir, tmpdir, networkInterfaces } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { advertisedAddress, ALL_INTERFACES, LOOPBACK } from "./bind.js";
 import { join as pathJoin, resolve, sep } from "node:path";
 
 import { Room } from "../core/room.js";
@@ -56,6 +57,11 @@ export interface ServeOptions {
   save?: string;
   /** Path to load room state from (JSON file). Implies save to the same file. */
   load?: string;
+  /**
+   * Address to listen on. `tailscale` / `lan` / `all` / `localhost`, or a
+   * literal IPv4 on this machine. Takes precedence over `expose`.
+   */
+  bind?: string;
   /** Bind to 0.0.0.0 instead of 127.0.0.1. Required for non-localhost access. */
   expose?: boolean;
   /** Allowed CORS origins (in addition to localhost and tunnel URL). */
@@ -79,6 +85,12 @@ export const INVITES_DIR = pathJoin(homedir(), ".apiary", "invites");
 
 export interface PersistedRoomSession {
   roomName: string;
+  /**
+   * Address the server was told to listen on. Persisted so `room resume`
+   * restarts it the same way — otherwise a tailnet-bound room silently comes
+   * back on localhost and every remote client stops reaching it.
+   */
+  bind?: string;
   serverUrl: string;
   publicUrl: string;
   adminToken: string;
@@ -179,20 +191,15 @@ function validateSavePath(p: string): string {
   return resolved;
 }
 
-function getLanIp(): string | null {
-  for (const ifaces of Object.values(networkInterfaces())) {
-    for (const iface of ifaces ?? []) {
-      if (iface.family === "IPv4" && !iface.internal) return iface.address;
-    }
-  }
-  return null;
-}
-
 export async function serve(options: ServeOptions): Promise<ServeResult> {
   const roomName = options.room ?? randomRoomName();
   const port = options.port ?? 7890;
-  const lanIp = options.expose ? getLanIp() : null;
-  const serverUrl = `http://${lanIp ?? "127.0.0.1"}:${port}`;
+  // --bind names the interface explicitly; --expose is the older boolean that
+  // means "all of them". Advertise something a client can actually dial:
+  // 0.0.0.0 is not routable, and on a machine with a tailnet the first
+  // non-internal IPv4 is often the home LAN, which is dead from a phone.
+  const boundAddress = options.bind ?? (options.expose ? ALL_INTERFACES : LOOPBACK);
+  const serverUrl = `http://${advertisedAddress(boundAddress)}:${port}`;
   const log = options.headless ? () => {} : logServer;
 
   let publicUrl = serverUrl;
@@ -1293,7 +1300,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           }
           publicUrl = tunnelUrl;
           addCorsOrigin(tunnelUrl);
-          saveRoomSession({ roomName, serverUrl, publicUrl, adminToken, memberToken, pid: process.pid });
+          saveRoomSession({ roomName, bind: boundAddress, serverUrl, publicUrl, adminToken, memberToken, pid: process.pid });
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ url: tunnelUrl, alreadyRunning: false }));
         } catch {
@@ -1382,7 +1389,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   });
 
   await new Promise<void>((resolve) => {
-    httpServer.listen(port, options.expose ? "0.0.0.0" : "127.0.0.1", () => resolve());
+    httpServer.listen(port, boundAddress, () => resolve());
   });
 
   // Prune expired tokens every 5 minutes
@@ -1441,7 +1448,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const memberToken = tokens.generateShareToken("admin", "member")!;
 
   // Persist room session for `apiary ps`
-  saveRoomSession({ roomName, serverUrl, publicUrl, adminToken, memberToken, pid: process.pid });
+  saveRoomSession({ roomName, bind: boundAddress, serverUrl, publicUrl, adminToken, memberToken, pid: process.pid });
 
   function obfuscate(token: string): string {
     if (token.length <= 8) return "****";

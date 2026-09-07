@@ -207,6 +207,8 @@ export async function spawnDaemonServer(opts: {
   port?: number;
   share?: boolean;
   expose?: boolean;
+  /** Already-resolved listen address (see cli/bind.ts). */
+  bind?: string;
   shareTtlMs?: number;
 }): Promise<DaemonResult | DaemonSpawnFailure> {
   const scriptPath = process.argv[1];
@@ -217,6 +219,7 @@ export async function spawnDaemonServer(opts: {
   if (opts.port) args.push("--port", String(opts.port));
   if (opts.share) args.push("--share");
   if (opts.expose) args.push("--expose");
+  if (opts.bind) args.push("--bind", opts.bind);
 
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [scriptPath, ...args], {
@@ -511,6 +514,8 @@ export async function roomCreate(opts: {
   port?: number;
   share?: boolean;
   expose?: boolean;
+  /** Already-resolved listen address (see cli/bind.ts). Beats expose. */
+  bind?: string;
   /** Bootstrap the Foundation project workflow into each repo (default on). --no-foundation opts out. */
   foundation?: boolean;
 }): Promise<void> {
@@ -753,7 +758,8 @@ export async function roomResume(name: string): Promise<void> {
   } else {
     console.log(`\n  ${Y}${B}${name}${R}  ${D}server stopped — restarting...${R}\n`);
 
-    const daemonRes = await spawnDaemonServer({ room: name });
+    // Carry the original bind forward, or a tailnet room resumes on localhost.
+    const daemonRes = await spawnDaemonServer({ room: name, bind: session.bind });
     if (!isDaemonResult(daemonRes)) {
       console.error(`\n  ${W}✗${R} Failed to restart server: ${B}${daemonRes.reason}${R}`);
       if (daemonRes.portInUse) {
