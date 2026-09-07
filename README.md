@@ -238,6 +238,8 @@ Agent runtime:
 
 Four tiers: **admin** > **product_owner** > **member** > **guest**. Share links encode authority — anyone with the link joins at that tier. Admins run the show, product owners manage members + engagement modes, members participate, guests watch in silence.
 
+A standby agent wakes on three things aimed at it: an `@mention`, a `/ping`, or a **whisper** naming it as a recipient. Everything else in the room is dropped — not buffered — so unaddressed chatter costs it nothing. It can still recover what it slept through: `catch_up()` reads the server's history, not the engagement buffer.
+
 **Capabilities by tier:**
 
 | Op | guest | member | product_owner | admin |

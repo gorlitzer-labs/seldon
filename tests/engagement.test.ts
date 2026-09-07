@@ -37,6 +37,13 @@ function makeMessage(senderId: string, content = "hello") {
   });
 }
 
+/** A whisper: a message with explicit recipients, visible only to them. */
+function makeWhisper(senderId: string, recipients: string[], content = "psst") {
+  const event = makeMessage(senderId, content);
+  (event.message as { recipients?: string[] }).recipients = recipients;
+  return event;
+}
+
 function makeMentioned(mentionedId: string, senderId: string) {
   return createEvent<MentionedEvent>({
     type: "Mentioned",
@@ -318,5 +325,69 @@ describe("StoopsEngagement", () => {
     expect(eng.classify(makeMessage(OTHER_AGENT), "room-1", SELF, "agent", OTHER_AGENT)).toBe("trigger");
     // room-2 (people): agent message → content
     expect(eng.classify(makeMessage(OTHER_AGENT), "room-2", SELF, "agent", OTHER_AGENT)).toBe("content");
+  });
+});
+
+describe("whispers wake a standby agent", () => {
+  // A whisper is the room's one form of directed communication, and standby
+  // means "wake when addressed". Mentioned events are only fired by scanning
+  // "@token" in the text, so a whisper carries no mention — before this it was
+  // dropped, and DMing a standby agent got silence.
+
+  test("a whisper to this agent triggers", () => {
+    expect(classifyEvent(makeWhisper(HUMAN_ID, [SELF]), "standby-everyone", SELF, "human", HUMAN_ID))
+      .toBe("trigger");
+  });
+
+  test("a whisper to somebody else is still dropped", () => {
+    // The fix must not turn standby into "wake on any whisper in the room".
+    expect(classifyEvent(makeWhisper(HUMAN_ID, [OTHER_AGENT]), "standby-everyone", SELF, "human", HUMAN_ID))
+      .toBe("drop");
+  });
+
+  test("a whisper naming several recipients wakes each of them", () => {
+    expect(classifyEvent(makeWhisper(HUMAN_ID, [OTHER_AGENT, SELF]), "standby-everyone", SELF, "human", HUMAN_ID))
+      .toBe("trigger");
+  });
+
+  test("a public message is still dropped", () => {
+    // The whole point of standby: unaddressed chatter costs nothing.
+    expect(classifyEvent(makeMessage(HUMAN_ID), "standby-everyone", SELF, "human", HUMAN_ID))
+      .toBe("drop");
+  });
+
+  test("the agent's own whisper is not echoed back to it", () => {
+    expect(classifyEvent(makeWhisper(SELF, [SELF]), "standby-everyone", SELF, "agent", SELF))
+      .toBe("drop");
+  });
+
+  test("standby-people: a whisper from an agent is dropped", () => {
+    // The sender filter still applies — standby-people means people only.
+    expect(classifyEvent(makeWhisper(OTHER_AGENT, [SELF]), "standby-people", SELF, "agent", OTHER_AGENT))
+      .toBe("drop");
+  });
+
+  test("standby-people: a whisper from a human triggers", () => {
+    expect(classifyEvent(makeWhisper(HUMAN_ID, [SELF]), "standby-people", SELF, "human", HUMAN_ID))
+      .toBe("trigger");
+  });
+
+  test("standby-agents: a whisper from an agent triggers, from a human drops", () => {
+    expect(classifyEvent(makeWhisper(OTHER_AGENT, [SELF]), "standby-agents", SELF, "agent", OTHER_AGENT))
+      .toBe("trigger");
+    expect(classifyEvent(makeWhisper(HUMAN_ID, [SELF]), "standby-agents", SELF, "human", HUMAN_ID))
+      .toBe("drop");
+  });
+
+  test("active modes are unaffected — a whisper still triggers there", () => {
+    expect(classifyEvent(makeWhisper(HUMAN_ID, [SELF]), "everyone", SELF, "human", HUMAN_ID))
+      .toBe("trigger");
+    expect(classifyEvent(makeWhisper(HUMAN_ID, [SELF]), "people", SELF, "human", HUMAN_ID))
+      .toBe("trigger");
+  });
+
+  test("an empty recipients list is a public message, not a whisper to all", () => {
+    expect(classifyEvent(makeWhisper(HUMAN_ID, []), "standby-everyone", SELF, "human", HUMAN_ID))
+      .toBe("drop");
   });
 });

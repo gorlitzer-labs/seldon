@@ -140,6 +140,21 @@ function senderMatches(
   }
 }
 
+/**
+ * True if `event` is a whisper (a message with explicit recipients) and this
+ * agent is one of them.
+ *
+ * Note this reads `message.recipients`, not `participant_id` — on a
+ * MessageSent the latter is the SENDER, unlike mention and ping events where
+ * it is the recipient.
+ */
+function isWhisperTo(event: RoomEvent, selfId: string): boolean {
+  if (event.type !== "MessageSent") return false;
+  const recipients = event.message.recipients;
+  if (!recipients || recipients.length === 0) return false;
+  return recipients.includes(selfId);
+}
+
 /** Internal classification logic shared by classifyEvent() and StoopsEngagement. */
 function classify(
   event: RoomEvent,
@@ -160,14 +175,20 @@ function classify(
   const isStandby = mode.startsWith("standby-");
   const filter = isStandby ? mode.slice(8) : mode; // "standby-people" → "people"
 
-  // 3. Standby: only @mentions and pings to self from a matching sender trigger;
-  //    everything else is dropped entirely.
+  // 3. Standby: only things ADDRESSED TO THIS AGENT wake it; everything else
+  //    is dropped entirely.
   if (isStandby) {
     if (
       (role === "mention" || role === "ping") &&
       event.participant_id === selfId &&
       senderMatches(filter, senderType, senderId)
     ) return "trigger";
+    // A whisper names its recipients explicitly, which is addressing the agent
+    // just as directly as an @mention — more so, since only they can see it.
+    // Mentioned events are only fired by scanning "@token" in the text, so a
+    // whisper carries no mention and would otherwise be dropped: the room's
+    // one form of directed communication, silently ignored.
+    if (isWhisperTo(event, selfId) && senderMatches(filter, senderType, senderId)) return "trigger";
     return "drop";
   }
 
