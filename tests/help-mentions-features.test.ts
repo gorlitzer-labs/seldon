@@ -6,40 +6,43 @@
  * the help text — the one place a user actually looks, and the only one
  * available offline — was not.
  *
- * These assert the RENDERED output of the real binary, not the source. An
- * earlier version of this file grepped src/cli/index.ts, which passed happily
- * when the help lines were removed, because the same flag strings still
- * appeared in the argument parser. "The string exists somewhere in the file"
- * is not the property worth guarding.
+ * Two earlier versions of this file were wrong in instructive ways:
+ *
+ *   - It grepped src/cli/index.ts, and survived its own mutant: deleting the
+ *     help lines still passed, because the same flag strings appear in the
+ *     argument parser. "The string exists somewhere in the file" is not the
+ *     property worth guarding.
+ *   - It then spawned the BUILT binary, which made it depend on `dist/` being
+ *     current — and `make release` runs the tests before the build, so any
+ *     help change broke the release until dist was rebuilt by hand.
+ *
+ * So it now imports the help module and captures what it prints: the rendered
+ * words a user sees, with no build step and no subprocess.
  */
 
 import { describe, test, expect, beforeAll } from "vitest";
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
-const CLI = resolve(__dirname, "../dist/cli/index.js");
-const HAS_BUILD = existsSync(CLI);
+import { printUsage, printExamples } from "../src/cli/help.js";
+import { getVersion } from "../src/cli/version.js";
 
-/** SGR escape sequences, so assertions can read the words a user sees. */
-const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
-
-function run(...args: string[]): string {
-  const out = execFileSync(process.execPath, [CLI, ...args], {
-    encoding: "utf-8",
-    timeout: 30_000,
-    env: { ...process.env, NO_COLOR: "1" },
-  });
-  return out.replace(ANSI, "");
+/** Collect everything a print function emits. */
+function capture(print: (stream: typeof console.log) => void): string {
+  const out: string[] = [];
+  print((...args: unknown[]) => { out.push(args.join(" ")); });
+  return out.join("\n");
 }
 
 let help = "";
 let examples = "";
 
 beforeAll(() => {
-  if (!HAS_BUILD) return;
-  help = run("--help");
-  examples = run("examples");
+  help = capture((stream) => printUsage(stream));
+  // printExamples writes with console.log directly; swap it for the duration.
+  const original = console.log;
+  const lines: string[] = [];
+  console.log = (...args: unknown[]) => { lines.push(args.join(" ")); };
+  try { printExamples(); } finally { console.log = original; }
+  examples = lines.join("\n");
 });
 
 /** Everything a user can type or pass that we expect the help to document. */
@@ -56,13 +59,13 @@ const SURFACES: Array<{ surface: string; since: string }> = [
   { surface: "/ping",     since: "status check" },
 ];
 
-describe.skipIf(!HAS_BUILD)("the help output mentions what exists", () => {
+describe("the help output mentions what exists", () => {
   test.each(SURFACES)("mentions $surface ($since)", ({ surface }) => {
     expect(`${help}\n${examples}`).toContain(surface);
   });
 });
 
-describe.skipIf(!HAS_BUILD)("the help stays honest about defaults", () => {
+describe("the help stays honest about defaults", () => {
   test("says the room is local-only unless told otherwise", () => {
     // Getting this wrong is invisible until a join link fails from elsewhere.
     expect(help).toMatch(/this machine only/i);
@@ -83,17 +86,14 @@ describe.skipIf(!HAS_BUILD)("the help stays honest about defaults", () => {
   });
 });
 
-describe.skipIf(!HAS_BUILD)("the help is usable", () => {
-  test("--help and examples both produce real output", () => {
+describe("the help is usable", () => {
+  test("both surfaces produce real output", () => {
     expect(help.length).toBeGreaterThan(400);
     expect(examples.length).toBeGreaterThan(400);
   });
 
-  test("the version shown matches package.json", () => {
+  test("the banner shows this package's version", () => {
     // A stale version in the banner is the same class of drift.
-    const pkg = JSON.parse(
-      readFileSync(resolve(__dirname, "../package.json"), "utf-8"),
-    ) as { version: string };
-    expect(help).toContain(pkg.version);
+    expect(help).toContain(getVersion());
   });
 });
