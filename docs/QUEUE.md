@@ -50,3 +50,4 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P3) UI polish: her transcript line is capped at 34ch which wraps early on a wide window, and the roster's forget action sits hard against the right edge. Both cosmetic.
 - [ ] (P2) Cut TTS first-audio by pre-synthesizing a small fixed set of openers (One moment / Right / Noted) and caching the AUDIO, since cost tracks spoken duration at RTF 0.23 and not text novelty. Would take the opener from ~395 ms to near zero while the real reply streams behind it.
 - [ ] (P3) Log anchoring differs by breakpoint on purpose: mobile top-anchors so the conversation starts under the core, desktop bottom-anchors so the newest line sits by the rail. Revisit if it ever reads as inconsistent.
+- [ ] (P2) try a shorter opening phrase

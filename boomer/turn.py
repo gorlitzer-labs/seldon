@@ -16,6 +16,7 @@ import numpy as np
 from . import protocol as P
 from . import factory as fac
 from . import memory as mem
+from . import tools as T
 from .protocol import Metrics, State
 
 Emit = Callable[[dict], None]
@@ -100,6 +101,28 @@ class ClauseBuffer:
         return chunk or None
 
 
+T_MAX_STEPS = 4          # she must speak eventually
+
+
+def _narrate(line: str, emit, emit_audio, voice, should_stop) -> None:
+    """Say what she is about to do, so a slow tool is never silence.
+
+    Franko asked for this directly: tell him to wait, and keep telling him what
+    is happening. `foundation` runs through npx and takes seconds, so this fires
+    for real rather than being decoration.
+    """
+    if not line:
+        return
+    emit(P.reply(line))
+    emit(P.state(State.SPEAKING))
+    for chunk in _speak_chunks(line):
+        if should_stop():
+            return
+        for audio in voice.say(chunk):
+            emit_audio(audio)
+    emit(P.state(State.THINKING))
+
+
 def _speak_chunks(line: str):
     from .models import Voice
     return Voice.split(line)
@@ -156,9 +179,10 @@ def _handle_factory(transcript: str, ctx: dict) -> str | None:
         where = f" on {target['hive']}" if target.get("hive") else ""
         return f"You want to answer {answer}{where}. Shall I send that?"
 
-    # 3. Read the board.
-    if fac.is_board_query(transcript):
-        return fac.board_spoken(fac.board_state())
+    # Board questions used to be answered by a keyword match here, which
+    # shadowed the `board` tool entirely and stopped her reasoning about it or
+    # combining it with anything else. Tools own that now; it costs an extra
+    # generation round trip and buys uniformity.
     return None
 
 
@@ -255,16 +279,69 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
                 emit(P.state(State.SPEAKING))
             emit_audio(audio)
 
-    for piece in brain.stream(transcript):
-        if should_stop():
+    def generate(prompt: str) -> str:
+        """Stream one generation, speaking clauses, and return the raw text.
+
+        Once a tool call starts, stop SPEAKING but keep generating. An earlier
+        version broke out of the loop at "<tool_call>", which truncated the call
+        before its closing tags and left it unparseable -- the model produced
+        '<tool_call><function=projects></function>' and she said nothing at all.
+        """
+        nonlocal first_token_at
+        raw = ""
+        in_call = False
+        for piece in brain.stream(prompt):
+            if should_stop():
+                break
+            if first_token_at is None:
+                first_token_at = time.perf_counter()
+                m.ttft_ms = (first_token_at - speech_ended_at) * 1000
+            raw += piece
+            if not in_call and T.looks_like_call(raw):
+                in_call = True          # markup is never spoken
+            if in_call:
+                continue
+            for chunk in buf.push(piece):
+                spoken.append(chunk)
+                emit(P.reply(chunk))
+                speak(chunk)
+        return raw
+
+    def generate_tool(wrapped: str) -> str:
+        """Same as generate(), but feeding a tool response back in."""
+        nonlocal first_token_at
+        raw, in_call = "", False
+        for piece in brain.stream_tool_result(wrapped):
+            if should_stop():
+                break
+            raw += piece
+            if not in_call and T.looks_like_call(raw):
+                in_call = True
+            if in_call:
+                continue
+            for chunk in buf.push(piece):
+                spoken.append(chunk)
+                emit(P.reply(chunk))
+                speak(chunk)
+        return raw
+
+    # Tools run in a loop: she may need the board before she can answer about
+    # it. Bounded, because a model that keeps calling tools would never speak.
+    raw = generate(transcript)
+    for _ in range(T_MAX_STEPS):
+        calls = T.parse_calls(raw)
+        if not calls:
             break
-        if first_token_at is None:
-            first_token_at = time.perf_counter()
-            m.ttft_ms = (first_token_at - speech_ended_at) * 1000
-        for chunk in buf.push(piece):
-            spoken.append(chunk)
-            emit(P.reply(chunk))
-            speak(chunk)
+        # Anything she wrote before the call is not for speaking -- it is
+        # usually "let me check that", which the narration says better.
+        buf.buf = ""
+        for call in calls:
+            emit(P.msg("tool", name=call.name, args=call.args))
+            result = T.execute_narrated(
+                call, may_write=ctx.get("may_write", True),
+                narrate=lambda line: _narrate(line, emit, emit_audio, voice, should_stop))
+            print(f"  tool | {call.name} {call.args} -> {result[:70]!r}", flush=True)
+            raw = generate_tool(T.render_response(call.name, result))
 
     tail = buf.flush()
     if tail and not should_stop():

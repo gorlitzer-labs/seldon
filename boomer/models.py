@@ -157,7 +157,48 @@ class Brain:
         from mlx_lm.sample_utils import make_sampler
         self.model, self.tokenizer = load(LLM_MODEL)
         self.sampler = make_sampler(temp=0.7, top_p=0.9)
+        self._wrapper = self._derive_turn_wrapper()
         self.reset()
+
+    def _derive_turn_wrapper(self) -> tuple[str, str]:
+        """The exact text that wraps one user turn, learned from the template.
+
+        Needed because a tool response cannot go through apply_chat_template on
+        its own: the template scans backwards for a user message that is not a
+        <tool_response> to locate the last real query, and raises "No user query
+        found in messages" when the only message it is given is a tool response.
+        Sending the whole history instead would defeat the retained cache.
+
+        Derived from a sentinel rather than hardcoded, so a template change
+        surfaces as a wrong wrapper here instead of silently mis-prompting.
+        """
+        sentinel = "\x01SENTINEL\x01"
+        try:
+            r = self.tokenizer.apply_chat_template(
+                [{"role": "user", "content": sentinel}],
+                add_generation_prompt=True, tokenize=False, enable_thinking=False)
+        except TypeError:
+            r = self.tokenizer.apply_chat_template(
+                [{"role": "user", "content": sentinel}],
+                add_generation_prompt=True, tokenize=False)
+        i = r.find(sentinel)
+        if i < 0:
+            return "", ""
+        return r[:i], r[i + len(sentinel):]
+
+    def stream_tool_result(self, wrapped: str, max_tokens: int = 220):
+        """Continue the conversation with a tool response, reusing the cache."""
+        from mlx_lm import stream_generate
+        pre, post = self._wrapper
+        if not pre:
+            yield from self.stream(wrapped, max_tokens=max_tokens)
+            return
+        ids = self.tokenizer.encode(pre + wrapped + post)
+        self._turns += 1
+        for r in stream_generate(self.model, self.tokenizer, ids,
+                                 max_tokens=max_tokens, sampler=self.sampler,
+                                 prompt_cache=self.cache):
+            yield r.text
 
     def reset(self, prewarm: bool = True) -> None:
         from mlx_lm.models.cache import make_prompt_cache
@@ -207,16 +248,28 @@ class Brain:
         from .memory import as_prompt
         return SYSTEM + as_prompt()
 
+    def _tools(self):
+        """Tool schemas, rendered into the system block by the chat template.
+
+        They must be present on turn 0, because that is the only turn whose
+        system block reaches the model -- and the boot-time prefill derives its
+        shared prefix from _render, so including them here keeps the cache and
+        the live prompt in agreement automatically.
+        """
+        from .tools import schemas
+        return schemas()
+
     def _render(self, user: str) -> str:
         # Turn 1 carries the system prompt; later turns ride the retained cache.
         msgs = ([{"role": "system", "content": self._system()}] if self._turns == 0 else []) + \
                [{"role": "user", "content": user}]
+        kw = {"add_generation_prompt": True, "tokenize": False}
+        if self._turns == 0:
+            kw["tools"] = self._tools()
         try:
-            return self.tokenizer.apply_chat_template(
-                msgs, add_generation_prompt=True, tokenize=False, enable_thinking=False)
+            return self.tokenizer.apply_chat_template(msgs, enable_thinking=False, **kw)
         except TypeError:
-            return self.tokenizer.apply_chat_template(
-                msgs, add_generation_prompt=True, tokenize=False)
+            return self.tokenizer.apply_chat_template(msgs, **kw)
 
     def stream(self, user: str, max_tokens: int = 160) -> Iterator[str]:
         from mlx_lm import stream_generate
