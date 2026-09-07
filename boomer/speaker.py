@@ -39,8 +39,13 @@ import numpy as np
 from .protocol import MIC_SR
 
 MODEL = pathlib.Path(__file__).resolve().parent.parent / "models" / "campplus_en.onnx"
-PRINT_PATH = pathlib.Path(os.environ.get(
-    "BOOMER_VOICEPRINT", pathlib.Path.home() / ".boomer" / "voiceprint.json"))
+STORE = pathlib.Path(os.environ.get(
+    "BOOMER_VOICES", pathlib.Path.home() / ".boomer" / "voices.json"))
+
+# Roles, not just identities. Recognising a guest is only useful if it changes
+# what she will do for them: conversation is harmless, resolving someone's
+# agents in their name is not.
+OWNER, GUEST = "owner", "guest"
 
 # Cosine similarity thresholds. MEASURED, then raised:
 #
@@ -72,7 +77,8 @@ class Speaker:
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         self.session = ort.InferenceSession(str(MODEL), sess_options=so,
                                             providers=["CPUExecutionProvider"])
-        self.enrolled = self._load()
+        self.profiles = self._load()
+        self._vectors = self._as_vectors()
 
     # --- embedding ---------------------------------------------------------
     @staticmethod
@@ -114,38 +120,85 @@ class Speaker:
                           "self_similarity_min": round(min(sims), 3),
                           "self_similarity_mean": round(sum(sims) / len(sims), 3)}
 
-    def save(self, voiceprint: np.ndarray, report: dict) -> None:
-        PRINT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        PRINT_PATH.write_text(json.dumps(
-            {"model": MODEL.name, "dim": len(voiceprint),
-             "voiceprint": [round(float(x), 6) for x in voiceprint],
-             "enrolment": report}, indent=2))
-        self.enrolled = voiceprint
+    def save(self, name: str, voiceprint: np.ndarray, report: dict,
+             role: str = GUEST) -> dict:
+        """Add or replace a named profile. Returns the stored profile."""
+        name = " ".join((name or "").split())[:40] or "unnamed"
+        profiles = [p for p in self.profiles if p["name"].lower() != name.lower()]
+        # The first voice enrolled is the owner: whoever set her up is the
+        # person whose factory it is. Everyone after that is a guest by default.
+        if not profiles and role == GUEST:
+            role = OWNER
+        profile = {"name": name, "role": role,
+                   "voiceprint": [round(float(x), 6) for x in voiceprint],
+                   "enrolment": report}
+        profiles.append(profile)
+        self.profiles = profiles
+        STORE.parent.mkdir(parents=True, exist_ok=True)
+        STORE.write_text(json.dumps({"model": MODEL.name, "profiles": profiles}, indent=2))
+        self._vectors = self._as_vectors()
+        return profile
 
-    def _load(self) -> np.ndarray | None:
+    def forget(self, name: str) -> bool:
+        before = len(self.profiles)
+        self.profiles = [p for p in self.profiles
+                         if p["name"].lower() != (name or "").strip().lower()]
+        if len(self.profiles) == before:
+            return False
+        STORE.write_text(json.dumps({"model": MODEL.name, "profiles": self.profiles},
+                                    indent=2))
+        self._vectors = self._as_vectors()
+        return True
+
+    def roster(self) -> list[dict]:
+        return [{"name": p["name"], "role": p["role"],
+                 "quality": p.get("enrolment", {}).get("self_similarity_min")}
+                for p in self.profiles]
+
+    def _load(self) -> list[dict]:
         try:
-            d = json.loads(PRINT_PATH.read_text())
-            v = np.asarray(d["voiceprint"], dtype=np.float32)
-            return v / np.linalg.norm(v)
+            return json.loads(STORE.read_text()).get("profiles", [])
         except Exception:
-            return None
+            return []
 
-    # --- verification ------------------------------------------------------
-    def similarity(self, audio: np.ndarray) -> float | None:
-        """Cosine similarity to the enrolled voice, or None if not comparable."""
-        if self.enrolled is None:
-            return None
+    def _as_vectors(self):
+        out = []
+        for p in self.profiles:
+            v = np.asarray(p["voiceprint"], dtype=np.float32)
+            n = np.linalg.norm(v)
+            if n:
+                out.append((p, v / n))
+        return out
+
+    # --- identification ----------------------------------------------------
+    def identify(self, audio: np.ndarray) -> tuple[dict | None, float | None]:
+        """(profile, similarity) for the best match above CONVERSE, else (None, sim).
+
+        Open-set: an unenrolled speaker must come back as nobody rather than as
+        the nearest profile, which is the whole point when the television is on.
+        """
+        if not self._vectors:
+            return None, None
         e = self.embed(audio)
-        return None if e is None else float(np.dot(e, self.enrolled))
+        if e is None:
+            return None, None
+        best, best_sim = None, -1.0
+        for profile, vec in self._vectors:
+            sim = float(np.dot(e, vec))
+            if sim > best_sim:
+                best, best_sim = profile, sim
+        return (best if best_sim >= CONVERSE else None), best_sim
 
-    def check(self, audio: np.ndarray, strict: bool = False) -> tuple[bool, float | None]:
-        """(accepted, similarity). Accepts everything when nobody is enrolled --
-        a voiceprint is opt-in, and failing closed would silently mute her."""
-        sim = self.similarity(audio)
-        if sim is None:
-            return True, None
-        return sim >= (WRITE if strict else CONVERSE), sim
+    def may_write(self, profile: dict | None, similarity: float | None) -> bool:
+        """Only a confident owner match may cause an irreversible write."""
+        if not self._vectors:
+            return True                      # nobody enrolled: opt-in feature
+        return bool(profile and profile.get("role") == OWNER
+                    and similarity is not None and similarity >= WRITE)
 
+    @property
+    def enrolled(self) -> bool:
+        return bool(self._vectors)
 
 def available() -> bool:
     return MODEL.exists()

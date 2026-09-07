@@ -30,6 +30,25 @@
   .who{color:var(--dim);display:inline-block;width:4.5rem}
   #boomer{color:var(--accent)}
   #metrics,#hint{color:var(--dim);font-size:.78rem;margin-top:1.5rem}
+  #voicepanel{margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid #182230}
+  #voicepanel h2{font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;
+                 color:var(--dim);font-weight:400;margin:0 0 .75rem}
+  #roster{list-style:none;padding:0;margin:0 0 1rem}
+  #roster li{display:flex;align-items:center;gap:.6rem;padding:.3rem 0}
+  #roster .role{font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;
+                padding:.1rem .45rem;border-radius:3px;border:1px solid #2a3a4d;color:var(--dim)}
+  #roster .role.owner{color:#ffcf70;border-color:#5a4a20}
+  #roster .q{color:var(--dim);font-size:.72rem;margin-left:auto}
+  #roster button{padding:.15rem .5rem;font-size:.72rem;margin:0}
+  .enrol{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+  .enrol input[type=text]{font:inherit;padding:.45rem .6rem;background:#0d141d;
+      color:var(--fg);border:1px solid #24384d;border-radius:6px;width:9rem}
+  .enrol label{color:var(--dim);font-size:.78rem;display:flex;align-items:center;gap:.35rem}
+  .note{opacity:.7}
+  #phrases{color:var(--fg);font-size:.85rem;line-height:1.9;margin:1rem 0 0;padding-left:1.4rem}
+  #phrases li.done{color:var(--dim);text-decoration:line-through}
+  #phrases li.now{color:var(--accent)}
+  #estatus{color:var(--dim);font-size:.78rem;margin-top:.75rem;min-height:1.2em}
   /* she started this one, not you */
   body[data-unprompted] #boomer{color:#ffcf70}
   body[data-unprompted] #orb{box-shadow:0 0 0 1px #6b5a2f,0 0 70px -4px #d9a13a}
@@ -50,6 +69,21 @@
     <button id="go">start</button>
     <button id="stop">stop talking</button>
     <button id="reset">new conversation</button>
+    <button id="voices">voices</button>
   </p>
+
+  <section id="voicepanel" hidden>
+    <h2>Voices she knows</h2>
+    <ul id="roster"></ul>
+    <div class="enrol">
+      <input id="ename" type="text" placeholder="name" maxlength="40" autocomplete="off">
+      <label><input id="eowner" type="checkbox"> owner
+        <span class="note">can answer the factory and change her memory</span></label>
+      <button id="enrol">enrol this voice</button>
+      <button id="ecancel" hidden>cancel</button>
+    </div>
+    <ol id="phrases" hidden></ol>
+    <div id="estatus"></div>
+  </section>
 </main>
 <script type="module" src="./boomer.js"></script>

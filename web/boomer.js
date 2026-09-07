@@ -72,6 +72,10 @@ function onMessage(ev) {
     return;
   }
   const m = JSON.parse(ev.data);
+  if (handleVoiceMessage(m)) {
+    // 'ready' also carries pipeline info the main switch renders.
+    if (m.type !== 'ready') return;
+  }
   switch (m.type) {
     case 'state':      setState(m.value); break;
     case 'audio':      pendingAudio = m; break;
@@ -189,3 +193,115 @@ el('reset').onclick = () => {
   ws.send(JSON.stringify({ type: 'reset' }));
   el('you').textContent = el('boomer').textContent = '';
 };
+
+// --- voices: who she knows, and enrolling new ones -------------------------
+// Enrolment reuses the endpointer that already segments speech: read three
+// phrases, each captured utterance becomes a sample. No separate recorder.
+
+const panel = el('voicepanel');
+
+function renderRoster(voices) {
+  const ul = el('roster');
+  ul.innerHTML = '';
+  if (!voices || !voices.length) {
+    ul.innerHTML = '<li style="color:var(--dim)">nobody yet — she answers everyone</li>';
+    return;
+  }
+  for (const v of voices) {
+    const li = document.createElement('li');
+    const q = v.quality == null ? '' : `match quality ${v.quality}`;
+    li.innerHTML = `<span>${v.name}</span>`
+      + `<span class="role ${v.role}">${v.role}</span>`
+      + `<span class="q">${q}</span>`;
+    const btn = document.createElement('button');
+    btn.textContent = 'forget';
+    btn.onclick = () => ws.send(JSON.stringify({ type: 'forget_voice', name: v.name }));
+    li.appendChild(btn);
+    ul.appendChild(li);
+  }
+}
+
+function showPhrases(list, got) {
+  const ol = el('phrases');
+  ol.hidden = false;
+  ol.innerHTML = '';
+  list.forEach((t, i) => {
+    const li = document.createElement('li');
+    li.textContent = t;
+    li.className = i < got ? 'done' : i === got ? 'now' : '';
+    ol.appendChild(li);
+  });
+}
+
+let enrolPhrases = [];
+
+export function handleVoiceMessage(m) {
+  switch (m.type) {
+    case 'ready':
+      renderRoster(m.voices);
+      el('enrol').disabled = !m.canEnrol;
+      if (!m.canEnrol) el('estatus').textContent = 'speaker model not installed';
+      return true;
+    case 'roster':
+      renderRoster(m.voices);
+      if (m.removed) el('estatus').textContent = 'forgotten';
+      return true;
+    case 'speaker':
+      el('hint').textContent =
+        `${m.name} (${m.role}) — match ${m.similarity.toFixed(2)}`;
+      return true;
+    case 'rejected':
+      el('estatus').textContent =
+        `ignored: voice not recognised (best match ${(m.similarity ?? 0).toFixed(2)})`;
+      return true;
+    case 'enrol':
+      if (m.stage === 'start') {
+        enrolPhrases = m.phrases;
+        showPhrases(enrolPhrases, 0);
+        el('estatus').textContent = `enrolling ${m.name} — read phrase 1 aloud`;
+        el('ecancel').hidden = false;
+        el('enrol').disabled = true;
+      } else if (m.stage === 'progress') {
+        showPhrases(enrolPhrases, m.got);
+        el('estatus').textContent = m.got < m.need
+          ? `got ${m.got} of ${m.need} — read the next one`
+          : 'computing voiceprint...';
+      } else if (m.stage === 'done') {
+        el('phrases').hidden = true;
+        el('ecancel').hidden = true;
+        el('enrol').disabled = false;
+        el('ename').value = '';
+        renderRoster(m.roster);
+        const q = m.report.self_similarity_min;
+        el('estatus').textContent = `enrolled ${m.name} as ${m.role}`
+          + (q < 0.6 ? ` — but quality is poor (${q}); re-record in a quieter room`
+                     : ` — match quality ${q}`);
+      } else if (m.stage === 'failed' || m.stage === 'cancelled') {
+        el('phrases').hidden = true;
+        el('ecancel').hidden = true;
+        el('enrol').disabled = false;
+        el('estatus').textContent = m.detail || 'cancelled';
+      }
+      return true;
+  }
+  return false;
+}
+
+el('voices').onclick = () => {
+  panel.hidden = !panel.hidden;
+  if (panel.hidden) return;
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'voices' }));
+  else el('estatus').textContent = 'press start to connect, then enrol';
+};
+
+// Render the empty state at load: opening the panel before connecting used to
+// show a blank box with no explanation.
+renderRoster([]);
+el('enrol').onclick = () => {
+  if (!ws) { el('estatus').textContent = 'press start first'; return; }
+  const name = el('ename').value.trim();
+  if (!name) { el('estatus').textContent = 'give the voice a name'; return; }
+  ws.send(JSON.stringify({ type: 'enrol', name,
+                           role: el('eowner').checked ? 'owner' : 'guest' }));
+};
+el('ecancel').onclick = () => ws && ws.send(JSON.stringify({ type: 'enrol_cancel' }));

@@ -97,13 +97,16 @@ def _handle_factory(transcript: str, ctx: dict) -> str | None:
             ctx.pop("awaiting_confirm", None)
             if _readonly():
                 return "I am in read-only mode, so I did not send that."
-            # A permanent write asks more of the voice than chatting does.
-            sim = ctx.get("voice_sim")
-            if sim is not None:
-                from .speaker import WRITE
-                if sim < WRITE:
-                    return ("I am not confident enough that this is you to "
-                            "answer for you. Do it from the terminal.")
+            # A permanent write needs a confident OWNER match. A recognised
+            # guest can talk to her all day and still not answer someone else's
+            # agents.
+            if ctx.get("may_write") is False:
+                who = (ctx.get("speaker") or {}).get("name")
+                if who:
+                    return (f"Sorry {who}, only Franko can answer the factory. "
+                            "Nothing was sent.")
+                return ("I am not confident enough that this is you to answer "
+                        "for you. Do it from the terminal.")
             ok, line = fac.answer_decision(awaiting["id"], awaiting["answer"])
             return line
         if fac.is_negative(transcript):
@@ -139,11 +142,13 @@ def _readonly() -> bool:
     return os.environ.get("BOOMER_READONLY", "").lower() in {"1", "true", "yes"}
 
 
-def _handle_memory(intent: str, payload: str) -> str:
+def _handle_memory(intent: str, payload: str, ctx: dict | None = None) -> str:
     """Do the memory operation and return exactly what should be said back."""
     if intent == "remember":
         if _readonly():
             return "I am in read-only mode, so I cannot save that."
+        if ctx is not None and ctx.get("may_write") is False:
+            return "Only Franko can change what I remember."
         item = mem.remember(payload)
         if item is None:
             return "I already had that, or there was nothing to store."
@@ -153,6 +158,8 @@ def _handle_memory(intent: str, payload: str) -> str:
     if intent == "forget":
         if _readonly():
             return "I am in read-only mode, so I cannot change what I remember."
+        if ctx is not None and ctx.get("may_write") is False:
+            return "Only Franko can change what I remember."
         dropped = mem.forget(payload)
         if not dropped:
             return "I had nothing matching that."
@@ -189,7 +196,8 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
     # and far less irritating than a yes/no prompt on every note.
     ctx = {} if ctx is None else ctx
     intent, payload = mem.detect(transcript)
-    line = _handle_memory(intent, payload) if intent != "none" else _handle_factory(transcript, ctx)
+    line = (_handle_memory(intent, payload, ctx) if intent != "none"
+            else _handle_factory(transcript, ctx))
     if line is not None:
         emit(P.reply(line))
         emit(P.state(State.SPEAKING))

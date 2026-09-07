@@ -31,7 +31,7 @@ from .protocol import HTTP_PORT, WS_PORT, State
 from .turn import run_turn
 from .record import record_utterance
 from .factory import Item, Urgency, Watcher
-from .speaker import Speaker, available as speaker_available
+from .speaker import GUEST, OWNER, Speaker, available as speaker_available
 
 WATCH_INTERVAL_S = 2.0
 
@@ -68,6 +68,9 @@ class Session:
         self.last_utterance = None
         self.batched: list[Item] = []
         self.ctx: dict = {}          # cross-turn state (last decision, pending confirm)
+        # Enrolment reuses the endpointer that already segments utterances, so
+        # "read three phrases" costs no new audio plumbing.
+        self.enrolling: dict | None = None
 
     # --- emitting back to the page (called from the worker thread) ---
     def emit(self, message: dict) -> None:
@@ -136,7 +139,53 @@ class Session:
             elif kind == "end":
                 self.speech_ended_at = time.perf_counter()
                 self.last_utterance = self.ep.utterance_audio()
-                await self.start_turn()
+                if self.enrolling is not None:
+                    await self.collect_sample()
+                else:
+                    await self.start_turn()
+
+    # --- enrolment ----------------------------------------------------------
+    ENROL_PHRASES = [
+        "Boomer, what is on the board this morning?",
+        "Is anything blocked or waiting on me right now?",
+        "Remember that I prefer short answers.",
+    ]
+
+    def begin_enrolment(self, name: str, role: str) -> None:
+        self.enrolling = {"name": name, "role": role, "clips": []}
+        self.emit(P.msg("enrol", stage="start", name=name, role=role,
+                        phrases=self.ENROL_PHRASES))
+
+    async def collect_sample(self) -> None:
+        """One captured utterance becomes an enrolment sample."""
+        e = self.enrolling
+        audio = self.last_utterance
+        loop = asyncio.get_running_loop()
+        if audio is not None and len(audio) >= 0.6 * 16_000:
+            e["clips"].append(audio)
+        self.ep.reset()
+        need = len(self.ENROL_PHRASES)
+        self.emit(P.msg("enrol", stage="progress", got=len(e["clips"]), need=need))
+        if len(e["clips"]) < need:
+            return
+        try:
+            vp, report = await loop.run_in_executor(
+                worker, functools.partial(speaker.enroll, e["clips"]))
+            if vp is None:
+                self.emit(P.msg("enrol", stage="failed", detail=report.get("error", "unusable")))
+            else:
+                profile = await loop.run_in_executor(
+                    worker, functools.partial(speaker.save, e["name"], vp, report, e["role"]))
+                self.emit(P.msg("enrol", stage="done", name=profile["name"],
+                                role=profile["role"], report=report,
+                                roster=speaker.roster()))
+                print(f"  enrolled | {profile['name']} ({profile['role']}) | {report}",
+                      flush=True)
+        except Exception as ex:
+            self.emit(P.error("enrol", f"{type(ex).__name__}: {ex}"))
+        finally:
+            self.enrolling = None
+            self.emit(P.state(State.IDLE))
 
     async def start_turn(self) -> None:
         self.busy = True
@@ -146,17 +195,22 @@ class Session:
             transcript = await loop.run_in_executor(worker, ears.close)
             self.emit(P.transcript(transcript, final=False))
             record_utterance(self.last_utterance, transcript)
-            # Score the voice once per turn and hand it to the turn, so the
-            # factory write can demand a stricter match than conversation does.
+            # Who was that? Open-set, so an unenrolled voice comes back as
+            # nobody rather than the nearest profile.
             if speaker is not None and self.last_utterance is not None:
-                ok, sim = speaker.check(self.last_utterance, strict=False)
+                profile, sim = speaker.identify(self.last_utterance)
                 self.ctx["voice_sim"] = sim
-                if not ok:
+                self.ctx["speaker"] = profile
+                self.ctx["may_write"] = speaker.may_write(profile, sim)
+                if speaker.enrolled and profile is None:
                     self.emit(P.msg("rejected", reason="voice", similarity=sim))
                     self.emit(P.state(State.IDLE))
-                    print(f"  ignored | not Franko (similarity {sim:.3f}) | "
+                    print(f"  ignored | unrecognised voice (best {sim:.3f}) | "
                           f"{transcript!r}", flush=True)
                     return
+                if profile:
+                    self.emit(P.msg("speaker", name=profile["name"],
+                                    role=profile["role"], similarity=sim))
             await loop.run_in_executor(worker, functools.partial(
                 run_turn, ears, brain, voice,
                 transcript=transcript, speech_ended_at=self.speech_ended_at,
@@ -205,7 +259,9 @@ async def handler(ws):
     s = Session(ws, loop)
     _active["session"] = s
     s.emit(P.state(State.IDLE))
-    s.emit(P.msg("ready", hangoverMs=s.ep.hangover_ms, readonly=READONLY))
+    s.emit(P.msg("ready", hangoverMs=s.ep.hangover_ms, readonly=READONLY,
+                 voices=speaker.roster() if speaker else [],
+                 canEnrol=speaker is not None))
     watcher_task = asyncio.create_task(watch_factory(s))
     try:
         async for message in ws:
@@ -213,7 +269,24 @@ async def handler(ws):
                 await s.on_pcm(message)
             else:
                 data = json.loads(message)
-                if data.get("type") == "stop":
+                t = data.get("type")
+                if t == "enrol":
+                    if speaker is None:
+                        s.emit(P.msg("enrol", stage="failed",
+                                     detail="speaker model not installed"))
+                    else:
+                        s.begin_enrolment(data.get("name", "unnamed"),
+                                          data.get("role", GUEST))
+                elif t == "enrol_cancel":
+                    s.enrolling = None
+                    s.emit(P.msg("enrol", stage="cancelled"))
+                elif t == "voices":
+                    s.emit(P.msg("roster", voices=speaker.roster() if speaker else []))
+                elif t == "forget_voice":
+                    ok = bool(speaker and speaker.forget(data.get("name", "")))
+                    s.emit(P.msg("roster", voices=speaker.roster() if speaker else [],
+                                 removed=ok))
+                elif data.get("type") == "stop":
                     s.stop_flag = True
                 elif data.get("type") == "reset":
                     brain.reset()
@@ -241,8 +314,10 @@ def load_speaker():
         print("speaker: model absent, voice checks disabled", flush=True)
         return
     speaker = Speaker()
-    print(f"speaker: {'enrolled' if speaker.enrolled is not None else 'no voiceprint yet'}",
-          flush=True)
+    # `enrolled` is a bool now, not a nullable array -- `is not None` was always
+    # true and logged "enrolled" with an empty store.
+    names = [p["name"] for p in speaker.profiles]
+    print(f"speaker: {', '.join(names) if names else 'nobody enrolled yet'}", flush=True)
 
 
 def load_models():
