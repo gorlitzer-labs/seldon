@@ -35,6 +35,21 @@ export type TuiState =
 // Spinner characters used by Claude Code during streaming
 const SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
+/**
+ * Claude Code is busy in a way that shows NO spinner.
+ *
+ * While a subagent runs, the main area is quiet and the only sign is the
+ * footer: "⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent".
+ * Spinner-only detection therefore read the pane as idle, so apiary pasted
+ * into a composer that will not submit — verified against a live agent, where
+ * even a manual Enter did nothing — and the message sat there as a draft until
+ * the subagent finished. The room showed the agent as idle throughout.
+ */
+const BUSY_PATTERNS: RegExp[] = [
+  // "← 1 agent" / "← 3 agents"
+  /←\s*\d+\s+agents?\b/,
+];
+
 // Patterns that indicate a selection/question dialog
 const DIALOG_PATTERNS = [
   "Enter to select",
@@ -345,6 +360,13 @@ export function detectStateFromLines(lines: string[]): TuiState {
   const lastFew = tail.slice(-5).join("");
   for (const ch of SPINNER_CHARS) {
     if (lastFew.includes(ch)) return "streaming";
+  }
+
+  // 3b. Busy with no spinner — a subagent is running. Checked after the
+  //     dialog and permission patterns on purpose: a prompt that needs a human
+  //     outranks "also busy", because only one of those the user can clear.
+  for (const pattern of BUSY_PATTERNS) {
+    if (pattern.test(tailText)) return "streaming";
   }
 
   // 4. Look for the ❯/› prompt line near the bottom.
