@@ -14,6 +14,7 @@ from typing import Callable
 import numpy as np
 
 from . import protocol as P
+from . import factory as fac
 from . import memory as mem
 from .protocol import Metrics, State
 
@@ -79,6 +80,51 @@ def _speak_chunks(line: str):
     return Voice.split(line)
 
 
+def _handle_factory(transcript: str, ctx: dict) -> str | None:
+    """Board queries and decision answers. Returns what to say, or None.
+
+    The confirmation gate lives here. `factory decide` is the only write Boomer
+    makes to the factory, resolveDecision() has no un-resolve path, and the input
+    is speech-to-text that was measured turning "Postgres" into "poskers". So an
+    answer is never filed on first utterance: it is read back, and only a plain
+    yes commits it.
+    """
+    awaiting = ctx.get("awaiting_confirm")
+
+    # 1. We asked for confirmation last turn; this utterance decides it.
+    if awaiting:
+        if fac.is_affirmative(transcript):
+            ctx.pop("awaiting_confirm", None)
+            ok, line = fac.answer_decision(awaiting["id"], awaiting["answer"])
+            return line
+        if fac.is_negative(transcript):
+            ctx.pop("awaiting_confirm", None)
+            return "Cancelled. Nothing was sent."
+        # Anything else is treated as a correction, not a confirmation: a
+        # decision must never be filed because someone said something ambiguous.
+        revised = fac.detect_answer(transcript)
+        if revised:
+            awaiting["answer"] = revised
+            return f"Changed to {revised}. Shall I send that?"
+        return f"I still have {awaiting['answer']}. Yes to send, or no to cancel."
+
+    # 2. An explicit answer to whatever she last raised.
+    answer = fac.detect_answer(transcript)
+    if answer:
+        target = ctx.get("last_decision")
+        if not target:
+            return "There is nothing waiting on your call right now."
+        ctx["awaiting_confirm"] = {"id": target["id"], "answer": answer,
+                                   "hive": target.get("hive", "")}
+        where = f" on {target['hive']}" if target.get("hive") else ""
+        return f"You want to answer {answer}{where}. Shall I send that?"
+
+    # 3. Read the board.
+    if fac.is_board_query(transcript):
+        return fac.board_spoken(fac.board_state())
+    return None
+
+
 def _handle_memory(intent: str, payload: str) -> str:
     """Do the memory operation and return exactly what should be said back."""
     if intent == "remember":
@@ -107,7 +153,8 @@ def _handle_memory(intent: str, payload: str) -> str:
 
 
 def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
-             emit: Emit, emit_audio: EmitAudio, should_stop: Callable[[], bool]) -> Metrics:
+             emit: Emit, emit_audio: EmitAudio, should_stop: Callable[[], bool],
+             ctx: dict | None = None) -> Metrics:
     """Blocking. Call on a worker thread; emit callbacks marshal back to the loop."""
     m = Metrics()
     m.stt_ms = (time.perf_counter() - speech_ended_at) * 1000
@@ -122,9 +169,10 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
     # that"), so unlike answering a factory decision it does not need a
     # confirmation gate BEFORE writing -- reading back what was stored is enough,
     # and far less irritating than a yes/no prompt on every note.
+    ctx = {} if ctx is None else ctx
     intent, payload = mem.detect(transcript)
-    if intent != "none":
-        line = _handle_memory(intent, payload)
+    line = _handle_memory(intent, payload) if intent != "none" else _handle_factory(transcript, ctx)
+    if line is not None:
         emit(P.reply(line))
         emit(P.state(State.SPEAKING))
         for chunk in _speak_chunks(line):
@@ -137,7 +185,7 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
         emit(P.reply("", done=True))
         emit(m.as_msg())
         emit(P.state(State.IDLE))
-        print(f"  memory | {intent} | {line!r}", flush=True)
+        print(f"  direct | {intent if intent != 'none' else 'factory'} | {line!r}", flush=True)
         return m
 
     emit(P.state(State.THINKING))

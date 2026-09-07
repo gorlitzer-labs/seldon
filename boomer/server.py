@@ -53,6 +53,7 @@ class Session:
         self.speech_ended_at = 0.0
         self.last_utterance = None
         self.batched: list[Item] = []
+        self.ctx: dict = {}          # cross-turn state (last decision, pending confirm)
 
     # --- emitting back to the page (called from the worker thread) ---
     def emit(self, message: dict) -> None:
@@ -79,6 +80,8 @@ class Session:
         self.busy = True
         loop = asyncio.get_running_loop()
         try:
+            # Remember what she raised, so "answer SQLite" has a referent.
+            self.ctx["last_decision"] = {"id": item.id, "hive": item.hive}
             line = item.spoken()
             self.emit(P.msg("announce", id=item.id, kind=item.kind,
                             hive=item.hive, text=line))
@@ -133,7 +136,7 @@ class Session:
                 run_turn, ears, brain, voice,
                 transcript=transcript, speech_ended_at=self.speech_ended_at,
                 emit=self.emit, emit_audio=self.emit_audio,
-                should_stop=self.should_stop))
+                should_stop=self.should_stop, ctx=self.ctx))
         except Exception as e:                       # never wedge the session
             self.emit(P.error("turn", f"{type(e).__name__}: {e}"))
             self.emit(P.state(State.IDLE))

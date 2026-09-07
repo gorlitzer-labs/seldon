@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 from dataclasses import dataclass
 from enum import Enum
 
@@ -137,3 +138,125 @@ class Watcher:
         for i in fresh:
             self._seen.add(i.id)
         return fresh
+
+
+# --- talking to the factory CLI --------------------------------------------
+# Hive state is COMPUTED (parsing the Foundation seam, counting lanes, probing
+# reachability), so it is read through `factory state --json` rather than
+# reimplemented here -- that is the whole reason gorlitzer-labs/factory#1 exists.
+# decisions.json above is different: a plain data file with a documented schema,
+# and reading it directly is what makes announcements work with no subprocess in
+# the hot path.
+
+import shutil
+import subprocess
+
+CLI = os.environ.get("FACTORY_CLI", "factory")
+TIMEOUT_S = 10
+
+
+def cli_available() -> bool:
+    return shutil.which(CLI) is not None
+
+
+def board_state() -> dict | None:
+    """`factory state --json`, or None if the factory is not installed here."""
+    if not cli_available():
+        return None
+    try:
+        out = subprocess.run([CLI, "state", "--compact"], capture_output=True,
+                             text=True, timeout=TIMEOUT_S)
+        if out.returncode != 0:
+            return None
+        return json.loads(out.stdout)
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
+        return None
+
+
+def board_spoken(state: dict | None) -> str:
+    """The board, as one or two sentences a person would actually say."""
+    if state is None:
+        return "The factory command is not installed on this machine, so I cannot see the board."
+    s = state.get("summary", {})
+    hives, needs = s.get("hives", 0), s.get("needsYou", 0)
+    if not hives and not s.get("pendingDecisions"):
+        return "No hives registered yet, and nothing pending."
+    parts = []
+    if needs == 0:
+        parts.append(f"All {hives} hives nominal. Nothing needs you.")
+    else:
+        bits = []
+        if s.get("pendingDecisions"):
+            bits.append(f"{s['pendingDecisions']} decision{'s' if s['pendingDecisions'] != 1 else ''} pending")
+        if s.get("blockers"):
+            bits.append(f"{s['blockers']} blocker{'s' if s['blockers'] != 1 else ''}")
+        if s.get("down"):
+            bits.append(f"{s['down']} hive{'s' if s['down'] != 1 else ''} down")
+        if s.get("drift"):
+            bits.append(f"drift on {s['drift']}")
+        parts.append(f"{hives} hives. " + ", ".join(bits) + ".")
+    if s.get("queueOpen"):
+        parts.append(f"{s['queueOpen']} items in the queues.")
+    return " ".join(parts)
+
+
+def answer_decision(decision_id: str, answer: str) -> tuple[bool, str]:
+    """Run `factory decide`. THIS IS THE ONE WRITE Boomer makes to the factory.
+
+    resolveDecision() in factory only matches status === "pending" and there is
+    no un-resolve path, so a misheard answer is filed permanently as the human's
+    call and an agent acts on it. Everything upstream of this function exists to
+    make sure the user heard their own words read back before it runs.
+    """
+    if not cli_available():
+        return False, "The factory command is not installed here, so I cannot answer that."
+    try:
+        out = subprocess.run([CLI, "decide", decision_id, answer],
+                             capture_output=True, text=True, timeout=TIMEOUT_S)
+    except (subprocess.SubprocessError, OSError) as e:
+        return False, f"That failed: {type(e).__name__}."
+    if out.returncode != 0:
+        detail = (out.stderr or out.stdout or "").strip().splitlines()
+        return False, "That failed. " + (detail[0][:120] if detail else "")
+    return True, f"Answered. {answer}."
+
+
+# --- intent + confirmation --------------------------------------------------
+
+_BOARD = re.compile(
+    r"\b((what|how)('s|s| is| are)? ?(on )?the board|board status|"
+    r"status of the (hives|factory|board)|anything need(s|ing)? me|what needs me|"
+    r"how('s| is)? the factory|what'?s? (up|going on)|give me the board)\b", re.I)
+_ANSWER = re.compile(r"\b(answer|tell (her|him|them)|reply|go with|say)\b\s+(?P<a>.+)", re.I)
+_YES = re.compile(r"^\s*(yes|yeah|yep|correct|confirm(ed)?|do it|go ahead|that'?s right)\b", re.I)
+_NO = re.compile(r"^\s*(no|nope|cancel|stop|forget it|don'?t|wrong)\b", re.I)
+
+
+def is_board_query(utterance: str) -> bool:
+    return bool(_BOARD.search(utterance or ""))
+
+
+def is_affirmative(utterance: str) -> bool:
+    return bool(_YES.search(utterance or ""))
+
+
+def is_negative(utterance: str) -> bool:
+    return bool(_NO.search(utterance or ""))
+
+
+def detect_answer(utterance: str) -> str | None:
+    """Extract an intended answer to a pending decision, if the phrasing is explicit.
+
+    Deliberately requires a verb ("answer X", "go with X"). Treating any bare
+    reply as an answer would let ordinary conversation resolve a decision by
+    accident, which is unrecoverable.
+    """
+    m = _ANSWER.search(utterance or "")
+    if not m:
+        return None
+    a = " ".join(m.group("a").split()).strip(" .,:;")
+    # Trailing filler is not part of the answer: "go with Postgres instead"
+    # should file "Postgres", not "Postgres instead". Kept to words that never
+    # carry meaning here -- "for now" and "temporarily" genuinely do.
+    a = re.sub(r"\b(instead|then|please|thanks|thank you|ok(ay)?)\s*$", "", a, flags=re.I)
+    return a.strip(" .,:;")[:200] or None

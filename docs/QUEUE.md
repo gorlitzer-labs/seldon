@@ -41,3 +41,4 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P1) Verify the accent improvement with David's own voice, A/B via BOOMER_STT. The published accent numbers are from benchmarks; the synthetic TTS fixtures used here cannot test a real accent.
 - [ ] (P1) Never launch a benchmark or smoke test while the server is running. The lock now enforces it, but scripts should also fail fast with a clear message rather than being started at all.
 - [ ] (P2) Memory retrieval is the whole store in the system prompt, which is right for dozens of items and wrong for thousands. Revisit only when the store outgrows the context -- do not add a vector index before then.
+- [ ] (P2) Boomer reads hive state via 'factory state --json' (gorlitzer-labs/factory#1) but reads decisions.json directly. That split is deliberate -- computed state through the CLI, plain data files direct -- and should be revisited if the decisions schema ever gains logic.
