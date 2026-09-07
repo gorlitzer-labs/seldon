@@ -10,6 +10,33 @@ import { createAvatar } from './avatar.js';
 const el = (id) => document.getElementById(id);
 // One accent, driven by her actual state. Matches the avatar palette so the
 // dot, the focus ring and her transcript lines all shift together.
+const LOG_MAX = 8;          // a console log, not a transcript archive
+
+// Colours are assigned server-side at enrolment and stored with the profile, so
+// the log and the voices panel agree and nothing can collide. Hashing the name
+// locally was tried and put Franko and Giulia on the same hue.
+const UNKNOWN_COLOR = '#FF9E3D';        // nobody enrolled yet: "YOU"
+let pending = null;         // her reply block while it is still streaming
+
+/** Append one message block. `who` is a display name, already resolved. */
+function addMessage(who, text, cls, color) {
+  const log = el('log');
+  const p = document.createElement('p');
+  p.className = `msg ${cls}`;
+  if (color) p.style.setProperty('--c', color);
+  const w = document.createElement('span');
+  w.className = 'who';
+  w.textContent = who;
+  const t = document.createElement('span');
+  t.className = 'txt';
+  t.textContent = text;
+  p.append(w, t);
+  log.appendChild(p);
+  while (log.children.length > LOG_MAX) log.firstChild.remove();
+  log.scrollTop = log.scrollHeight;
+  return p;
+}
+
 const ACCENT = {
   offline: '#4a6377', idle: '#1FA8D8', listening: '#18E08A',
   thinking: '#FFB020', speaking: '#35C8FF', busy: '#FF4D6D',
@@ -53,6 +80,9 @@ let avatar = null;
 // Two analysers: hers on the playback graph, yours on the microphone. The core
 // reacts to whoever is actually talking, which is the point of it.
 let playAnalyser = null, micAnalyser = null;
+// Whoever she last recognised. Falls back to YOU when no voiceprint is enrolled,
+// which is the honest label for "someone, presumably you".
+let speakerName = 'YOU', speakerRole = 'owner', speakerColor = UNKNOWN_COLOR;
 let timeData = null, freqData = null;
 // Only stream the mic while she is idle or listening. During thinking/speaking
 // the frames would queue in the socket and flood in when the turn ends -- with
@@ -88,12 +118,24 @@ function onMessage(ev) {
     case 'state':      setState(m.value); break;
     case 'audio':      pendingAudio = m; break;
     case 'transcript':
-      el('you').textContent = m.text || '...';
-      delete document.body.dataset.unprompted;
+      // Only the final transcript is logged; the interim one changes under you.
+      if (m.final && m.text) {
+        addMessage(speakerName, m.text, 'me', speakerColor);
+      }
       break;
     case 'reply':
-      if (m.done) break;
-      el('boomer').textContent += (el('boomer').textContent ? ' ' : '') + m.text;
+      if (m.done) {
+        if (pending) pending.classList.remove('pending');
+        pending = null;
+        break;
+      }
+      if (!pending) {
+        pending = addMessage('BOOMER', m.text, 'them pending');
+      } else {
+        const t = pending.querySelector('.txt');
+        t.textContent += (t.textContent ? ' ' : '') + m.text;
+        el('log').scrollTop = el('log').scrollHeight;
+      }
       break;
     case 'metrics':
       el('readout').textContent = `${m.tts_first_ms | 0} ms`;
@@ -109,11 +151,11 @@ function onMessage(ev) {
       el('go').disabled = false;
       break;
     case 'announce':
-      // She spoke first. Mark it so it doesn't read as a reply to you.
-      el('you').textContent = '';
-      el('boomer').textContent = m.text;
+      // She spoke first: its own channel, so it never reads as a reply to you.
+      pending = null;
+      addMessage(`BOOMER / ${(m.hive || 'factory').toUpperCase()}`, m.text,
+                 `them unprompted${m.kind === 'blocker' ? ' alert' : ''}`);
       el('readout').textContent = `${m.kind} - ${m.hive || 'factory'}`;
-      document.body.dataset.unprompted = '1';
       break;
     case 'batched':
       el('readout').textContent = `${m.count} waiting`;
@@ -123,7 +165,6 @@ function onMessage(ev) {
       el('estatus').textContent = `${m.where}: ${m.detail}`;
       break;
   }
-  if (m.type === 'transcript' && m.final === false) el('boomer').textContent = '';
 }
 
 async function start() {
@@ -200,7 +241,8 @@ el('stop').onclick = () => ws && ws.send(JSON.stringify({ type: 'stop' }));
 el('reset').onclick = () => {
   if (!ws) return;
   ws.send(JSON.stringify({ type: 'reset' }));
-  el('you').textContent = el('boomer').textContent = '';
+  el('log').innerHTML = '';
+  pending = null;
 };
 
 // --- voices: who she knows, and enrolling new ones -------------------------
@@ -219,7 +261,8 @@ function renderRoster(voices) {
   for (const v of voices) {
     const li = document.createElement('li');
     const owner = v.role === 'owner';
-    li.innerHTML = `<span>${v.name}</span>`
+    li.style.setProperty('--c', v.color || UNKNOWN_COLOR);
+    li.innerHTML = `<span class="pname">${v.name}</span>`
       + `<span class="${owner ? 'owner-mark' : 'guest-mark'}">`
       + `${owner ? 'answers the factory' : 'conversation only'}</span>`
       + `<span class="q">${v.quality == null ? '' : v.quality}</span>`;
@@ -258,6 +301,9 @@ export function handleVoiceMessage(m) {
       if (m.removed) el('estatus').textContent = 'Voice forgotten.';
       return true;
     case 'speaker':
+      speakerName = m.name.toUpperCase();
+      speakerRole = m.role;
+      speakerColor = m.color || UNKNOWN_COLOR;
       el('readout').textContent = `${m.name} ${m.similarity.toFixed(2)}`;
       return true;
     case 'rejected':

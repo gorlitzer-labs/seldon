@@ -46,15 +46,46 @@
   #orb{width:72px;height:72px;border-radius:50%;margin:2rem auto;
        background:radial-gradient(circle at 35% 30%,#1c2b3a,#0a1017 70%)}
 
-  /* --- transcript: speaker by alignment and colour, no labels ---
-     Labels in a two-party transcript are redundant, and empty label rows are
-     what made this look unfinished. */
-  #log{margin:1.25rem 0 0;min-height:4.5rem;display:flex;flex-direction:column;gap:.5rem}
-  #log p{margin:0;max-width:34ch;line-height:1.55}
-  #log .them{color:var(--accent);align-self:flex-start}
-  #log .me{color:var(--fg);opacity:.72;align-self:flex-end;text-align:right}
-  #log .them:empty,#log .me:empty{display:none}
-  body[data-unprompted] #log .them{color:#ffcf70}
+  /* --- transcript: framed blocks, named and colour-coded ---
+     Alignment alone stopped being enough once several people can be enrolled:
+     the label now carries a real name (Franko / Giulia / Boomer), so it is
+     information rather than the redundant "you:" prefix it replaced.
+
+     The frame is a left gutter rule in the speaker's colour plus a faint tint
+     of the same hue -- a patch-bay channel strip, not a chat bubble. */
+  #log{margin:1.25rem 0 0;min-height:5rem;display:flex;flex-direction:column;
+       gap:.55rem;max-height:17rem;overflow-y:auto;scrollbar-width:thin}
+  /* Log colours are FIXED, not state-driven. --accent turns amber while she is
+     thinking, which collided with the user's amber; and an escalation was amber
+     too, so three different things shared one hue. The avatar carries state; the
+     log carries identity, and identity must not move.
+
+     Three devices were doing one job here (full border, gutter rule, tint).
+     The rule and the tint are enough; the border came off. */
+  .msg{--c:#35C8FF;
+       margin:0;padding:.42rem .7rem;max-width:88%;line-height:1.55;
+       border-left:2px solid var(--c);
+       background:color-mix(in oklab, var(--c) 8%, transparent);
+       transition:background .3s}
+  .msg .who{display:block;font-size:10px;letter-spacing:.14em;
+            color:var(--c);margin-bottom:.22rem;opacity:.85}
+  .msg .txt{display:block;color:var(--fg)}
+  .msg.them{align-self:flex-start}
+  /* Each person carries their own hue, set inline from their name. Role is not
+     encoded here: it belongs in the voices panel and in the refusal she gives
+     when a guest tries to write, not on every line they say. */
+  .msg.me{--c:var(--mine);align-self:flex-end}
+  .msg.me .txt{opacity:.85}
+  /* She started this one. Still her voice, so still her hue -- the escalation is
+     marked by a heavier gutter and the hive in the label, not by borrowing the
+     user's colour. A blocker is louder than a decision, so it gets its own. */
+  .msg.unprompted{border-left-width:4px;
+       background:color-mix(in oklab, var(--c) 14%, transparent)}
+  .msg.alert{--c:#FF4D6D}
+  .msg.pending .txt::after{content:"";display:inline-block;width:.45em;height:1em;
+       margin-left:.15em;background:var(--c);vertical-align:-.15em;
+       animation:cursor 1s steps(2) infinite}
+  @keyframes cursor{50%{opacity:0}}
 
   /* --- the rail: one hairline, controls sitting on it --- */
   .rail{display:flex;align-items:center;gap:1.1rem;margin-top:1.5rem;
@@ -80,6 +111,7 @@
   #roster li{display:grid;grid-template-columns:1fr auto auto auto;gap:.8rem;
              align-items:center;padding:.32rem 0;border-bottom:1px solid var(--line)}
   #roster li:last-child{border-bottom:0}
+  #roster .pname{color:var(--c,var(--fg))}
   #roster .owner-mark{color:var(--mine);font-size:11px}
   #roster .guest-mark{color:var(--dim);font-size:11px}
   #roster .q{color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums}
@@ -111,10 +143,7 @@
   <canvas id="avatar" width="480" height="480"></canvas>
   <div id="orb"></div>
 
-  <div id="log">
-    <p class="them" id="boomer"></p>
-    <p class="me" id="you"></p>
-  </div>
+  <div id="log" aria-live="polite"></div>
 
   <div class="rail">
     <button id="go">listen</button>

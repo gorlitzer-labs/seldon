@@ -47,6 +47,16 @@ STORE = pathlib.Path(os.environ.get(
 # agents in their name is not.
 OWNER, GUEST = "owner", "guest"
 
+# One hue per enrolled person, assigned at enrolment and stored with the profile.
+# Hashing the name was tried first and collided on the two names that mattered
+# (Franko and Giulia landed on the same colour): six buckets and a weak hash is
+# not a safe way to allocate identity. Round-robin over unused entries cannot
+# collide until the palette is exhausted.
+#
+# All warm or magenta: Boomer owns the cyan band and an alert owns the red, so a
+# person is never mistaken for either.
+PERSON_COLORS = ["#FF9E3D", "#C08CFF", "#FFD54A", "#FF7BA8", "#E8A06A", "#B0D46A"]
+
 # Cosine similarity thresholds. MEASURED, then raised:
 #
 # Enrolling one Kokoro voice and probing four others gave 0.903 for the enrolled
@@ -129,7 +139,10 @@ class Speaker:
         # person whose factory it is. Everyone after that is a guest by default.
         if not profiles and role == GUEST:
             role = OWNER
+        used = {p.get("color") for p in profiles}
+        free = [c for c in PERSON_COLORS if c not in used]
         profile = {"name": name, "role": role,
+                   "color": (free or PERSON_COLORS)[0],
                    "voiceprint": [round(float(x), 6) for x in voiceprint],
                    "enrolment": report}
         profiles.append(profile)
@@ -152,6 +165,7 @@ class Speaker:
 
     def roster(self) -> list[dict]:
         return [{"name": p["name"], "role": p["role"],
+                 "color": p.get("color", PERSON_COLORS[0]),
                  "quality": p.get("enrolment", {}).get("self_similarity_min")}
                 for p in self.profiles]
 

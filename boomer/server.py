@@ -210,7 +210,8 @@ class Session:
                     return
                 if profile:
                     self.emit(P.msg("speaker", name=profile["name"],
-                                    role=profile["role"], similarity=sim))
+                                    role=profile["role"], similarity=sim,
+                                    color=profile.get("color")))
             await loop.run_in_executor(worker, functools.partial(
                 run_turn, ears, brain, voice,
                 transcript=transcript, speech_ended_at=self.speech_ended_at,
