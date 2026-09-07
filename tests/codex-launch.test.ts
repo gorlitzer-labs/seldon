@@ -56,18 +56,38 @@ describe("renderCodexProfile", () => {
       .toContain('[mcp_servers.apiary.tools.apiary__join_room]\napproval_mode = "approve"');
   });
 
-  test("approval scope stops at apiary's own tools", () => {
+  test("no prompts, but the sandbox is NOT disabled", () => {
+    // Prompts are the thing that stalls an unwatched agent, so they go. The
+    // sandbox is what keeps a no-prompt agent from doing damage outside its
+    // workspace, so it stays: a command Codex will not allow returns a failure
+    // to the model instead of asking.
     const out = renderCodexProfile(MCP_URL);
 
-    // No blanket policy: shell commands and file writes keep asking.
-    expect(out).not.toContain("approval_policy");
-    expect(out).not.toContain("dangerously");
+    expect(out).toContain('approval_policy = "never"');
     expect(out).not.toContain("sandbox_mode");
-    for (const line of out.split("\n")) {
+    expect(out).not.toContain("danger-full-access");
+    expect(out).not.toContain("dangerously");
+  });
+
+  test("APIARY_AGENT_APPROVALS=ask restores prompting", () => {
+    const out = renderCodexProfile(MCP_URL, "ask", false);
+    expect(out).not.toContain("approval_policy");
+    expect(out).toContain('approval_mode = "ask"');
+  });
+
+  test("apiary only ever declares its own MCP server", () => {
+    for (const line of renderCodexProfile(MCP_URL).split("\n")) {
       if (line.startsWith("[mcp_servers.")) {
         expect(line.startsWith("[mcp_servers.apiary")).toBe(true);
       }
     }
+  });
+
+  test("top-level keys precede every table header", () => {
+    // TOML: a key after a header belongs to that table. approval_policy landing
+    // under [mcp_servers.apiary] would parse as a server field and be ignored.
+    const out = renderCodexProfile(MCP_URL);
+    expect(out.indexOf("approval_policy")).toBeLessThan(out.indexOf("["));
   });
 
   test("declares nothing that would override the user's model or trust", () => {

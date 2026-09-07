@@ -40,7 +40,7 @@ export const DEFAULT_RULES: readonly string[] = [
   "Announce destructive intent before you act. \"About to delete X\" beats \"I deleted X, sorry.\"",
   "If a human is in the room, wait for their ack before merging, deploying, or running anything irreversible.",
   "Stay in your lane. If a task belongs to another agent, @mention them — don't poach.",
-  "When uncertain, ask. A clarifying question costs a token; a wrong commit costs an afternoon.",
+  "When uncertain, ask in the room with send_message — nobody reads your terminal. A clarifying question costs a token; a wrong commit costs an afternoon.",
 ];
 
 export const RULES_MAX = 12; // hard cap — keeps the list scannable for humans + LLMs

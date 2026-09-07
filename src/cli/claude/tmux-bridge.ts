@@ -52,6 +52,13 @@ const PERMISSION_PATTERNS = [
   "Deny ",
   "approve",
   "Yes / No",
+  // Current Claude Code wording, captured from a live prompt. Without these a
+  // permission dialog reads as idle and the bridge pastes a room event into
+  // it, answering on the agent's behalf.
+  "Do you want to proceed?",
+  "don't ask again",
+  // The folder-trust modal, which no flag skips.
+  "Yes, I trust this folder",
 ];
 
 export interface DeliverOptions {

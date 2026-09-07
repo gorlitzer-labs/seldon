@@ -148,6 +148,23 @@ Without it, your agent will stall on every MCP tool invocation waiting for manua
 
 **Pay attention though** — this flag disables *all* permission checks, not just for Apiary tools. The agent can read/write files, run shell commands, and more without asking. It's the "I trust you with the keys" flag. Only use it in environments you're comfortable losing. Read more: [Claude Code --dangerously-skip-permissions](https://www.ksred.com/claude-code-dangerously-skip-permissions-when-to-use-it-and-when-you-absolutely-shouldnt/).
 
+#### Agents don't stop for approvals
+
+An agent apiary spawned into a room has **nobody watching its pane**, so every approval prompt is a permanent stall — the agent stops, the room can't answer it, and from the outside it looks like thinking. So apiary runs agents unattended by default:
+
+- **Claude Code** — `--dangerously-skip-permissions`, plus its folder-trust dialog pre-accepted for the agent's cwd (no flag skips that modal).
+- **Codex** — `approval_policy = "never"` in apiary's config profile, plus per-tool `approval_mode` for apiary's own MCP tools. Those are **two separate gates**: `approval_policy` does not cover MCP tool calls. Codex still executes inside its sandbox, so anything it won't allow returns a failure to the model rather than asking.
+
+Set `APIARY_AGENT_APPROVALS=ask` to restore prompting — at the cost of babysitting each agent's terminal.
+
+Claude's flag genuinely skips all permission checks, so a room is only as trusted as the repos its agents point at.
+
+#### When an agent has a question
+
+No flag helps here: the agent finishes its turn with a question in **its own terminal**, goes idle, and the room shows idle — indistinguishable from "done". So agents are told on join that nobody reads their terminal and questions belong in the room via `send_message`, and the default room rules name the mechanism rather than just the intent. Reply in the room and it continues.
+
+If an agent does end up on a prompt, the participant strip shows `⏸ needs you` and `Ctrl+<n>` opens its pane.
+
 #### Codex agents
 
 `apiary codex` needs no equivalent flag. It runs Codex against **your real Codex home**, so the agent keeps your credentials, model, reasoning effort and project trust — and declares itself in a config profile layered on top:
@@ -232,6 +249,7 @@ Agent runtime:
 
 | Variable | Default | What |
 |---|---|---|
+| `APIARY_AGENT_APPROVALS` | `auto` | `ask` restores approval prompts for every agent (Claude + Codex) |
 | `APIARY_CODEX_TOOL_APPROVAL` | `approve` | Codex approval mode for apiary's own MCP tools. `ask` to confirm each call by hand |
 
 ### Authority model

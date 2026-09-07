@@ -105,6 +105,15 @@ function formatJoinResponse(result: JoinRoomResult): string {
   lines.push(`Joined ${result.roomName} as "${result.agentName}" (${result.authority})`);
   lines.push("");
 
+  // Agents reliably answer in their own terminal, which nobody reads. From the
+  // room's side that is indistinguishable from having finished — so a question
+  // asked there is a silent stall. Say so explicitly on the way in; the room
+  // rules tell them to ask, but not where.
+  lines.push("Nobody reads your terminal — only this room:");
+  lines.push("  - Ask questions and report blockers here with send_message, or they are invisible.");
+  lines.push("  - Don't end a turn waiting on an answer you never posted.");
+  lines.push("");
+
   // Mode
   if (result.mode) {
     lines.push(`Mode: ${result.mode}`);

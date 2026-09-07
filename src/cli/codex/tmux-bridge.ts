@@ -48,6 +48,9 @@ const APPROVAL_PATTERNS: Array<string | RegExp> = [
   // v0.15x MCP tool approval: "Allow the apiary MCP server to run tool "x"?"
   /Allow the .+ MCP server to run tool/,
   "Allow for this session",
+  // Strings taken from the Codex binary itself rather than guessed.
+  "Allow Codex to run",
+  "Allow Codex to apply proposed code changes?",
   "enter to submit | esc to cancel",
 ];
 
@@ -64,7 +67,9 @@ const BLOCKED_PATTERNS: Array<string | RegExp> = [
   "Sign in with Device Code",
   "Provide your own API key",
   "Sign in to continue",
-  /You are running Codex in .+ Do you want to allow/,
+  // `[\s\S]` not `.`: the screen renders these on separate lines, and `.`
+  // does not cross a newline, so the original pattern never matched.
+  /You are running Codex in [\s\S]+Do you want to allow/,
   "Do you trust the files in this folder",
 ];
 

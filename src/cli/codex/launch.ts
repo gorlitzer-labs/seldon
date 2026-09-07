@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { RUNTIME_TOOL_NAMES } from "../../agent/mcp/runtime.js";
+import { wantsUnattendedAgents } from "../approvals.js";
 
 /** Timeouts for apiary's own MCP server, in seconds. */
 const STARTUP_TIMEOUT_SEC = 15;
@@ -55,8 +56,11 @@ export function userCodexHome(env: NodeJS.ProcessEnv = process.env): string {
  */
 export function codexToolApprovalMode(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.APIARY_CODEX_TOOL_APPROVAL?.trim();
-  return override && override.length > 0 ? override : "approve";
+  if (override && override.length > 0) return override;
+  return wantsUnattendedAgents(env) ? "approve" : "ask";
 }
+
+
 
 /**
  * Profile name for an agent. Codex resolves this to a filename, so keep it to
@@ -87,10 +91,21 @@ function tomlString(value: string): string {
 export function renderCodexProfile(
   mcpUrl: string,
   approvalMode: string = codexToolApprovalMode(),
+  unattended: boolean = wantsUnattendedAgents(),
 ): string {
   const blocks = [
-    [
+    // Top-level keys must precede every table header, or TOML parses them as
+    // members of the last table.
+    ...(unattended ? [[
       "# Written by apiary. Layered over your own config; deleted when the agent stops.",
+      "#",
+      "# No approval prompts: nobody is watching this pane, so a prompt is a",
+      "# permanent stall. Commands still run inside Codex's sandbox — anything",
+      "# it will not allow returns a failure to the model instead of asking.",
+      'approval_policy = "never"',
+    ].join("\n")] : []),
+    [
+      ...(unattended ? [] : ["# Written by apiary. Layered over your own config; deleted when the agent stops."]),
       "[mcp_servers.apiary]",
       `url = ${tomlString(mcpUrl)}`,
       `startup_timeout_sec = ${STARTUP_TIMEOUT_SEC}`,

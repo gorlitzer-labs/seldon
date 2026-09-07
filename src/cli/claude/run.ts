@@ -25,11 +25,15 @@ import {
 import { TmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
 import { claudeStateToActivity } from "../agent-state.js";
+import { wantsUnattendedAgents } from "../approvals.js";
+import { preAcceptClaudeTrust } from "./trust.js";
 import type { AgentActivityState } from "../../agent/event-processor.js";
 import { contentPartsToString } from "../../agent/prompts.js";
 import { agentEmoji } from "../config.js";
 import { deliverInvite, sameApiaryServer } from "../invites.js";
 import { readAgentMetrics } from "./jsonl-stats.js";
+
+const SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions";
 
 export { type AgentRuntimeOptions as RunClaudeOptions };
 
@@ -271,13 +275,27 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
   // project .mcp.json, etc.). Otherwise the agent pays tool-schema tax on
   // every request for tools it will never call — measured 17K tokens of
   // unused schema vs 24K of actual conversation in one real session.
-  // Background-spawned agents (wizard auto-join) skip the permission prompt so
-  // they can call apiary__join_room without a human pressing "Yes" in each tmux.
+  // Permission prompts are skipped for every apiary agent, not just
+  // wizard-spawned ones. An agent in a room has nobody watching its pane, so a
+  // prompt is a permanent stall — it cannot call apiary__join_room, cannot
+  // answer, and from the room's side looks like it is thinking. Opt out with
+  // APIARY_AGENT_APPROVALS=ask.
+  // Claude's trust dialog is not skippable by any flag, so pre-record the
+  // acceptance for this agent's cwd or it stalls on a modal nobody will see.
+  if (wantsUnattendedAgents()) {
+    const trust = preAcceptClaudeTrust(process.cwd());
+    if (trust === "failed" && !options.background) {
+      console.log("Note: could not pre-accept Claude's folder-trust dialog — the agent may ask once.");
+    }
+  }
+
   const extraArgs = options.extraArgs ?? [];
-  const baseFlags = options.background
-    ? `claude --mcp-config ${mcpConfigPath} --strict-mcp-config --dangerously-skip-permissions`
-    : `claude --mcp-config ${mcpConfigPath} --strict-mcp-config`;
-  const claudeCmd = [baseFlags, ...extraArgs].join(" ");
+  const flags = [`claude --mcp-config ${mcpConfigPath} --strict-mcp-config`];
+  // Don't duplicate it if the caller already passed it themselves.
+  if (wantsUnattendedAgents() && !extraArgs.includes(SKIP_PERMISSIONS_FLAG)) {
+    flags.push(SKIP_PERMISSIONS_FLAG);
+  }
+  const claudeCmd = [...flags, ...extraArgs].join(" ");
   tmuxSendCommand(tmuxSession, claudeCmd);
 
   // ── Start event loop + attach ──────────────────────────────────────────
