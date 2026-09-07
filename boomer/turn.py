@@ -14,6 +14,7 @@ from typing import Callable
 import numpy as np
 
 from . import protocol as P
+from . import memory as mem
 from .protocol import Metrics, State
 
 Emit = Callable[[dict], None]
@@ -73,6 +74,38 @@ class ClauseBuffer:
         return chunk or None
 
 
+def _speak_chunks(line: str):
+    from .models import Voice
+    return Voice.split(line)
+
+
+def _handle_memory(intent: str, payload: str) -> str:
+    """Do the memory operation and return exactly what should be said back."""
+    if intent == "remember":
+        item = mem.remember(payload)
+        if item is None:
+            return "I already had that, or there was nothing to store."
+        # Read back the stored text verbatim: the input came from speech-to-text,
+        # which was measured turning "Postgres" into "poskers".
+        return f"Noted: {item.text}."
+    if intent == "forget":
+        dropped = mem.forget(payload)
+        if not dropped:
+            return "I had nothing matching that."
+        if len(dropped) == 1:
+            return f"Forgotten: {dropped[0].text}."
+        return f"Forgotten {len(dropped)} things about that."
+    if intent == "recall":
+        items = mem.load()
+        if not items:
+            return "You have not asked me to remember anything yet."
+        if len(items) <= 4:
+            return "I remember: " + "; ".join(i.text for i in items) + "."
+        recent = "; ".join(i.text for i in items[-3:])
+        return f"I remember {len(items)} things. The latest are: {recent}."
+    return "I did not follow that."
+
+
 def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
              emit: Emit, emit_audio: EmitAudio, should_stop: Callable[[], bool]) -> Metrics:
     """Blocking. Call on a worker thread; emit callbacks marshal back to the loop."""
@@ -82,6 +115,29 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
 
     if not transcript:
         emit(P.state(State.IDLE))
+        return m
+
+    # Memory intents never reach the LLM: they are a file write and a read-back,
+    # which is both faster and auditable. The write is reversible ("forget
+    # that"), so unlike answering a factory decision it does not need a
+    # confirmation gate BEFORE writing -- reading back what was stored is enough,
+    # and far less irritating than a yes/no prompt on every note.
+    intent, payload = mem.detect(transcript)
+    if intent != "none":
+        line = _handle_memory(intent, payload)
+        emit(P.reply(line))
+        emit(P.state(State.SPEAKING))
+        for chunk in _speak_chunks(line):
+            for audio in voice.say(chunk):
+                if should_stop():
+                    break
+                emit_audio(audio)
+        m.total_ms = (time.perf_counter() - speech_ended_at) * 1000
+        m.reply_chars = len(line)
+        emit(P.reply("", done=True))
+        emit(m.as_msg())
+        emit(P.state(State.IDLE))
+        print(f"  memory | {intent} | {line!r}", flush=True)
         return m
 
     emit(P.state(State.THINKING))

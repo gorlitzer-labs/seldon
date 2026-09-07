@@ -172,9 +172,18 @@ class Brain:
         self._system_tokens = n
         self._prewarmed = True
 
+    def _system(self) -> str:
+        """System prompt plus anything she has been asked to remember.
+
+        This is prefilled into the KV cache at boot, so memories cost no
+        per-turn latency -- only a slightly longer one-off prefill.
+        """
+        from .memory import as_prompt
+        return SYSTEM + as_prompt()
+
     def _render(self, user: str) -> str:
         # Turn 1 carries the system prompt; later turns ride the retained cache.
-        msgs = ([{"role": "system", "content": SYSTEM}] if self._turns == 0 else []) + \
+        msgs = ([{"role": "system", "content": self._system()}] if self._turns == 0 else []) + \
                [{"role": "user", "content": user}]
         try:
             return self.tokenizer.apply_chat_template(
