@@ -146,7 +146,7 @@ npm run typecheck # tsc --noEmit
 All three CLI commands support `--headless` for scriptable, terminal-free operation:
 
 - `apiary serve --headless` — emits a single JSON line `{ serverUrl, publicUrl, roomName, adminToken, memberToken }` then runs silently. No banner, no logs.
-- `apiary join <url> --headless` — skips the TUI; streams raw `RoomEvent` JSON lines to stdout, reads messages from stdin (one line per send).
+- `apiary join <url> --headless` — skips the TUI; streams raw `RoomEvent` JSON lines to stdout, reads messages from stdin (one line per send). Writes `apiary: ready <room>` to stderr once its event stream is live, so a script can wait for that instead of sleeping and racing the subscription.
 - `apiary run claude --headless` — skips tmux; delivers formatted events as plain text to stdout. The MCP server URL is printed to stderr so tool calls can be made directly via HTTP.
 
 Together these make it possible to drive a full room scenario from a script: start a server, parse its tokens, connect an agent runtime, send messages as a human participant, and inspect what the agent received — all without a terminal or tmux. The `--headless` agent runtime runs the full stack (EventProcessor, SSE multiplexer, engagement engine, MCP server) with only the last-mile delivery swapped out.

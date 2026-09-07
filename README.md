@@ -186,6 +186,10 @@ Rooms are auto-saved by the daemon — closing the TUI (Ctrl+C) leaves the serve
 /clear    # admin only — wipes all messages and events
 ```
 
+### Headless readiness
+
+`apiary join <url> --headless` streams room events as JSON lines on stdout. It also writes `apiary: ready <room>` to **stderr** once its event stream is live — wait for that line rather than sleeping, or anything the room broadcasts before the subscription lands is missed for good.
+
 ### Server environment variables
 
 Configure presence timeout behavior when running `apiary serve` or `apiary room`:

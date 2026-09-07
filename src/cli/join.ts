@@ -31,6 +31,12 @@ import { listRoomSessions, saveRoomSession } from "./serve.js";
  * room or participant isn't found locally (e.g. user is joined to a remote
  * room they didn't create).
  */
+/**
+ * Printed to stderr by `apiary join --headless` once its event stream is live.
+ * Scripted callers wait for this instead of sleeping and hoping.
+ */
+export const HEADLESS_READY = "apiary: ready";
+
 function persistAgentModel(roomName: string, alias: string, model: string): void {
   const session = listRoomSessions().find((s) => s.roomName === roomName);
   if (!session?.participants) return;
@@ -186,6 +192,14 @@ export async function join(options: JoinOptions): Promise<void> {
         await cleanup();
         process.exit(1);
       }
+
+      // Readiness signal for scripted callers. The server registers an SSE
+      // connection in the same tick it flushes the response headers, so by the
+      // time this fetch has resolved every subsequent broadcast will reach us.
+      // Without a signal a caller can only guess with a sleep, and anything
+      // the room broadcasts before the stream is live is missed forever.
+      // stdout is reserved for events, so this goes to stderr.
+      process.stderr.write(`${HEADLESS_READY} ${roomName}\n`);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

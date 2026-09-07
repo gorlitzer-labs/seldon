@@ -10,6 +10,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { HEADLESS_READY } from "../src/cli/join.js";
 
 const CLI_PATH = resolve(__dirname, "../dist/cli/index.js");
 const NODE = process.execPath;
@@ -197,9 +198,17 @@ function joinHeadless(
     }
   });
 
-  // Wait a bit for connection to establish
+  // Wait for the client to report its event stream live, rather than sleeping
+  // and hoping. A fixed delay was the cause of a long-standing flake: on a
+  // loaded runner the SSE subscription can take well over half a second, and a
+  // room broadcast issued before it lands is missed forever, so the test then
+  // waits out its whole timeout for an event that will never arrive.
   return new Promise((resolve) => {
-    setTimeout(() => {
+    let settled = false;
+    const ready = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallback);
       resolve({
         process: child,
         events,
@@ -230,7 +239,17 @@ function joinHeadless(
           child.kill("SIGTERM");
         },
       });
-    }, 500);
+    };
+
+    const stderrLines = createInterface({ input: child.stderr!, terminal: false });
+    stderrLines.on("line", (line) => {
+      if (line.includes(HEADLESS_READY)) ready();
+    });
+
+    // Belt and braces: an older binary, or one that fails before the stream is
+    // up, must not hang the suite. Resolving late is a slow test; never
+    // resolving is a dead one.
+    const fallback = setTimeout(ready, 10_000);
   });
 }
 
@@ -1139,6 +1158,55 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
       body: Buffer.from("x"),
     });
     expect(res.status).toBe(403);
+  }, 15_000);
+
+  // ── Headless readiness ────────────────────────────────────────────────
+
+  test("headless join announces when its event stream is live", async () => {
+    // joinHeadless waits for this line. If it ever stops being emitted the
+    // helper silently falls back to a 10s timer and every SSE test goes back
+    // to racing the subscription — so assert it directly rather than letting
+    // the fallback paper over the regression.
+    const server = await startServer();
+    servers.push(server);
+
+    const child = spawn(NODE, [
+      CLI_PATH, "join", `${server.serverUrl}?token=${server.memberToken}`, "--headless", "--name", "Ready",
+    ], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env } });
+
+    try {
+      const line = await new Promise<string>((res, rej) => {
+        const timer = setTimeout(() => rej(new Error("no readiness line within 10s")), 10_000);
+        const rl = createInterface({ input: child.stderr!, terminal: false });
+        rl.on("line", (l) => {
+          if (l.includes(HEADLESS_READY)) { clearTimeout(timer); res(l); }
+        });
+      });
+
+      expect(line).toContain(HEADLESS_READY);
+      expect(line).toContain(server.roomName);
+    } finally {
+      child.stdin!.end();
+      child.kill("SIGTERM");
+    }
+  }, 15_000);
+
+  test("the readiness line goes to stderr, never into the stdout event stream", async () => {
+    // stdout is the event stream — a stray non-JSON line there would be
+    // silently swallowed by every consumer's JSON.parse.
+    const server = await startServer();
+    servers.push(server);
+
+    const charlie = await joinHeadless(server.serverUrl, server.memberToken, { name: "Charlie" });
+    clients.push(charlie);
+
+    const alice = await httpJoin(server.serverUrl, server.memberToken, { name: "Alice" });
+    await httpSend(server.serverUrl, alice.sessionToken, "hello");
+    await charlie.waitForEvent((e) => e.type === "MessageSent");
+
+    for (const event of charlie.events) {
+      expect(typeof event.type).toBe("string");
+    }
   }, 15_000);
 
   // ── Whisper / DM ──────────────────────────────────────────────────────
