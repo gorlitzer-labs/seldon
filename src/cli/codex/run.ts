@@ -25,7 +25,7 @@ import {
 import { CodexTmuxBridge } from "./tmux-bridge.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
 import { codexStateToActivity } from "../agent-state.js";
-import type { AgentActivityState } from "../../agent/event-processor.js";
+import { shouldReportActivity, type AgentActivityState } from "../../agent/event-processor.js";
 import { contentPartsToString } from "../../agent/prompts.js";
 import { agentEmoji } from "../config.js";
 import { deliverInvite, sameApiaryServer } from "../invites.js";
@@ -154,6 +154,7 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
   // identical to one that was thinking. Report what the pane actually shows.
   let lastActivityLabel: string | null = null;
   let lastState: AgentActivityState | undefined;
+  let lastReportAt = 0;
   const activityTimer: NodeJS.Timeout = setInterval(() => {
     let label: string | null;
     let state: AgentActivityState | undefined;
@@ -161,9 +162,20 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
       label = bridge.getActivityLabel();
       state = codexStateToActivity(bridge.detectState());
     } catch { return; }
-    if (label === lastActivityLabel && state === lastState) return;
+    // Re-send an unchanged state periodically, not just on change. The room
+    // server ages reported state out so a dead runtime does not pin a stale
+    // value — but with change-only reporting a settled agent stops reporting,
+    // ages out, and reads as "not reporting at all". Observed end-to-end: an
+    // idle agent's state vanished ~15s after it settled. One tiny POST per
+    // agent per interval is nothing next to being wrong about who is idle.
+    if (!shouldReportActivity({
+      label, state,
+      lastLabel: lastActivityLabel, lastState,
+      lastReportAt, now: Date.now(),
+    })) return;
     lastActivityLabel = label;
     lastState = state;
+    lastReportAt = Date.now();
     setup.processor.broadcastActivity(label, state).catch(() => { /* best-effort */ });
   }, 1500);
   activityTimer.unref();

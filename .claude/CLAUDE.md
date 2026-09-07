@@ -113,6 +113,7 @@ npx apiary stop [<name> | --all]                                                
 - `apiary__send_message(room, content, reply_to?, to?, attachments?)` — post a message; `to` takes participant display names for a whisper (DM), `attachments` is a list of `{ type, path|url, ... }` objects for files/images
 - `apiary__set_mode(room, mode)` — change own engagement mode
 - `apiary__ping(room, participant)` — ping for a status check (non-blocking)
+- `apiary__wait_for_agent(room, participant, until?, timeout_sec?)` — block until another agent is idle/blocked/working. Bounded (default 60s, max 120s) so it returns inside the client's tool timeout; returns `not-reporting` at once for a runtime that reports no state
 - `apiary__join_room(url, alias?, name?)` — join a new room mid-session (optional display name override)
 - `apiary__leave_room(room)` — leave a room
 - `apiary__admin__set_mode_for(room, participant, mode)` — admin only

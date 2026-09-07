@@ -22,6 +22,7 @@
 
 import { createServer } from "node:http";
 import { z } from "zod";
+import type { WaitTarget } from "../wait-for-agent.js";
 import type { RoomResolver, ToolHandlerOptions } from "../types.js";
 import type { AuthorityLevel } from "../../core/types.js";
 import { can } from "../../core/authority.js";
@@ -79,6 +80,12 @@ export interface RuntimeMcpServerOptions {
   onSetMode?: (room: string, mode: string) => Promise<{ success: boolean; error?: string }>;
   /** Called when the agent pings a participant for a status check. */
   onPing?: (room: string, participant: string) => Promise<{ success: boolean; error?: string }>;
+  onWaitForAgent?: (
+    room: string,
+    participant: string,
+    until?: WaitTarget,
+    timeoutSec?: number,
+  ) => Promise<{ success: boolean; message?: string; error?: string }>;
   /** Called for admin set-mode-for. */
   onAdminSetModeFor?: (room: string, participant: string, mode: string) => Promise<{ success: boolean; error?: string }>;
   /** Called for admin kick. */
@@ -176,6 +183,7 @@ export const RUNTIME_TOOL_NAMES = [
   "apiary__join_room",
   "apiary__leave_room",
   "apiary__ping",
+  "apiary__wait_for_agent",
   "apiary__admin__set_mode_for",
   "apiary__admin__mute",
   "apiary__admin__unmute",
@@ -359,6 +367,33 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
       return result.success
         ? textResult(`Pinged ${participant} in [${room}].`)
         : textResult(result.error ?? "Failed to ping participant.");
+    },
+  );
+
+  // ── apiary__wait_for_agent ─────────────────────────────────────────────
+  server.tool(
+    "apiary__wait_for_agent",
+    "Wait until another agent is idle (finished), blocked (needs a human), or working. "
+      + "Use this instead of re-reading the room in a loop to check on someone — polling costs a full turn each time, this costs one call. "
+      + "Returns as soon as they reach the state, or after the timeout with whatever state they're in; call again to keep waiting.",
+    {
+      room: z.string().describe("Room name"),
+      participant: z.string().describe("Agent to wait for"),
+      until: z.enum(["idle", "blocked", "working", "change"]).optional()
+        .describe("What to wait for. idle = they finished (default). blocked = they need a human. change = any state change."),
+      timeout_sec: z.number().optional()
+        .describe("How long to wait, in seconds. Default 60, max 120."),
+    },
+    { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    async (
+      { room, participant, until, timeout_sec }:
+      { room: string; participant: string; until?: WaitTarget; timeout_sec?: number },
+    ) => {
+      if (!opts.onWaitForAgent) return textResult("Waiting not supported.");
+      const result = await opts.onWaitForAgent(room, participant, until, timeout_sec);
+      return result.success
+        ? textResult(result.message ?? "Done.")
+        : textResult(result.error ?? "Failed to wait.");
     },
   );
 

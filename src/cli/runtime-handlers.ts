@@ -19,6 +19,12 @@ import { RemoteRoomDataSource } from "../agent/remote-room-data-source.js";
 import { EventProcessor } from "../agent/event-processor.js";
 import { SseMultiplexer } from "../agent/sse-multiplexer.js";
 import { buildCatchUpLines } from "../agent/tool-handlers.js";
+import {
+  waitForAgent,
+  describeOutcome,
+  type AgentWaitState,
+  type WaitTarget,
+} from "../agent/wait-for-agent.js";
 import { type EngagementMode } from "../agent/engagement.js";
 import type { Participant, AuthorityLevel } from "../core/types.js";
 import type { RuntimeMcpServerOptions, JoinRoomResult } from "../agent/mcp/runtime.js";
@@ -101,6 +107,48 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
         // Server unreachable, local mode still set
       }
       return { success: true };
+    },
+
+    /**
+     * Wait for another agent to reach a state, by polling the room server's
+     * participant list. Two seconds of HTTP is far cheaper than the LLM turn
+     * the agent would otherwise spend re-reading the room to check.
+     */
+    onWaitForAgent: async (room, participant, until, timeoutSec) => {
+      const conn = processor.resolve(room);
+      if (!conn) return { success: false, error: `Unknown room "${room}".` };
+      const ds = conn.dataSource as RemoteRoomDataSource;
+      const target = conn.dataSource.listParticipants().find((pp) => pp.name === participant);
+      if (!target) return { success: false, error: `Unknown participant "${participant}".` };
+      if (target.id === conn.dataSource.selfId) {
+        return { success: false, error: "You cannot wait for yourself." };
+      }
+
+      const readState = async (): Promise<AgentWaitState> => {
+        try {
+          const res = await fetch(`${ds.serverUrl}/participants`, {
+            headers: { Authorization: `Bearer ${ds.sessionToken}` },
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (!res.ok) return "unknown";
+          const data = (await res.json()) as {
+            participants?: Array<{ id: string; agentState?: string }>;
+          };
+          const found = data.participants?.find((pp) => pp.id === target.id);
+          const state = found?.agentState;
+          return state === "idle" || state === "working" || state === "blocked" ? state : "unknown";
+        } catch {
+          // A transient failure must not read as a state change.
+          return "unknown";
+        }
+      };
+
+      const outcome = await waitForAgent({
+        readState,
+        until,
+        timeoutMs: timeoutSec === undefined ? undefined : timeoutSec * 1000,
+      });
+      return { success: true, message: describeOutcome(participant, until ?? "idle", outcome) };
     },
 
     onPing: async (room, participant) => {

@@ -306,6 +306,7 @@ Agents get these tools automatically when using `apiary mcp`, `apiary claude`, o
 | `apiary__search_by_message(room, ref)` | Scroll around a message |
 | `apiary__set_mode(room, mode)` | Change own engagement mode |
 | `apiary__ping(room, participant)` | Ping for an immediate status check |
+| `apiary__wait_for_agent(room, participant, until?, timeout_sec?)` | Wait until another agent is `idle`, `blocked` or `working` — one call instead of a turn spent re-reading the room |
 | `apiary__leave_room(room)` | Leave a room |
 | `apiary__admin__kick(room, participant)` | Admin: remove participant |
 | `apiary__admin__mute(room, participant)` | Admin: demote to guest |

@@ -70,6 +70,36 @@ function mergeParts(arrays: ContentPart[][]): ContentPart[] {
  */
 export type AgentActivityState = "idle" | "working" | "blocked";
 
+/**
+ * Re-report an unchanged agent state at least this often.
+ *
+ * Must stay comfortably under the room server's state TTL, or a settled agent
+ * ages out and looks like one that reports nothing.
+ */
+export const ACTIVITY_REPORT_MIN_MS = 10_000;
+
+/**
+ * Should the runtime push its activity to the room now?
+ *
+ * Yes on any change, and yes when the last report has gone stale even if
+ * nothing changed. Reporting only on change looked right and was wrong: the
+ * room ages reported state out so a dead runtime cannot pin a stale value, so
+ * a settled agent stopped reporting, aged out, and read as "reports no state
+ * at all" — observed end-to-end roughly 15s after an agent went idle.
+ */
+export function shouldReportActivity(opts: {
+  label: string | null;
+  state: AgentActivityState | undefined;
+  lastLabel: string | null;
+  lastState: AgentActivityState | undefined;
+  lastReportAt: number;
+  now: number;
+  minIntervalMs?: number;
+}): boolean {
+  if (opts.label !== opts.lastLabel || opts.state !== opts.lastState) return true;
+  return opts.now - opts.lastReportAt > (opts.minIntervalMs ?? ACTIVITY_REPORT_MIN_MS);
+}
+
 export class EventProcessor implements RoomResolver {
   private _participantId: string;
   private _participantName: string;

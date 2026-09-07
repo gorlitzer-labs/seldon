@@ -295,12 +295,34 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   }
 
   /** Current participants as the summary shape returned by /participants + /join. */
+  /**
+   * Last agent state reported by each runtime, and when.
+   *
+   * The state was previously only broadcast, never kept, so nothing could ask
+   * "is that agent blocked?" — which is what an agent needs in order to wait
+   * for another one instead of re-reading the room on a loop.
+   */
+  const agentStates = new Map<string, { state: string; at: number }>();
+
+  /** How long a reported state is trusted. Runtimes heartbeat every ~1.5s. */
+  const AGENT_STATE_TTL_MS = 15_000;
+
+  function agentStateFor(participantId: string): string | undefined {
+    const entry = agentStates.get(participantId);
+    if (!entry) return undefined;
+    // A dead runtime must read as unknown rather than pinning whatever it last
+    // said — otherwise a waiter blocks forever on a state that will never change.
+    return Date.now() - entry.at < AGENT_STATE_TTL_MS ? entry.state : undefined;
+  }
+
   function participantSummaries() {
     return room.listParticipants().map((p) => ({
       id: p.id,
       name: p.name,
       type: p.type,
       authority: p.authority ?? "member",
+      /** "idle" | "working" | "blocked", or absent if the runtime doesn't report. */
+      agentState: agentStateFor(p.id),
     }));
   }
 
@@ -1045,6 +1067,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         const state = rawState === "idle" || rawState === "working" || rawState === "blocked"
           ? rawState
           : undefined;
+        if (state) agentStates.set(p.id, { state, at: Date.now() });
         await p.channel.emit(createEvent<ActivityEvent>({
           type: "Activity",
           category: "ACTIVITY",
