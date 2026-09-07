@@ -77,10 +77,26 @@ function printUsage(stream: typeof console.log = console.log): void {
   stream(row(`${C}apiary room resume ${Y}<name>${R}`, "Rejoin your workspace"));
   stream(row(`${C}apiary room list${R}`, "List your workspaces"));
   stream("");
+  stream(`  ${G}${B}Who can reach the room${R}`);
+  stream(row(`${D}--bind ${Y}tailscale${R}`, "Your devices anywhere, via Tailscale — not the local network"));
+  stream(row(`${D}--bind ${Y}lan${R}`, "Anyone on the same wifi"));
+  stream(row(`${D}--share${R}`, "A public cloudflared URL, for people off your tailnet"));
+  stream(`      ${D}room create asks this if you don't pass it. Default: this machine only.${R}`);
+  stream("");
   stream(`  ${G}${B}Participants${R}  ${D}(each person connects their own agents)${R}`);
   stream(row(`${C}apiary join ${Y}<url>${R} ${D}[${Y}<name>${R}${D}]${R}`, "Join a workspace"));
   stream(row(`${C}apiary claude ${Y}<name>${R} ${D}[--admin]${R}`, "Connect Claude Code to the room"));
   stream(row(`${C}apiary codex ${Y}<name>${R} ${D}[--admin]${R}`, "Connect Codex to the room"));
+  stream(row(`${D}--mode ${Y}standby${R}`, "Quiet until @mentioned, pinged or whispered to"));
+  stream(`      ${D}In room create, suffix the alias instead: ${R}${C}bee:standby${R}${D}. The first agent${R}`);
+  stream(`      ${D}listens to everything, the rest go standby — one remark, one reply.${R}`);
+  stream("");
+  stream(`  ${G}${B}In the room${R}`);
+  stream(row(`${C}/watch ${Y}<agent>${R}`, "Open that agent's terminal in a new window (Ctrl+<n> too)"));
+  stream(row(`${C}/setmode ${Y}<agent> <mode>${R}`, "Change who an agent listens to, live"));
+  stream(row(`${C}/ping ${Y}<agent>${R}`, "Ask for a one-line status"));
+  stream(`      ${D}The strip shows each agent as ✓ idle, … working, or ⏸ needs you —${R}`);
+  stream(`      ${D}"needs you" means it is stuck on something only you can clear.${R}`);
   stream("");
   stream(row(`${C}apiary ps${R}`, "List active rooms + agents"));
   stream(row(`${C}apiary stop ${D}[${Y}<name>${R}${D} | --all]${R}`, "Stop agents + rooms"));
@@ -107,6 +123,7 @@ function printExamples(): void {
   log(`  ${G}${B}Create a workspace${R}`);
   log(`    ${C}apiary room create${R}                        ${D}# guided setup — name it, invite participants${R}`);
   log(`    ${C}apiary room ${Y}sprint-42${R}                    ${D}# quick start — host + join immediately${R}`);
+  log(`    ${C}apiary room ${Y}sprint-42${R} ${D}--bind tailscale${R}     ${D}# reachable from your phone, over Tailscale only${R}`);
   log(`    ${C}apiary room ${Y}sprint-42${R} ${D}--share${R}              ${D}# same, with a public tunnel URL${R}`);
   log(`    ${D}Ctrl+C leaves the server running — rejoin anytime:${R}`);
   log(`    ${C}apiary room resume ${Y}sprint-42${R}`);
@@ -118,6 +135,7 @@ function printExamples(): void {
   log(`    ${C}apiary join ${Y}<url>${R} ${D}--guest${R}               ${D}# join read-only${R}`);
   log(`    ${C}apiary claude ${Y}Cleo${R} ${D}--admin${R}               ${D}# connect your Claude Code agent${R}`);
   log(`    ${C}apiary codex ${Y}Rex${R}                        ${D}# connect your Codex agent${R}`);
+  log(`    ${C}apiary codex ${Y}Rex${R} ${D}--mode standby${R}         ${D}# quiet until @mentioned, pinged or whispered${R}`);
   log(`    ${D}Tell your agent the room URL — it joins via apiary__join_room.${R}`);
   log("");
 
@@ -134,6 +152,7 @@ function printExamples(): void {
   // ── TUI commands
   log(`  ${G}${B}TUI commands${R}`);
   log(`    ${C}/who${R}              ${D}list participants with their roles${R}`);
+  log(`    ${C}/watch ${Y}<name>${R}     ${D}open that agent's terminal in a new window (or Ctrl+<n>)${R}`);
   log(`    ${C}/ping ${Y}<name>${R}      ${D}ping for a status check${R}`);
   log(`    ${C}/setmode ${Y}<n> <m>${R}  ${D}set engagement mode (admin / product owner)${R}`);
   log(`    ${C}/share${R}            ${D}generate share links${R}`);
