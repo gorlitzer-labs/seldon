@@ -6,6 +6,7 @@ import { factoryNew } from "./new.mjs";
 import { factoryWatch } from "./watch.mjs";
 import { factoryBoard, factoryLs } from "./board.mjs";
 import { factoryDecide, factoryBriefing } from "./decide.mjs";
+import { factoryState } from "./state.mjs";
 
 const argv = process.argv.slice(2);
 const [cmd, ...rest] = argv;
@@ -39,6 +40,7 @@ function help() {
     `        Live control panel: every hive's queue, lanes, done, drift, blockers,`,
     `        and the decisions pending your call.`,
     "",
+    `  ${c.cyan("state")} [--compact]            Everything board shows, as JSON (read-only)`,
     `  ${c.cyan("decide")} <id> "<your call>"    Answer a pending decision (posts it to the hive)`,
     `  ${c.cyan("briefing")}                     Print the accumulating morning briefing`,
   ].join("\n"));
@@ -50,6 +52,7 @@ try {
     case "new": await factoryNew(pos.join(" ").trim(), flags); break;
     case "watch": await factoryWatch(pos[0], flags); break;
     case "board": await factoryBoard(flags); break;
+    case "state": await factoryState(flags); break;
     case "ls": factoryLs(); break;
     case "decide": await factoryDecide(pos[0], pos.slice(1)); break;
     case "briefing": await factoryBriefing(); break;
