@@ -29,6 +29,7 @@ from .models import Brain, Ears, Voice
 from .runtime import load_all
 from .protocol import HTTP_PORT, WS_PORT, State
 from .turn import run_turn
+from .record import record_utterance
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
 worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="boomer-gpu")
@@ -48,6 +49,7 @@ class Session:
         self.busy = False          # a turn is running
         self.stop_flag = False
         self.speech_ended_at = 0.0
+        self.last_utterance = None
 
     # --- emitting back to the page (called from the worker thread) ---
     def emit(self, message: dict) -> None:
@@ -81,6 +83,7 @@ class Session:
                 self.emit(P.state(State.IDLE))
             elif kind == "end":
                 self.speech_ended_at = time.perf_counter()
+                self.last_utterance = self.ep.utterance_audio()
                 await self.start_turn()
 
     async def start_turn(self) -> None:
@@ -90,6 +93,7 @@ class Session:
         try:
             transcript = await loop.run_in_executor(worker, ears.close)
             self.emit(P.transcript(transcript, final=False))
+            record_utterance(self.last_utterance, transcript)
             await loop.run_in_executor(worker, functools.partial(
                 run_turn, ears, brain, voice,
                 transcript=transcript, speech_ended_at=self.speech_ended_at,

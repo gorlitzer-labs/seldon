@@ -39,3 +39,4 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P2) Have the LLM repair mangled transcripts before the router acts. Published work on accented-ASR errors recommends LLM-based remedies, and a 35B model is already in the loop.
 - [ ] (P2) Qwen3-ASR appears to worsen LLM TTFT (445 -> 611 ms), likely more GPU eviction than Parakeet caused. Try more settle rounds or interleaving the models differently.
 - [ ] (P1) Verify the accent improvement with David's own voice, A/B via BOOMER_STT. The published accent numbers are from benchmarks; the synthetic TTS fixtures used here cannot test a real accent.
+- [ ] (P1) Never launch a benchmark or smoke test while the server is running. The lock now enforces it, but scripts should also fail fast with a clear message rather than being started at all.

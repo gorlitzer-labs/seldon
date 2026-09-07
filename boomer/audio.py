@@ -34,6 +34,7 @@ class Endpointer:
 
     def reset(self) -> None:
         self.model.reset_states()
+        self.utterance: list[np.ndarray] = []   # audio since 'start', for recording/turn models
         self._tail = np.zeros(0, dtype=np.float32)
         self._speech_run = 0
         self._silence_run = 0
@@ -57,10 +58,12 @@ class Endpointer:
                     self.active = True
                     self._silence_run = 0
                     self._voiced_frames = self._speech_run
+                    self.utterance = [frame]
                     events.append(("start", frame))
                 continue
 
             events.append(("audio", frame))
+            self.utterance.append(frame)
             self._voiced_frames += 1
             self._silence_run = 0 if voiced else self._silence_run + 1
             if self._silence_run >= self.hangover_frames:
@@ -73,6 +76,9 @@ class Endpointer:
                     events.append(("abort", frame))
         self._tail = buf[n:]
         return events
+
+    def utterance_audio(self) -> np.ndarray:
+        return np.concatenate(self.utterance) if self.utterance else np.zeros(0, dtype=np.float32)
 
     @property
     def hangover_ms(self) -> float:

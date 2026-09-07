@@ -15,6 +15,10 @@ Both the server and the smoke test load through here so they cannot drift apart.
 """
 from __future__ import annotations
 
+import atexit
+import os
+import pathlib
+import tempfile
 import time
 
 import mlx.core as mx
@@ -22,21 +26,84 @@ import mlx.core as mx
 from .models import Brain, Ears, Voice
 
 GB = 1 << 30
-WIRED_GB = 24      # working set is ~21.5 GB; headroom without starving macOS
 CACHE_GB = 4
+LOCK = pathlib.Path(tempfile.gettempdir()) / "boomer-models.lock"
+
+
+def _physical_gb() -> float:
+    return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / GB
+
+
+def wired_gb() -> float:
+    """Cap wired memory at 60% of RAM.
+
+    Wired memory cannot be paged out. An earlier hardcoded 24 GB was 67% of this
+    36 GB machine, which is survivable for ONE process and fatal for two: running
+    a benchmark while the server was loaded asked for 48 GB of non-pageable
+    memory on a 36 GB box with no swap, and hung the machine hard enough to need
+    a power cycle. The lock below is the real fix; this is the second seatbelt.
+    """
+    return round(_physical_gb() * 0.60, 1)
 
 
 def configure_memory() -> str:
+    w = wired_gb()
     try:
-        mx.set_wired_limit(int(WIRED_GB * GB))
+        mx.set_wired_limit(int(w * GB))
         mx.set_cache_limit(int(CACHE_GB * GB))
-        return f"wired {WIRED_GB} GB, cache {CACHE_GB} GB"
+        return f"wired {w} GB of {_physical_gb():.0f} GB, cache {CACHE_GB} GB"
     except Exception as e:                       # non-fatal: just slower
         return f"could not set memory limits ({type(e).__name__}: {e})"
 
 
+def _holder() -> int | None:
+    """PID currently holding the model lock, if it is still alive."""
+    try:
+        pid = int(LOCK.read_text().strip())
+    except Exception:
+        return None
+    try:
+        os.kill(pid, 0)          # signal 0 = liveness probe, does not kill
+        return pid
+    except OSError:
+        return None              # stale lock from a process that died
+
+
+def acquire_models_lock() -> None:
+    """Refuse to load a second copy of the models on this machine.
+
+    Boomer's working set is ~20.5 GB of a 36 GB machine. Two processes holding
+    it do not merely thrash -- with MLX wired limits set they exhausted
+    non-pageable memory and hung the Mac, which is exactly how the first crash
+    happened (a benchmark launched while the server was running).
+
+    Set BOOMER_ALLOW_MULTI=1 only if you genuinely have the headroom.
+    """
+    if os.environ.get("BOOMER_ALLOW_MULTI", "").lower() in {"1", "true", "yes"}:
+        return
+    pid = _holder()
+    if pid is not None:
+        raise RuntimeError(
+            f"another Boomer process (pid {pid}) already has the models loaded.\n"
+            f"  Loading a second copy needs ~{2 * 20.5:.0f} GB on a "
+            f"{_physical_gb():.0f} GB machine and will hang it.\n"
+            f"  Stop it first:  kill {pid}\n"
+            f"  Override (only with real headroom):  BOOMER_ALLOW_MULTI=1")
+    LOCK.write_text(str(os.getpid()))
+    atexit.register(release_models_lock)
+
+
+def release_models_lock() -> None:
+    try:
+        if LOCK.exists() and LOCK.read_text().strip() == str(os.getpid()):
+            LOCK.unlink()
+    except Exception:
+        pass
+
+
 def load_all(verbose: bool = True) -> tuple[Ears, Brain, Voice]:
     say = print if verbose else (lambda *a, **k: None)
+    acquire_models_lock()          # before any weights are touched
     say(f"memory: {configure_memory()}", flush=True)
     t0 = time.perf_counter()
     from .models import STT_BACKEND

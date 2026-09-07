@@ -7,3 +7,4 @@ models/
 .playwright-mcp/
 spikes/*.wav
 transcript.txt
+recordings/
