@@ -1,244 +1,193 @@
-// Boomer's face: a volumetric scan-line figure.
+// Boomer's presence: a reactive core, not a body.
 //
-// There is no rigged model to drive, so the figure is procedural: a humanoid
-// radius profile sampled into stacked contour rings, with a scan plane sweeping
-// through it. That reads as a hologram the way a medical scan does, needs no
-// asset, and every parameter is something real state can drive.
+// The first version was a humanoid wireframe, borrowed from the Reddit build
+// that inspired this project. That was the wrong idea twice over: he wanted a
+// specific character and had a rigged model, and a mannequin at low fidelity
+// reads as uncanny rather than alive. A voice assistant has no body -- JARVIS,
+// Siri and Alexa are all reactive geometry, because what needs representing is
+// attention, thought and speech, not anatomy.
 //
-// It is a pure consumer of the protocol in boomer/protocol.py -- it knows the
-// four states and an audio level, nothing else. It cannot affect a turn.
+// So: an iris that dilates, a spectrum ring driven by real audio, and orbital
+// rings whose motion encodes state. Every element is tied to something true --
+// nothing here is decoration that moves on a timer for its own sake.
 //
-// three.js is vendored in web/vendor/, not loaded from a CDN: a CDN would break
-// the loopback-only property and fail with the network off.
+// three.js is vendored in web/vendor/, not CDN-loaded: a CDN would break the
+// loopback-only property and fail with the network off.
 
 import * as THREE from './vendor/three.module.js';
 
-// The figure is a wireframe mannequin: horizontal contour rings tied together
-// by longitudinal lines. Three earlier attempts and one screenshot taught the
-// constraints:
-//
-//   * A single body of revolution has no limbs -- it reads as a robed column.
-//   * POINTS are the wrong primitive. Ring points bunch at the silhouette and
-//     go sparse across the face, so a torso renders as a dark mass with a bright
-//     rim, and thin arms become ladder rungs. Contours want to be LINES.
-//   * Proportions have to come from the figure canon, not from taste. Legs at
-//     radius 0.06 over 1.38 units are 1:23 and read as a stalk.
-//
-// So: lines, and the classical 7.5-head canon. All values below are fractions of
-// total height, which is what makes them checkable against the canon.
+const BARS = 96;            // spectrum ring resolution
+const IRIS_RINGS = 5;
+const RING_SEG = 180;       // smoothness of a circle
 
-const FIGURE_HEIGHT = 2.55;
-const SEG = 30;             // points around each ring
-const LONGS = 10;           // longitudinal lines tying the rings together
-
-// Vertical landmarks as fractions of total height (feet 0 -> crown 1).
-const Y = {
-  foot: 0.00, ankle: 0.045, calf: 0.16, knee: 0.265, thigh: 0.37,
-  crotch: 0.47, hip: 0.515, waist: 0.60, chest: 0.70, shoulder: 0.795,
-  neck: 0.835, chin: 0.865, eyes: 0.925, crown: 1.00,
-  wrist: 0.475, elbow: 0.615,
-};
-
-// [y, radius] -- radius also as a fraction of height, so proportions hold at
-// any scale. Shoulder radius 0.105 gives a breadth of ~2 head widths.
-const TORSO = [
-  [Y.crotch, 0.098], [Y.hip, 0.104], [Y.waist, 0.080],
-  [Y.chest, 0.098], [Y.shoulder, 0.105],
-  [Y.neck, 0.040], [Y.chin, 0.036],
-  [Y.eyes, 0.062], [0.965, 0.058], [Y.crown, 0.030],
-];
-const LEG = [
-  [Y.foot, 0.030], [Y.ankle, 0.024], [Y.calf, 0.040],
-  [Y.knee, 0.033], [Y.thigh, 0.046], [Y.crotch, 0.052],
-];
-const ARM = [
-  [0.455, 0.017], [Y.wrist, 0.016], [0.545, 0.021],
-  [Y.elbow, 0.024], [0.72, 0.031], [Y.shoulder, 0.036],
-];
-
-const PARTS = [
-  { profile: TORSO, dx: 0.000, rings: 26, squash: 0.62 },
-  { profile: LEG,   dx: -0.048, rings: 14, squash: 0.92 },
-  { profile: LEG,   dx: 0.048, rings: 14, squash: 0.92 },
-  { profile: ARM,   dx: -0.122, rings: 12, squash: 0.92 },
-  { profile: ARM,   dx: 0.122, rings: 12, squash: 0.92 },
-];
-
-function sampleProfile(profile, y) {
-  const lo = profile[0], hi = profile[profile.length - 1];
-  if (y <= lo[0]) return lo[1];
-  if (y >= hi[0]) return hi[1];
-  for (let i = 0; i < profile.length - 1; i++) {
-    const [a, r0] = profile[i], [b, r1] = profile[i + 1];
-    if (y >= a && y <= b) {
-      const k = (y - a) / (b - a || 1);
-      return r0 + (r1 - r0) * (k * k * (3 - 2 * k));
-    }
-  }
-  return hi[1];
-}
-
-/** Ring vertex at part-local height y and angle a. */
-function vertex(part, y, a) {
-  const r = sampleProfile(part.profile, y);
-  return [part.dx + Math.cos(a) * r, y * FIGURE_HEIGHT, Math.sin(a) * r * part.squash];
-}
-
-const VERT = `
-  uniform float uTime, uScan, uBreath, uAgitation, uLevel;
-  attribute float aT;
-  varying float vGlow;
-  varying float vT;
-
-  void main() {
-    vT = aT;
-    vec3 p = position;
-
-    // Breathing: the chest expands, the limbs barely move.
-    float chest = smoothstep(0.58, 0.78, aT) * (1.0 - smoothstep(0.78, 0.86, aT));
-    p.xz *= 1.0 + uBreath * chest * 0.13;
-
-    // Speaking pushes the head and jaw, driven by real playback audio.
-    float head = smoothstep(0.85, 0.98, aT);
-    p.xz *= 1.0 + uLevel * head * 0.34;
-
-    // Thinking shears the figure very slightly, like a settling hologram.
-    float tw = sin(aT * 7.0 + uTime * 2.0) * uAgitation * 0.035;
-    p.x += tw; p.z += tw * 0.5;
-
-    // The scan plane travelling up the body.
-    float d = abs(aT - uScan);
-    vGlow = exp(-d * d * 420.0);
-    p.xz *= 1.0 + vGlow * 0.03;
-
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-  }`;
-
-const FRAG = `
-  precision mediump float;
-  uniform vec3 uColor, uScanColor;
-  uniform float uOpacity;
-  varying float vGlow;
-  varying float vT;
-
-  void main() {
-    // Dissolve the extremities so she fades rather than being cut off.
-    float ends = smoothstep(0.0, 0.05, vT) * (1.0 - smoothstep(0.97, 1.02, vT));
-    vec3 col = mix(uColor, uScanColor, clamp(vGlow * 1.2, 0.0, 1.0));
-    float a = uOpacity * ends * (0.34 + vGlow * 0.66);
-    gl_FragColor = vec4(col, a);
-  }`;
-
+// `base` is the identity of a state and carries the bright elements. `hot` is
+// only reached on an audio peak. An earlier version had this inverted -- near
+// white on the iris and spectrum, saturation only on the faint outer rings --
+// which is exactly why the whole thing read as grey.
 const PALETTE = {
-  idle:      { color: 0x1f5f7a, scan: 0x9fe8ff, opacity: 0.62, agitation: 0.0, scanSpeed: 0.10 },
-  listening: { color: 0x2f9f74, scan: 0xd6ffe8, opacity: 1.00, agitation: 0.05, scanSpeed: 0.32 },
-  thinking:  { color: 0xb08a2a, scan: 0xffe9b8, opacity: 0.95, agitation: 1.0,  scanSpeed: 0.70 },
-  speaking:  { color: 0x2b8fc4, scan: 0xdff4ff, opacity: 1.00, agitation: 0.22, scanSpeed: 0.42 },
-  busy:      { color: 0x8a3346, scan: 0xffc2ce, opacity: 0.45, agitation: 0.0,  scanSpeed: 0.05 },
-  offline:   { color: 0x2b3540, scan: 0x53687d, opacity: 0.30, agitation: 0.0,  scanSpeed: 0.03 },
+  offline:   { base: 0x35506b, hot: 0x8fb4d6, iris: 0.30, spin: 0.05, glow: 0.35 },
+  idle:      { base: 0x1FA8D8, hot: 0xd8f4ff, iris: 0.46, spin: 0.16, glow: 0.80 },
+  listening: { base: 0x18E08A, hot: 0xd8fff0, iris: 0.80, spin: 0.34, glow: 1.00 },
+  thinking:  { base: 0xFFB020, hot: 0xfff0cf, iris: 0.55, spin: 1.05, glow: 1.00 },
+  speaking:  { base: 0x35C8FF, hot: 0xf0fbff, iris: 0.66, spin: 0.42, glow: 1.00 },
+  busy:      { base: 0xFF4D6D, hot: 0xffd0da, iris: 0.24, spin: 0.04, glow: 0.55 },
 };
+
+/** Resample FFT bins onto the half-ring, log-ish because speech energy bunches
+ *  low and a linear sweep leaves most bars flat. */
+function resample(bins) {
+  if (!bins || !bins.length) return null;
+  const half = Math.floor(BARS / 2);
+  const out = new Uint8Array(BARS);
+  for (let i = 0; i < half; i++) {
+    const f = Math.pow(i / half, 1.7);
+    out[i] = bins[Math.min(bins.length - 1, Math.floor(f * bins.length * 0.7))];
+  }
+  return out;
+}
+
+// WebGL clamps line width to 1 physical pixel on essentially every platform --
+// LineBasicMaterial.linewidth is silently ignored. Hairlines at devicePixelRatio
+// 2 antialias down to a grey smear, which is why earlier versions looked washed
+// out no matter how the colours were tuned. Everything visible is therefore a
+// mesh with a real stroke width.
+function ringMesh(radius, width, segments = RING_SEG) {
+  return new THREE.RingGeometry(radius - width / 2, radius + width / 2, segments);
+}
+
+/** A buffer of `count` quads, written each frame as radial bars. */
+function barBuffer(count) {
+  const pos = new Float32Array(count * 6 * 3);      // 2 triangles per bar
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  return { pos, geo };
+}
+
+/** Write one bar as a quad from r0 to r1 at angle a, `w` wide. */
+function writeBar(pos, i, a, r0, r1, w) {
+  const ca = Math.cos(a), sa = Math.sin(a);
+  const nx = -sa * w / 2, ny = ca * w / 2;          // perpendicular
+  const ax = ca * r0, ay = sa * r0, bx = ca * r1, by = sa * r1;
+  const v = [ax - nx, ay - ny, ax + nx, ay + ny, bx + nx, by + ny,
+             ax - nx, ay - ny, bx + nx, by + ny, bx - nx, by - ny];
+  for (let k = 0; k < 6; k++) {
+    pos[i * 18 + k * 3] = v[k * 2];
+    pos[i * 18 + k * 3 + 1] = v[k * 2 + 1];
+    pos[i * 18 + k * 3 + 2] = 0;
+  }
+}
 
 export function createAvatar(canvas) {
+  // Opaque, not alpha:true. Additive blending never accumulates into the alpha
+  // channel, so a transparent canvas composites the glow against the page and
+  // mutes it to grey. Clearing to the page colour instead lets additive light
+  // build against a real black.
   const renderer = new THREE.WebGLRenderer({
-    canvas, alpha: true, antialias: true,
-    // Only so a headless check can read the framebuffer back.
-    preserveDrawingBuffer: true,
+    canvas, alpha: false, antialias: true, preserveDrawingBuffer: true,
   });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setClearColor(0x070a0e, 1);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
-  // Framed so she fills the canvas: an earlier build left her small and lost in
-  // empty space, which flattened everything.
-  const mid = FIGURE_HEIGHT * 0.52;
-  camera.position.set(0, mid + 0.10, 4.45);
-  camera.lookAt(0, mid, 0);
+  // Orthographic: this is an instrument read head-on, not an object in a room.
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+  camera.position.z = 3;
 
-  // --- the figure: contour rings + longitudinal lines ---------------------
-  const verts = [], ts = [];
-  const seg = (a, b) => {
-    verts.push(a[0], a[1], a[2], b[0], b[1], b[2]);
-    ts.push(a[1] / FIGURE_HEIGHT, b[1] / FIGURE_HEIGHT);
-  };
-  for (const part of PARTS) {
-    const y0 = part.profile[0][0], y1 = part.profile[part.profile.length - 1][0];
-    const ys = [];
-    for (let i = 0; i < part.rings; i++) {
-      ys.push(y0 + (y1 - y0) * (i / (part.rings - 1)));
-    }
-    // rings
-    for (const y of ys) {
-      for (let j = 0; j < SEG; j++) {
-        const a0 = (j / SEG) * Math.PI * 2, a1 = ((j + 1) / SEG) * Math.PI * 2;
-        seg(vertex(part, y, a0), vertex(part, y, a1));
-      }
-    }
-    // longitudinals: without these the rings float as separate hoops
-    for (let k = 0; k < LONGS; k++) {
-      const a = (k / LONGS) * Math.PI * 2;
-      for (let i = 0; i < ys.length - 1; i++) {
-        seg(vertex(part, ys[i], a), vertex(part, ys[i + 1], a));
-      }
-    }
+  const root = new THREE.Group();
+  scene.add(root);
+
+  const col = { base: new THREE.Color(PALETTE.offline.base),
+                hot: new THREE.Color(PALETTE.offline.hot) };
+
+  // --- iris: concentric rings that dilate with attention -------------------
+  const iris = [];
+  for (let i = 0; i < IRIS_RINGS; i++) {
+    const r = 0.16 + i * 0.052;
+    const mat = new THREE.MeshBasicMaterial({
+      color: col.hot.clone(), transparent: true, opacity: 0.9 - i * 0.13,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const line = new THREE.Mesh(ringMesh(r, 0.007 + (IRIS_RINGS - i) * 0.0022), mat);
+    root.add(line);
+    iris.push({ line, mat, r0: r, phase: i * 0.7 });
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  geo.setAttribute('aT', new THREE.Float32BufferAttribute(ts, 1));
 
-  const uniforms = {
-    uTime: { value: 0 }, uScan: { value: 0 }, uBreath: { value: 0 },
-    uAgitation: { value: 0 }, uLevel: { value: 0 },
-    uColor: { value: new THREE.Color(PALETTE.offline.color) },
-    uScanColor: { value: new THREE.Color(PALETTE.offline.scan) },
-    uOpacity: { value: PALETTE.offline.opacity },
-  };
-  const mat = new THREE.ShaderMaterial({
-    uniforms, vertexShader: VERT, fragmentShader: FRAG,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  // --- core: a filled disc that carries the audio level --------------------
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: col.hot.clone(), transparent: true, opacity: 0.35,
+    blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  const figure = new THREE.LineSegments(geo, mat);
-  scene.add(figure);
+  const core = new THREE.Mesh(new THREE.CircleGeometry(0.115, 64), coreMat);
+  root.add(core);
 
-  // --- floor: a grid that ripples, so she is standing on something --------
-  const floorGeo = new THREE.BufferGeometry();
-  const gridN = 20, half = 1.5, lines = [];
-  for (let i = 0; i <= gridN; i++) {
-    const q = -half + (i / gridN) * half * 2;
-    lines.push(q, 0, -half, q, 0, half, -half, 0, q, half, 0, q);
+  // --- spectrum ring: BOTH voices, on one shared baseline -----------------
+  // Hers grows outward, yours grows inward from the same circle. When both move
+  // at once the bars meet, so the overlap itself shows a barge-in -- there is no
+  // separate indicator to read.
+  const SPEC_R = 0.46;
+  function makeSpectrum(color) {
+    const { pos, geo } = barBuffer(BARS);
+    const mat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(color), transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    root.add(new THREE.Mesh(geo, mat));
+    return { pos, geo, mat };
   }
-  floorGeo.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
-  const floorMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: uniforms.uTime, uColor: uniforms.uScanColor, uOpacity: uniforms.uOpacity },
-    vertexShader: `
-      uniform float uTime;
-      varying float vFade;
-      void main() {
-        vec3 p = position;
-        float d = length(p.xz);
-        p.y += sin(d * 4.0 - uTime * 1.5) * 0.030 * exp(-d * 0.7);
-        vFade = 1.0 - smoothstep(0.25, 1.45, d);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-      }`,
-    fragmentShader: `
-      precision mediump float;
-      uniform vec3 uColor; uniform float uOpacity;
-      varying float vFade;
-      void main() { gl_FragColor = vec4(uColor, vFade * uOpacity * 0.22); }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  const hers = makeSpectrum(0x35C8FF);
+  // Yours keeps a fixed identity regardless of her state, so you always know
+  // which side of the conversation you are looking at.
+  const MINE = 0xFF9E3D;
+  const mine = makeSpectrum(MINE);
+
+  // --- orbital rings: state as motion --------------------------------------
+  const orbits = [];
+  for (const [r, tilt, speed, op] of [[0.60, 0.9, 1.0, 0.40],
+                                      [0.72, -0.5, -0.62, 0.28],
+                                      [0.86, 0.28, 0.34, 0.18]]) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: col.base.clone(), transparent: true, opacity: op,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const line = new THREE.Mesh(ringMesh(r, 0.005), mat);
+    line.rotation.x = tilt;
+    root.add(line);
+    orbits.push({ line, mat, speed, op });
+  }
+
+  // --- tick marks: an outer scale, so it reads as an instrument ------------
+  const TICKS = 60;
+  const tickBuf = barBuffer(TICKS);
+  for (let i = 0; i < TICKS; i++) {
+    const a = (i / TICKS) * Math.PI * 2;
+    const long = i % 5 === 0;
+    writeBar(tickBuf.pos, i, a, 0.94, 0.94 + (long ? 0.06 : 0.028), long ? 0.012 : 0.007);
+  }
+  const tickMat = new THREE.MeshBasicMaterial({
+    color: col.base.clone(), transparent: true, opacity: 0.5,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
   });
-  scene.add(new THREE.LineSegments(floorGeo, floorMat));
+  const ticks = new THREE.Mesh(tickBuf.geo, tickMat);
+  root.add(ticks);
 
   // --- state ---------------------------------------------------------------
   let target = PALETTE.offline;
-  let scanSpeed = target.scanSpeed;
-  let levelDecay = 0;
-  const col = new THREE.Color(), scanCol = new THREE.Color();
+  let level = 0, levelTarget = 0;              // her voice
+  let levelMine = 0, levelMineTarget = 0;      // yours
+  let spectrum = new Uint8Array(BARS);
+  let spectrumMine = new Uint8Array(BARS);
+  let spin = target.spin, irisOpen = target.iris, glow = target.glow;
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function resize() {
-    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 420;
+    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 400;
     renderer.setSize(w, h, false);
-    camera.aspect = w / h;
+    // Keep the core circular whatever the canvas aspect.
+    const a = w / h;
+    camera.left = a > 1 ? -a : -1;
+    camera.right = a > 1 ? a : 1;
+    camera.top = a > 1 ? 1 : 1 / a;
+    camera.bottom = a > 1 ? -1 : -1 / a;
     camera.updateProjectionMatrix();
   }
   const ro = new ResizeObserver(resize);
@@ -247,26 +196,63 @@ export function createAvatar(canvas) {
 
   let raf = 0;
   const t0 = performance.now();
+
   function frame(now) {
     const t = (now - t0) / 1000;
-    uniforms.uTime.value = t;
+    const k = calm ? 1 : 0.08;
 
-    const k = calm ? 1 : 0.055;
-    col.setHex(target.color); scanCol.setHex(target.scan);
-    uniforms.uColor.value.lerp(col, k);
-    uniforms.uScanColor.value.lerp(scanCol, k);
-    uniforms.uOpacity.value += (target.opacity - uniforms.uOpacity.value) * k;
-    uniforms.uAgitation.value += (target.agitation - uniforms.uAgitation.value) * k;
-    scanSpeed += (target.scanSpeed - scanSpeed) * k;
+    col.base.lerp(new THREE.Color(target.base), k);
+    col.hot.lerp(new THREE.Color(target.hot), k);
+    spin += (target.spin - spin) * k;
+    irisOpen += (target.iris - irisOpen) * k;
+    glow += (target.glow - glow) * k;
+    level += (levelTarget - level) * 0.25;
+    levelTarget *= 0.90;
+    levelMine += (levelMineTarget - levelMine) * 0.3;
+    levelMineTarget *= 0.88;
 
-    // 0..1.15 so there is a beat between sweeps rather than a strobe.
-    uniforms.uScan.value = (uniforms.uScan.value + scanSpeed * 0.016) % 1.15;
-    uniforms.uBreath.value = calm ? 0 : Math.sin(t * 0.85) * 0.5 + 0.5;
+    // Iris: dilates with attention, breathes, and pulses with the voice.
+    iris.forEach((r, i) => {
+      const breathe = calm ? 0 : Math.sin(t * 1.1 + r.phase) * 0.012;
+      const s = 0.62 + irisOpen * 0.62 + level * 0.16 + breathe;
+      r.line.scale.setScalar(s);
+      r.line.rotation.z = calm ? 0 : t * spin * (i % 2 ? -0.6 : 0.4);
+      r.mat.color.copy(col.base).lerp(col.hot, level * 0.75);
+      r.mat.opacity = (1.0 - i * 0.12) * glow;
+    });
 
-    levelDecay *= 0.90;
-    uniforms.uLevel.value += (levelDecay - uniforms.uLevel.value) * 0.30;
+    coreMat.color.copy(col.base).lerp(col.hot, 0.25 + level * 0.7);
+    coreMat.opacity = (0.30 + level * 0.60) * glow;
+    core.scale.setScalar(0.9 + level * 0.35);
 
-    figure.rotation.y = calm ? 0 : Math.sin(t * 0.14) * 0.20;
+    // Both spectra, mirrored left/right so each reads as symmetric.
+    const half = Math.floor(BARS / 2);
+    const writeBars = (ring, bins, dir, scale) => {
+      for (let i = 0; i < BARS; i++) {
+        const a = (i / BARS) * Math.PI * 2 - Math.PI / 2;
+        const idx = i < half ? i : BARS - 1 - i;
+        const v = (bins[idx] || 0) / 255;
+        const len = (0.014 + v * 0.26 * scale) * dir;
+        writeBar(ring.pos, i, a, SPEC_R, SPEC_R + len, 0.016);
+      }
+      ring.geo.attributes.position.needsUpdate = true;
+    };
+    writeBars(hers, spectrum, +1, 0.4 + glow * 0.6);
+    writeBars(mine, spectrumMine, -1, 0.9);
+    hers.mat.color.copy(col.base).lerp(col.hot, level * 0.6);
+    hers.mat.opacity = 0.45 + glow * 0.55;
+    mine.mat.opacity = 0.35 + levelMine * 0.65;
+
+    orbits.forEach((o, i) => {
+      o.line.rotation.z = t * spin * o.speed;
+      o.line.rotation.y = calm ? 0 : Math.sin(t * 0.3 + i) * 0.5;
+      o.mat.color.copy(col.base).multiplyScalar(0.55);
+      o.mat.opacity = o.op * (0.4 + glow * 0.8);
+    });
+
+    ticks.rotation.z = -t * spin * 0.18;
+    tickMat.color.copy(col.base).multiplyScalar(0.7);
+    tickMat.opacity = 0.25 + glow * 0.4;
 
     renderer.render(scene, camera);
     raf = requestAnimationFrame(frame);
@@ -275,54 +261,28 @@ export function createAvatar(canvas) {
 
   return {
     setState(name) { target = PALETTE[name] || PALETTE.idle; },
-    /** amplitude 0..1 from the audio actually being played */
-    setLevel(v) { levelDecay = Math.max(levelDecay, Math.min(1, v)); },
+    /** her voice: amplitude 0..1 */
+    setLevel(v) { levelTarget = Math.max(levelTarget, Math.min(1, v)); },
+    /** your voice: amplitude 0..1 */
+    setLevelMine(v) { levelMineTarget = Math.max(levelMineTarget, Math.min(1, v)); },
+    /** her voice: frequency bins 0..255 */
+    setSpectrum(bins) { spectrum = resample(bins) || spectrum; },
+    /** your voice: frequency bins 0..255 */
+    setSpectrumMine(bins) { spectrumMine = resample(bins) || spectrumMine; },
     stats() {
       return { calls: renderer.info.render.calls, lines: renderer.info.render.lines,
                state: Object.keys(PALETTE).find((s) => PALETTE[s] === target),
-               scan: +uniforms.uScan.value.toFixed(3),
-               opacity: +uniforms.uOpacity.value.toFixed(3) };
-    },
-    /** Coverage map for headless verification. */
-    capture(cols = 40, rows = 32) {
-      renderer.render(scene, camera);
-      const gl = renderer.getContext();
-      const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
-      const px = new Uint8Array(w * h * 4);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      const cell = [];
-      let max = 0, total = 0;
-      for (let r = 0; r < rows; r++) {
-        cell.push([]);
-        for (let c = 0; c < cols; c++) {
-          const y0 = Math.floor((rows - 1 - r) * h / rows), y1 = Math.floor((rows - r) * h / rows);
-          const x0 = Math.floor(c * w / cols), x1 = Math.floor((c + 1) * w / cols);
-          let sum = 0, n = 0;
-          for (let y = y0; y < y1; y += 2) {
-            for (let x = x0; x < x1; x += 2) {
-              const i = (y * w + x) * 4;
-              // RGB only: multiplying by alpha double-attenuates an additively
-              // blended transparent canvas.
-              sum += (px[i] + px[i + 1] + px[i + 2]) / 3;
-              n++;
-            }
-          }
-          const v = n ? sum / n : 0;
-          cell[r].push(v);
-          if (v > max) max = v;
-          total += v;
-        }
-      }
-      const art = cell.map((row) => row.map((v) => {
-        const q = max > 0 ? v / max : 0;
-        return q > 0.55 ? '#' : q > 0.28 ? '+' : q > 0.08 ? '.' : ' ';
-      }).join('')).join('\n');
-      return { art, maxBrightness: +max.toFixed(1),
-               meanBrightness: +(total / (rows * cols)).toFixed(2) };
+               level: +level.toFixed(3), levelMine: +levelMine.toFixed(3),
+               iris: +irisOpen.toFixed(3) };
     },
     dispose() {
       cancelAnimationFrame(raf); ro.disconnect();
-      geo.dispose(); mat.dispose(); floorGeo.dispose(); floorMat.dispose();
+      iris.forEach((r) => { r.line.geometry.dispose(); r.mat.dispose(); });
+      hers.geo.dispose(); hers.mat.dispose();
+      mine.geo.dispose(); mine.mat.dispose();
+      tickBuf.geo.dispose(); tickMat.dispose();
+      orbits.forEach((o) => { o.line.geometry.dispose(); o.mat.dispose(); });
+      core.geometry.dispose(); coreMat.dispose();
       renderer.dispose();
     },
   };

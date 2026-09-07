@@ -45,3 +45,4 @@ Use `foundation queue "(P1) <text>"` to append — never hand-edit.
 - [ ] (P2) Before any Tailscale share: confirm BOOMER_READONLY=1 is set for the shared session, and that the CTO's browser mic audio crossing the tailnet is understood and acceptable. Sharing voids the loopback-only guarantee that fully-local-verified rests on.
 - [ ] (P1) SUPERSEDES the accent-verification item that named the wrong person: verify the accent improvement with FRANKO's own voice, A/B via BOOMER_STT. I had inferred the name David from unrelated skill descriptions; the repo's own package.json says Franco Berardi.
 - [ ] (P3) Avatar next steps: thinking-state data lattice, gaze that tracks the listening state, and the performance-mode dashboard reading the same factory state --json.
+- [ ] (P3) Avatar polish: the amber (user) spectrum muddies where it overlaps hers. Consider a subtractive or offset baseline so the two voices stay legible when both are active.

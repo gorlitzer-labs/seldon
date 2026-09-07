@@ -15,23 +15,37 @@ const setState = (s) => {
   if (avatar) avatar.setState(s);
 };
 
-// The figure is driven by the audio actually being played, not by a guess:
-// an AnalyserNode on the playback graph, sampled once per frame.
-function pumpLevel() {
-  if (analyser && avatar) {
-    analyser.getByteTimeDomainData(levelData);
-    let peak = 0;
-    for (let i = 0; i < levelData.length; i++) {
-      const v = Math.abs(levelData[i] - 128) / 128;
-      if (v > peak) peak = v;
-    }
-    avatar.setLevel(peak * 1.6);
+// BOTH sides, every frame. Her voice grows the ring outward, yours inward, so
+// when you talk over her the bars meet and the overlap itself is the barge-in
+// indicator. Nothing here is a timer animation -- silence settles the core.
+function readAnalyser(a) {
+  if (!a || !timeData) return null;
+  a.getByteTimeDomainData(timeData);
+  let peak = 0;
+  for (let i = 0; i < timeData.length; i++) {
+    const v = Math.abs(timeData[i] - 128) / 128;
+    if (v > peak) peak = v;
   }
-  requestAnimationFrame(pumpLevel);
+  a.getByteFrequencyData(freqData);
+  return { peak, freq: freqData };
+}
+
+function pumpAudio() {
+  if (avatar) {
+    const h = readAnalyser(playAnalyser);
+    if (h) { avatar.setLevel(h.peak * 1.8); avatar.setSpectrum(h.freq); }
+    const m = readAnalyser(micAnalyser);
+    if (m) { avatar.setLevelMine(m.peak * 1.8); avatar.setSpectrumMine(m.freq); }
+  }
+  requestAnimationFrame(pumpAudio);
 }
 
 let ws, micCtx, playCtx, nextPlayTime = 0, pendingAudio = null;
-let avatar = null, analyser = null, levelData = null;
+let avatar = null;
+// Two analysers: hers on the playback graph, yours on the microphone. The core
+// reacts to whoever is actually talking, which is the point of it.
+let playAnalyser = null, micAnalyser = null;
+let timeData = null, freqData = null;
 // Only stream the mic while she is idle or listening. During thinking/speaking
 // the frames would queue in the socket and flood in when the turn ends -- with
 // her own voice among them, which reads as a new utterance.
@@ -42,7 +56,7 @@ function playChunk(float32, sampleRate) {
   buf.copyToChannel(float32, 0);
   const src = playCtx.createBufferSource();
   src.buffer = buf;
-  src.connect(analyser);
+  src.connect(playAnalyser);
   // Schedule back-to-back so consecutive chunks play without a seam.
   const now = playCtx.currentTime;
   if (nextPlayTime < now) nextPlayTime = now + 0.03;
@@ -119,13 +133,21 @@ async function start() {
   playCtx = new AudioContext();
   await micCtx.resume(); await playCtx.resume();
 
-  // Everything she says passes through the analyser on its way to the speakers.
-  analyser = playCtx.createAnalyser();
-  analyser.fftSize = 512;
-  levelData = new Uint8Array(analyser.fftSize);
-  analyser.connect(playCtx.destination);
+  // Everything she says passes through this on its way to the speakers.
+  playAnalyser = playCtx.createAnalyser();
+  playAnalyser.fftSize = 512;
+  playAnalyser.smoothingTimeConstant = 0.7;
+  playAnalyser.connect(playCtx.destination);
+  timeData = new Uint8Array(playAnalyser.fftSize);
+  freqData = new Uint8Array(playAnalyser.frequencyBinCount);
 
   const src = micCtx.createMediaStreamSource(stream);
+  // Your voice drives the core while she is listening. Tapped off the AEC'd
+  // stream, so it is the same audio the endpointer sees.
+  micAnalyser = micCtx.createAnalyser();
+  micAnalyser.fftSize = 512;
+  micAnalyser.smoothingTimeConstant = 0.6;
+  src.connect(micAnalyser);
   const node = micCtx.createScriptProcessor(1024, 1, 1);
   node.onaudioprocess = (e) => {
     if (ws.readyState !== 1 || !sending) return;
@@ -155,7 +177,7 @@ try {
   // Debug hook: lets a headless check confirm the scene renders and step the
   // states without a microphone. Read-only apart from the visual state.
   window.__boomer = { avatar, setState };
-  requestAnimationFrame(pumpLevel);
+  requestAnimationFrame(pumpAudio);
 } catch (e) {
   console.warn('avatar unavailable, falling back to the orb:', e);
 }
