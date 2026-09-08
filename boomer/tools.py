@@ -38,6 +38,9 @@ class Tool:
     doing: Callable[..., str]    # what she says before running it
     writes: bool = False
     local: bool = True           # False would mean it leaves the machine
+    # Ask before doing it. For anything that starts a process, spends money, or
+    # cannot be undone by asking her again.
+    confirm: bool = False
 
     def schema(self) -> dict:
         return {"type": "function", "function": {
@@ -131,6 +134,21 @@ def _intent_only(call: Call, may_write: bool) -> str:
         return tool.doing(**call.args)
     except Exception:
         return "Working on it."
+
+
+def needs_confirmation(call: Call) -> bool:
+    t = TOOLS.get(call.name)
+    return bool(t and t.confirm)
+
+
+def confirmation_question(call: Call) -> str:
+    t = TOOLS.get(call.name)
+    if t is None:
+        return ""
+    try:
+        return t.doing(**call.args).rstrip(".") + ". Shall I?"
+    except Exception:
+        return f"Shall I run {call.name}?"
 
 
 def execute_narrated(call: Call, may_write: bool,

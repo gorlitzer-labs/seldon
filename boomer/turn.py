@@ -128,6 +128,27 @@ def _speak_chunks(line: str):
     return Voice.split(line)
 
 
+def _handle_pending_tool(transcript: str, ctx: dict) -> str | None:
+    """A tool she asked about last turn is confirmed, corrected or cancelled."""
+    pend = ctx.get("pending_tool")
+    if not pend:
+        return None
+    if fac.is_negative(transcript):
+        ctx.pop("pending_tool", None)
+        return "Left it alone."
+    if not fac.is_affirmative(transcript):
+        # Anything ambiguous must not start an agent.
+        return "I still need a yes or a no on that."
+    ctx.pop("pending_tool", None)
+    if ctx.get("may_write") is False:
+        who = (ctx.get("speaker") or {}).get("name")
+        return f"Sorry {who}, only Franko can do that." if who else "Only Franko can do that."
+    call = T.Call(pend["name"], pend["args"])
+    _, result = T.execute(call, may_write=True)
+    print(f"  tool | confirmed {call.name} {call.args} -> {result[:70]!r}", flush=True)
+    return result
+
+
 def _handle_factory(transcript: str, ctx: dict) -> str | None:
     """Board queries and decision answers. Returns what to say, or None.
 
@@ -245,7 +266,8 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
     ctx = {} if ctx is None else ctx
     intent, payload = mem.detect(transcript)
     line = (_handle_memory(intent, payload, ctx) if intent != "none"
-            else _handle_factory(transcript, ctx))
+            else (_handle_pending_tool(transcript, ctx)
+                  or _handle_factory(transcript, ctx)))
     if line is not None:
         emit(P.reply(line))
         emit(P.state(State.SPEAKING))
@@ -328,6 +350,11 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
     # Tools run in a loop: she may need the board before she can answer about
     # it. Bounded, because a model that keeps calling tools would never speak.
     raw = generate(transcript)
+    # An identical call is never repeated within a turn. Observed her calling
+    # new_project TWICE for one request -- creating a repository twice is a real
+    # problem, not untidiness -- and thrashing between projects and queue_work
+    # when the first result did not say what she expected.
+    done: dict[tuple, str] = {}
     for _ in range(T_MAX_STEPS):
         calls = T.parse_calls(raw)
         if not calls:
@@ -335,13 +362,33 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
         # Anything she wrote before the call is not for speaking -- it is
         # usually "let me check that", which the narration says better.
         buf.buf = ""
+        asked = False
         for call in calls:
+            if T.needs_confirmation(call):
+                # Starting an agent spends money and outlives the turn, so she
+                # asks first -- the same gate as answering a factory decision,
+                # and for the same reason: it cannot be undone by asking again.
+                ctx["pending_tool"] = {"name": call.name, "args": call.args}
+                line = T.confirmation_question(call)
+                spoken.append(line)
+                emit(P.reply(line))
+                speak(line)
+                asked = True
+                break
+            key = (call.name, tuple(sorted(call.args.items())))
+            if key in done:
+                raw = generate_tool(T.render_response(
+                    call.name, done[key] + "\n(Already done this turn.)"))
+                continue
             emit(P.msg("tool", name=call.name, args=call.args))
             result = T.execute_narrated(
                 call, may_write=ctx.get("may_write", True),
                 narrate=lambda line: _narrate(line, emit, emit_audio, voice, should_stop))
+            done[key] = result
             print(f"  tool | {call.name} {call.args} -> {result[:70]!r}", flush=True)
             raw = generate_tool(T.render_response(call.name, result))
+        if asked:
+            break
 
     tail = buf.flush()
     if tail and not should_stop():

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 
 from ..factory import board_spoken, board_state
@@ -105,4 +106,88 @@ register(
           "priority": {"type": "string", "enum": ["P1", "P2", "P3"]}},
          ["project", "text"], queue_work,
          lambda project="", **_: f"Adding that to the {project} queue.", writes=True),
+)
+
+
+# --- creating and staffing a line ------------------------------------------
+# Franko chose apiary as the harness. Which agent CLI apiary launches is a
+# config choice, not a hardcoded one: `claude` is what factory's own docs use
+# and is the strongest at code, `opencode` against a local endpoint keeps the
+# agents on this machine. Naming it here rather than burying it means the
+# cloud-versus-local decision stays visible.
+AGENT_HARNESS = os.environ.get("BOOMER_AGENT_HARNESS", "claude")
+APIARY = "apiary"
+
+
+def _factory(args: list[str], cwd: str | None = None) -> str:
+    try:
+        out = subprocess.run(["factory"] + args, capture_output=True, text=True,
+                             timeout=180, cwd=cwd)
+    except subprocess.TimeoutExpired:
+        return "That took too long and I gave up."
+    except OSError:
+        return "The factory command is not installed on this machine."
+    return (out.stdout or out.stderr or "").strip() or "No output."
+
+
+def new_project(idea: str) -> str:
+    """Run the deterministic front of the line: repo, seam, seed, hive.
+
+    No confirmation: a stray directory from a mis-heard idea is untidy, not
+    expensive, and asking every time would make the useful case tedious.
+    """
+    what = " ".join((idea or "").split())
+    if len(what) < 8:
+        return "Tell me a bit more about what it should be."
+    # No --dir on purpose. factory new already defaults to
+    # ~/Desktop/<slug-of-idea>, which is where his projects live. Reading the
+    # source saved a bad bug here: --dir is the FULL project directory, not a
+    # parent, so passing the projects root would have run `foundation init`
+    # into ~/Desktop itself.
+    out = _factory(["new", what])
+    # The CLI prints a warm block; she should say the outcome, not read it out.
+    if "line is warm" in out:
+        name = re.search(r"new line:\s*(\S+)", out)
+        return (f"Created {name.group(1) if name else 'the project'} with a hive. "
+                "Say the word and I will put a coordinator in it.")
+    return out.splitlines()[-1][:200] if out else "I could not tell if that worked."
+
+
+def start_coordinator(project: str) -> str:
+    """Put an agent in a project's hive so queued work gets picked up.
+
+    Confirmed before running, because this starts a real agent session that
+    writes code and, on a cloud harness, costs money.
+    """
+    d = resolve_project(project)
+    if d is None:
+        return f"I could not find a project called {project}."
+    if not shutil.which(APIARY):
+        return "Apiary is not installed, so I cannot staff a hive."
+    try:
+        # Detached: the agent must outlive this turn.
+        subprocess.Popen([APIARY, AGENT_HARNESS, "Coordinator", "--admin"],
+                         cwd=str(d), stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as e:
+        return f"I could not start it: {type(e).__name__}."
+    return (f"Started a {AGENT_HARNESS} coordinator on {project}. "
+            "It will plan the queue and dispatch. I will tell you when it needs you.")
+
+
+register(
+    Tool("new_project",
+         "Create a new software project: repository, Foundation seam and an "
+         "apiary hive. Use when asked to start, create or build something new.",
+         {"idea": {"type": "string",
+                   "description": "One sentence describing what to build"}},
+         ["idea"], new_project,
+         lambda idea="", **_: "Setting up the project and its hive.", writes=True),
+    Tool("start_coordinator",
+         "Put a coordinator agent in a project's hive so queued work is picked "
+         "up and built. Use when asked to actually start the work.",
+         {"project": {"type": "string", "description": "Project name"}},
+         ["project"], start_coordinator,
+         lambda project="", **_: f"Start a coordinator on {project}",
+         writes=True, confirm=True),
 )
