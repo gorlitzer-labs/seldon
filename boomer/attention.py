@@ -145,6 +145,18 @@ class Attention:
         out = re.sub(r"([,;:])\s*([,.;:!?])", r"\2", out)      # no doubled separators
         return " ".join(out.split()).strip()
 
+    def touch(self) -> None:
+        """Restart the window. Called when a turn FINISHES, not when it starts.
+
+        Extending only at the start meant a long answer ate its own window: her
+        reply to Franko's first question ran about twenty seconds, so by the
+        time she stopped speaking the 25 s had nearly elapsed and his next two
+        sentences were logged as overheard. The window has to measure silence
+        since she stopped, not since he started.
+        """
+        if self.state is State.OPEN:
+            self.open_until = self._now() + self.window_s
+
     def close(self) -> None:
         self.state = State.CLOSED
         self.open_until = 0.0

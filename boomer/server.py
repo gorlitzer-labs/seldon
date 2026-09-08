@@ -109,6 +109,7 @@ class Session:
             self.emit(P.error("speak", f"{type(e).__name__}: {e}"))
         finally:
             self.emit(P.state(State.IDLE))
+            self.attention.touch()
             self.busy = False
             self.ep.reset()
 
@@ -141,6 +142,8 @@ class Session:
             self.emit(P.error("announce", f"{type(e).__name__}: {e}"))
         finally:
             self.emit(P.state(State.IDLE))
+            self.attention.touch()
+            self.emit_attention("she spoke")
             self.busy = False
             self.ep.reset()
 
@@ -275,6 +278,8 @@ class Session:
                 transcript=transcript, speech_ended_at=self.speech_ended_at,
                 emit=self.emit, emit_audio=self.emit_audio,
                 should_stop=self.should_stop, ctx=self.ctx))
+            # The clock starts when she stops talking, not when he started.
+            self.attention.touch()
             self.emit_attention("turn done")
         except Exception as e:                       # never wedge the session
             self.emit(P.error("turn", f"{type(e).__name__}: {e}"))
