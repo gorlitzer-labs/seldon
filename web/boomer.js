@@ -26,6 +26,10 @@ let sending = true;
 
 const UNKNOWN_COLOR = '#FF9E3D';     // nobody enrolled yet: "YOU"
 let speakerName = 'YOU', speakerColor = UNKNOWN_COLOR;
+// The server is restarted often during development, and every restart silently
+// killed an open tab: the socket closed, the mic kept capturing into a dead
+// connection, and nothing said so. Reconnect on its own instead.
+let reconnectTimer = null, reconnectDelay = 700, wantConnection = false;
 let enrolPhrases = [];
 let pending = null;                  // her reply block while it still streams
 
@@ -332,20 +336,44 @@ function onMessage(ev) {
 }
 
 // --- start ----------------------------------------------------------------
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  el('go').textContent = 'reconnecting';
+  el('go').disabled = true;
+  toast('offline', 'Lost the connection. Reconnecting.', 'bad', 3000);
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    try {
+      await connect();                       // reuse the mic already granted
+      reconnectDelay = 700;
+    } catch {
+      reconnectDelay = Math.min(reconnectDelay * 1.7, 8000);
+      scheduleReconnect();
+    }
+  }, reconnectDelay);
+}
+
+/** Open the socket. The audio graph is set up once, by start(). */
+async function connect() {
+  ws = new WebSocket(`ws://${location.hostname}:${WS_PORT}`);
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = onMessage;
+  ws.onclose = () => {
+    setState('offline');
+    if (wantConnection) scheduleReconnect();
+  };
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+  el('go').textContent = 'listening';
+  el('go').disabled = true;
+  setState('idle');
+}
+
 async function start() {
   el('go').disabled = true;
   el('go').textContent = 'connecting';
   try {
-    ws = new WebSocket(`ws://${location.hostname}:${WS_PORT}`);
-    ws.binaryType = 'arraybuffer';
-    ws.onmessage = onMessage;
-    ws.onclose = () => {
-      setState('offline');
-      el('go').disabled = false;
-      el('go').textContent = 'listen';
-      hint('Disconnected. Press listen to reconnect.');
-    };
-    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+    wantConnection = true;
+    await connect();
 
     // Echo cancellation on: measured 26.8 dB ERLE, which is what stops her
     // hearing herself. AGC off: it moved the mic gain between measurements and
@@ -388,9 +416,8 @@ async function start() {
     sink.gain.value = 0;
     src.connect(node); node.connect(sink); sink.connect(micCtx.destination);
 
-    el('go').textContent = 'listening';
-    setState('idle');
   } catch (e) {
+    wantConnection = false;
     el('go').disabled = false;
     el('go').textContent = 'listen';
     toast('microphone', e.name === 'NotAllowedError'
