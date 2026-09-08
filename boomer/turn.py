@@ -103,6 +103,23 @@ class ClauseBuffer:
 
 T_MAX_STEPS = 4          # she must speak eventually
 
+# Thinking is disabled by rendering "<think></think>" into the prompt, but the
+# model still emits a stray closing marker sometimes -- and it got SPOKEN:
+# "I'll stop listening now. Let me know when you're ready. </think>". Anything
+# inside a thinking block, and any bare marker, is stripped before speech.
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.S)
+_THINK_MARK = re.compile(r"</?think>")
+# A model that writes a call as prose instead of markup would have it read
+# aloud, e.g. "stop_listening()".
+_BARE_CALL = re.compile(r"\b[a-z_]{4,}\(\s*\)")
+
+
+def sanitize(text: str) -> str:
+    out = _THINK_BLOCK.sub(" ", text or "")
+    out = _THINK_MARK.sub(" ", out)
+    out = _BARE_CALL.sub(" ", out)
+    return " ".join(out.split())
+
 
 def _narrate(line: str, emit, emit_audio, voice, should_stop) -> None:
     """Say what she is about to do, so a slow tool is never silence.
@@ -144,7 +161,7 @@ def _handle_pending_tool(transcript: str, ctx: dict) -> str | None:
         who = (ctx.get("speaker") or {}).get("name")
         return f"Sorry {who}, only Franko can do that." if who else "Only Franko can do that."
     call = T.Call(pend["name"], pend["args"])
-    _, result = T.execute(call, may_write=True)
+    _, result = T.execute(call, may_write=True, ctx=ctx)
     print(f"  tool | confirmed {call.name} {call.args} -> {result[:70]!r}", flush=True)
     return result
 
@@ -324,6 +341,9 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
             if in_call:
                 continue
             for chunk in buf.push(piece):
+                chunk = sanitize(chunk)
+                if not chunk:
+                    continue
                 spoken.append(chunk)
                 emit(P.reply(chunk))
                 speak(chunk)
@@ -342,6 +362,9 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
             if in_call:
                 continue
             for chunk in buf.push(piece):
+                chunk = sanitize(chunk)
+                if not chunk:
+                    continue
                 spoken.append(chunk)
                 emit(P.reply(chunk))
                 speak(chunk)
@@ -383,14 +406,15 @@ def run_turn(ears, brain, voice, *, transcript: str, speech_ended_at: float,
             emit(P.msg("tool", name=call.name, args=call.args))
             result = T.execute_narrated(
                 call, may_write=ctx.get("may_write", True),
-                narrate=lambda line: _narrate(line, emit, emit_audio, voice, should_stop))
+                narrate=lambda line: _narrate(line, emit, emit_audio, voice, should_stop),
+                ctx=ctx)
             done[key] = result
             print(f"  tool | {call.name} {call.args} -> {result[:70]!r}", flush=True)
             raw = generate_tool(T.render_response(call.name, result))
         if asked:
             break
 
-    tail = buf.flush()
+    tail = sanitize(buf.flush() or "")
     if tail and not should_stop():
         spoken.append(tail)
         emit(P.reply(tail))

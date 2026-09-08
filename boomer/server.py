@@ -251,6 +251,8 @@ class Session:
             # Is she being spoken TO? Overheard speech is logged and dropped:
             # requiring her name on every sentence would stop it being a
             # conversation, so the name opens a window instead.
+            # The tool needs a way to close the window it lives in.
+            self.ctx["close_attention"] = self.attention.close
             decision = self.attention.consider(transcript)
             self.emit_attention(decision.reason)
             if not decision.act:

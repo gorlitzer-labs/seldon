@@ -41,6 +41,9 @@ class Tool:
     # Ask before doing it. For anything that starts a process, spends money, or
     # cannot be undone by asking her again.
     confirm: bool = False
+    # Receive the turn context, for the few tools that must affect the session
+    # itself rather than the world.
+    wants_ctx: bool = False
 
     def schema(self) -> dict:
         return {"type": "function", "function": {
@@ -106,7 +109,7 @@ def render_response(name: str, result: str) -> str:
     return f"<tool_response>\n{result}\n</tool_response>"
 
 
-def execute(call: Call, may_write: bool) -> tuple[str, str]:
+def execute(call: Call, may_write: bool, ctx: dict | None = None) -> tuple[str, str]:
     """(spoken_intent, result). Refuses a write for anyone but the owner."""
     tool = TOOLS.get(call.name)
     if tool is None:
@@ -117,9 +120,11 @@ def execute(call: Call, may_write: bool) -> tuple[str, str]:
         intent = tool.doing(**call.args)
     except Exception:
         intent = "Working on it."
+    kwargs = {k: v for k, v in call.args.items() if k in tool.params}
+    if tool.wants_ctx:
+        kwargs["ctx"] = ctx if ctx is not None else {}
     try:
-        return intent, tool.run(**{k: v for k, v in call.args.items()
-                                   if k in tool.params})
+        return intent, tool.run(**kwargs)
     except TypeError as e:
         return intent, f"I called that wrong: {e}."
     except Exception as e:
@@ -152,7 +157,8 @@ def confirmation_question(call: Call) -> str:
 
 
 def execute_narrated(call: Call, may_write: bool,
-                     narrate: Callable[[str], None]) -> str:
+                     narrate: Callable[[str], None],
+                     ctx: dict | None = None) -> str:
     """Run a tool, saying what it is before and while it happens."""
     import threading
 
@@ -170,7 +176,7 @@ def execute_narrated(call: Call, may_write: bool,
 
     threading.Thread(target=beat, daemon=True).start()
     try:
-        _, result = execute(call, may_write)
+        _, result = execute(call, may_write, ctx)
     finally:
         stop.set()
     return result
