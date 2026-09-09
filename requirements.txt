@@ -1,0 +1,31 @@
+# Boomer — Apple Silicon only. Python 3.13.
+# Versions are the ones this was built and measured against.
+
+# Brain — MLX
+mlx==0.32.2
+mlx-lm==0.31.3
+
+# Ears — Qwen3-ASR (default) and Parakeet (BOOMER_STT=parakeet)
+mlx-audio==0.5.1
+parakeet-mlx==0.5.2
+
+# Mouth — Kokoro runs on PyTorch/MPS; the MLX port emits NaN
+kokoro==0.9.4
+misaki==0.9.4
+torch==2.14.0
+torchaudio==2.11.0
+
+# Endpointing
+silero-vad==6.2.1
+
+# Speaker verification — CAM++ on CPU
+onnxruntime==1.29.0
+
+# Transport, IO, models
+websockets==17.1
+numpy==2.5.2
+soundfile==0.14.0
+huggingface-hub==1.30.0
+
+# Extensibility — MCP client skill
+mcp==2.1.1

@@ -6,7 +6,8 @@ from huggingface_hub import snapshot_download
 
 MODELS = [
     ("mlx-community/Qwen3.6-35B-A3B-4bit", "LLM  (20.4 GB)"),
-    ("mlx-community/parakeet-tdt-0.6b-v3", "STT  (2.5 GB)"),
+    ("mlx-community/Qwen3-ASR-1.7B-8bit",  "STT  (1.9 GB)  default"),
+    ("mlx-community/parakeet-tdt-0.6b-v3", "STT  (2.5 GB)  BOOMER_STT=parakeet"),
     ("hexgrad/Kokoro-82M",                 "TTS  (0.4 GB)"),
 ]
 
