@@ -26,7 +26,14 @@ import { homedir } from "node:os";
  * Exported for testing.
  */
 export function cwdToProjectDir(cwd: string): string {
-  return cwd.replace(/\//g, "-");
+  // Claude Code slugifies the cwd by replacing BOTH separators and dots with
+  // dashes, so /Users/ada.lovelace/x becomes -Users-ada-lovelace-x. Replacing
+  // only "/" silently produced a path that never exists for any user whose
+  // home directory contains a dot — and the caller treats "no file" as "no
+  // metrics yet", so the room's context meter simply never appeared. It had
+  // reported zero metrics events in its entire life before this was found,
+  // which is how an agent reached 262k tokens with nothing on screen to say so.
+  return cwd.replace(/[/.]/g, "-");
 }
 
 function findLatestJsonl(cwd: string): string | null {

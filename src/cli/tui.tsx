@@ -183,6 +183,17 @@ export type DisplayEvent =
 export const OBSERVED_TTL_MS = 10_000;
 
 /**
+ * How long an INFERRED state survives before falling back to "unknown".
+ *
+ * It was five minutes, chosen when guessing from room traffic was the only
+ * signal available. Runtimes now report the real state every ~1.5s, so five
+ * minutes of showing a guess is just five minutes of being wrong: an agent
+ * that never started looked busy for the rest of the conversation. Twice the
+ * observed TTL bridges a missed heartbeat and no more.
+ */
+export const INFERRED_DECAY_MS = OBSERVED_TTL_MS * 2;
+
+/**
  * Should this state update be applied?
  *
  * The room infers "working" for every agent on every human message. That must
@@ -711,8 +722,9 @@ function App({
 
   // name → when its state was last read off the agent's own screen.
   const observedAtRef = React.useRef<Map<string, number>>(new Map());
+  const [stateSource, setStateSource] = useState<Map<string, "reported" | "inferred">>(new Map());
 
-  const DEFAULT_WORKING_DECAY_MS = 300_000;
+  const DEFAULT_WORKING_DECAY_MS = INFERRED_DECAY_MS;
   const PENDING_STALL_MS = 30_000;
   const setAgentState = useCallback(
     (name: string, state: AgentState, opts?: SetAgentStateOpts) => {
@@ -723,6 +735,13 @@ function App({
         now: Date.now(),
       })) return;
       if (observed) observedAtRef.current.set(name, Date.now());
+      // Remember which it was, so the strip can stop presenting a guess with
+      // the same confidence as a fact.
+      setStateSource((prev) => {
+        const next = new Map(prev);
+        next.set(name, observed ? "reported" : "inferred");
+        return next;
+      });
 
       // Cancel any existing decay timer — every state change is a fresh signal.
       const existing = decayTimers.current.get(name);
@@ -1112,13 +1131,19 @@ function App({
                 default:             return { glyph: " zzz",        color: C.muted  };
               }
             })();
-            // Activity label rendered ALONGSIDE the state glyph, not instead
-            // of. If the activity hasn't updated in >30s (bridge sends only
-            // on change, so a long Cooked/Compacting can look fresh forever),
-            // dim it so the user knows the spinner data is stale.
+            // A guess is drawn dim, a reported state in its own colour. Both
+            // used to look identical, so "…" could mean "the runtime says it is
+            // working" or "somebody spoke five minutes ago and nobody has
+            // heard from this agent since" — indistinguishable, and the second
+            // one is why the strip felt like it was lying.
+            const inferred = stateSource.get(name) === "inferred";
+            const glyphColor = inferred ? C.muted : stateSuffix.color;
+
+            // A stale activity label is DROPPED, not dimmed. "Baked for 1m 35s"
+            // from three minutes ago is not faded information, it is wrong
+            // information — the run it describes finished long ago.
             const STALE_MS = 30_000;
-            const isStale = activity ? Date.now() - activity.updatedAt > STALE_MS : false;
-            const activityColor = isStale ? C.muted : C.yellow;
+            const fresh = activity && Date.now() - activity.updatedAt <= STALE_MS;
             const metricsText = metrics
               ? ` ${formatTokens(metrics.ctxTokens)}`
               : "";
@@ -1126,11 +1151,11 @@ function App({
               <React.Fragment key={name}>
                 {i > 0 && <Text color={C.border}>{" · "}</Text>}
                 <Text color={color}>{sigil}{" "}{name}</Text>
-                <Text color={stateSuffix.color}>{stateSuffix.glyph}</Text>
+                <Text color={glyphColor}>{stateSuffix.glyph}</Text>
                 {/* The affordance for Ctrl+<n> / "/watch <name>". Only shown
                     for the first 9, which are the ones the binding reaches. */}
                 {i < 9 && <Text color={C.border}>{` ⧉${i + 1}`}</Text>}
-                {activity && <Text color={activityColor}>{" "}{activity.label}</Text>}
+                {fresh && <Text color={C.yellow}>{" "}{activity!.label}</Text>}
                 {metricsText && <Text color={C.muted}>{metricsText}</Text>}
               </React.Fragment>
             );
