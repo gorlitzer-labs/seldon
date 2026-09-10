@@ -188,7 +188,9 @@ If an agent does end up on a prompt, the participant strip shows `⏸ needs you`
 
 The profile does exactly two things: point Codex at that agent's apiary MCP server, and **auto-approve apiary's own MCP tools** — and only those. Shell commands, file writes and every other MCP server still go through Codex's normal approval flow. Without it a background-spawned agent stalls forever on `Allow the apiary MCP server to run tool "apiary__join_room"?`, because nobody is watching its pane to press a key.
 
-Profiles left behind by a crashed run are swept on the next launch. Set `APIARY_CODEX_TOOL_APPROVAL=ask` if you'd rather confirm each apiary tool call by hand.
+Profiles left behind by a crashed run are swept on the next launch.
+
+If an agent's CLI exits — Codex self-updates and asks to be restarted, for instance — apiary notices the pane has fallen back to a shell and reports that agent as **needs you** rather than idle. Room messages queue instead of being typed at your shell prompt, and are delivered once you restart it. Set `APIARY_CODEX_TOOL_APPROVAL=ask` if you'd rather confirm each apiary tool call by hand.
 
 
 ### Update & release

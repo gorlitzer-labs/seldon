@@ -206,3 +206,51 @@ export function resetTerminal(): void {
     // Best effort
   }
 }
+
+/**
+ * Shells, by process name.
+ *
+ * Detecting the SHELL rather than the agent is deliberate. A pane running an
+ * agent reports whatever that CLI happens to call its process — Claude Code
+ * reports its own version string, e.g. "2.1.267" — so there is nothing stable
+ * to match on. Shells, by contrast, are a small and stable set.
+ *
+ * Screen text is no help either: a prompt is infinitely customisable (this
+ * machine's is a starship prompt with a python env and a clock), so
+ * "does it look like a shell?" cannot be answered from the rendering.
+ */
+const SHELL_COMMANDS = new Set([
+  "sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh",
+  "nu", "pwsh", "powershell", "login", "elvish", "xonsh",
+]);
+
+/** The command tmux reports as running in the pane, or null if unknown. */
+export function tmuxPaneCommand(session: string): string | null {
+  try {
+    const name = sanitizeSessionName(session);
+    const out = execFileSync("tmux", ["display-message", "-p", "-t", name, "#{pane_current_command}"], {
+      encoding: "utf-8",
+      timeout: 5_000,
+    }).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True if the pane is sitting at a shell, meaning the agent CLI has exited.
+ *
+ * The case that prompted this: Codex self-updated on launch, printed
+ * "Update ran successfully! Please restart Codex" and exited. The pane fell
+ * back to zsh, the bridge read the shell prompt as an idle agent, and typed a
+ * room message into the shell — "zsh: command not found: Please".
+ *
+ * Returns false when tmux cannot say, so an unknown answer never escalates
+ * into "the agent is gone".
+ */
+export function tmuxPaneIsShell(session: string): boolean {
+  const cmd = tmuxPaneCommand(session);
+  if (!cmd) return false;
+  return SHELL_COMMANDS.has(cmd.toLowerCase().replace(/^-/, ""));
+}

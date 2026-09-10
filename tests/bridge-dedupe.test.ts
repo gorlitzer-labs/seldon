@@ -18,6 +18,14 @@ vi.mock("../src/cli/tmux.js", () => ({
   tmuxInjectText: (_s: string, text: string) => { captured.push(text); },
   tmuxSendEnter: () => {},
   tmuxSendKey: () => {},
+  // These tests are about queue mechanics on a pane whose CLI is running, so
+  // the agent is present. detectState consults this before reading the screen.
+  tmuxPaneIsShell: () => false,
+  trimTrailingBlankLines: (lines: string[]) => {
+    let end = lines.length;
+    while (end > 0 && lines[end - 1].trim() === "") end--;
+    return lines.slice(0, end);
+  },
 }));
 
 const { CodexTmuxBridge } = await import("../src/cli/codex/tmux-bridge.js");

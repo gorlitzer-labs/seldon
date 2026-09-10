@@ -18,6 +18,7 @@
  */
 
 import {
+  tmuxPaneIsShell,
   tmuxCapturePane,
   tmuxInjectText,
   tmuxSendEnter,
@@ -27,6 +28,12 @@ import { contentPartsToString } from "../../agent/prompts.js";
 import type { ContentPart } from "../../agent/types.js";
 
 export type CodexTuiState =
+  /**
+   * The CLI is not running — the pane has fallen back to a shell. Injecting
+   * here types a room message at the user's shell prompt, which is how
+   * "zsh: command not found: Please" happened.
+   */
+  | "absent"
   | "idle"
   | "typing"
   | "approval"
@@ -128,6 +135,10 @@ export class CodexTmuxBridge {
    * Detect the current TUI state by reading the screen.
    */
   detectState(): CodexTuiState {
+    // Checked before any screen parsing: if the CLI has exited there is
+    // nothing on screen worth interpreting, and a shell prompt looks
+    // indistinguishable from an idle composer to a pattern matcher.
+    if (tmuxPaneIsShell(this.session)) return "absent";
     const lines = this.captureScreen();
     return detectCodexStateFromLines(lines);
   }
@@ -157,7 +168,7 @@ export class CodexTmuxBridge {
         this.injectWhileTyping(flat);
         break;
       default:
-        // approval, streaming, blocked, unknown — queue it
+        // approval, streaming, blocked, absent, unknown — queue it
         this.enqueue(flat, dedupe);
         break;
     }

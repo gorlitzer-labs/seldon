@@ -19,6 +19,10 @@ import type { TuiState } from "./claude/tmux-bridge.js";
  */
 export function codexStateToActivity(state: CodexTuiState): AgentActivityState | undefined {
   switch (state) {
+    case "absent":
+      // A human has to restart it, which is what "needs you" means. Reporting
+      // idle here is how a dead agent sat in the room looking available.
+      return "blocked";
     case "approval":
     case "blocked":
       return "blocked";
@@ -40,6 +44,8 @@ export function codexStateToActivity(state: CodexTuiState): AgentActivityState |
  */
 export function claudeStateToActivity(state: TuiState): AgentActivityState | undefined {
   switch (state) {
+    case "absent":
+      return "blocked";
     case "permission":
     case "dialog":
       return "blocked";

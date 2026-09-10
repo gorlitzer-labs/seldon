@@ -16,6 +16,7 @@
  */
 
 import {
+  tmuxPaneIsShell,
   tmuxCapturePane,
   tmuxInjectText,
   tmuxSendEnter,
@@ -25,6 +26,8 @@ import { contentPartsToString } from "../../agent/prompts.js";
 import type { ContentPart } from "../../agent/types.js";
 
 export type TuiState =
+  /** The CLI is not running — the pane has fallen back to a shell. */
+  | "absent"
   | "idle"
   | "typing"
   | "dialog"
@@ -123,6 +126,9 @@ export class TmuxBridge {
    * Exported for testing — the heuristic logic is in detectStateFromLines().
    */
   detectState(): TuiState {
+    // See the Codex bridge: a shell prompt is indistinguishable from an idle
+    // composer once you are only looking at rendered text.
+    if (tmuxPaneIsShell(this.session)) return "absent";
     const lines = this.captureScreen();
     return detectStateFromLines(lines);
   }
