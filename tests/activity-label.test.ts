@@ -71,4 +71,63 @@ describe("extractActivityLabel", () => {
     const lines30 = ["✻ Cooked for 99s", ...Array(30).fill("regular chat")];
     expect(extractActivityLabel(lines30)).toBeNull();
   });
+
+  // ── The live status line ───────────────────────────────────────────────
+  //
+  // Every fixture below is real `tmux capture-pane` output taken from two
+  // agents that were demonstrably working at the time. Before ACTIVITY_LIVE
+  // every one of them returned null: the operator's room strip showed a bare
+  // glyph, so "thinking hard" and "wedged for an hour" looked identical. That
+  // is the bug these cover, and it was reported three times before it was
+  // understood.
+
+  test("extracts the live status line a working agent actually shows", () => {
+    // Verbatim from apiary_fableboy while it was mid-turn.
+    expect(extractActivityLabel(lines(`
+⏺ Calling apiary… (ctrl+o to expand)
+· Improvising… (10m 3s · ↓ 21.4k tokens)
+─────────────────────
+❯
+─────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt
+`))).toBe("Improvising… (10m 3s · ↓ 21.4k tokens)");
+  });
+
+  test("keeps the elapsed time and stream progress, not just the verb", () => {
+    // The parenthesised group is the whole point: it is what separates an
+    // agent that is moving from one that has stopped.
+    const got = extractActivityLabel(["✻ Fluttering… (38s · ↓ 2.1k tokens)"]);
+    expect(got).toBe("Fluttering… (38s · ↓ 2.1k tokens)");
+    expect(got).toContain("38s");
+  });
+
+  test("does not depend on the verb, which rotates", () => {
+    // A vocabulary list is what broke this. Any word must work, including
+    // ones that do not exist yet.
+    for (const verb of ["Improvising", "Fluttering", "Reticulating", "Cogitating", "Wombling"]) {
+      expect(extractActivityLabel([`✻ ${verb}… (7s)`])).toBe(`${verb}… (7s)`);
+    }
+  });
+
+  test("prefers the live line over a finished one left further up the pane", () => {
+    // A pane holds the previous turn's "Sautéed for 12s" above the current
+    // turn's live line. Reporting the finished one would tell the operator
+    // about work that is already over.
+    expect(extractActivityLabel(lines(`
+✻ Sautéed for 12s
+⏺ next turn starts here
+✻ Reticulating… (2s)
+`))).toBe("Reticulating… (2s)");
+  });
+
+  test("an idle pane still reports nothing, live pattern or not", () => {
+    // The live pattern must not fire on ordinary transcript prose that
+    // happens to contain an ellipsis.
+    expect(extractActivityLabel(lines(`
+⏺ I will wait…
+─────────────────────
+❯
+─────────────────────
+`))).toBeNull();
+  });
 });

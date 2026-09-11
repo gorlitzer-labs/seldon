@@ -302,30 +302,47 @@ export class TmuxBridge {
  * Pull claude's status string out of a captured pane.
  *
  * Claude's TUI shows these markers above the input prompt while it's working:
- *   ✻ Sautéed for 12s
- *   ✻ Cooked for 4s
- *   ✻ Baked for 13s
- *   ✻ Churned for 3s
+ *   ✻ Fluttering… (38s · ↓ 2.1k tokens)     <- the LIVE form, present throughout
+ *   ✻ Sautéed for 12s                        <- the FINISHED form, a moment at the end
  *   ✻ Compacting conversation… 23%
  *   ✻ Thinking…
  *
- * Two patterns:
- *   - COOK: cooking-verb + "for Ns" (claude's cute spinner text). Matches
- *     unicode letters (Sautéed) by allowing the Latin-1 supplement range.
+ * Three patterns, tried narrowest-first so the broad one cannot swallow the
+ * others:
  *   - PROG: a known long-op verb (Compacting/Thinking/Loading/Connecting)
- *     followed by an optional description and optional N%. Stops at the
- *     first `(` so we don't capture the trailing metadata blob like
- *     "(2m 9s · ↑ 3.3k tokens)".
+ *     followed by an optional description and optional N%. Stops at the first
+ *     `(` so it doesn't capture a trailing metadata blob.
+ *   - COOK: cooking-verb + "for Ns", the form claude leaves behind once a turn
+ *     ends. Matches unicode letters (Sautéed) via the Latin-1 supplement range.
+ *   - LIVE: any word, an ellipsis, and a parenthesised progress group. Matched
+ *     on SHAPE rather than vocabulary, because the verb is whimsical and
+ *     rotates — Improvising, Fluttering, Reticulating, Cogitating. A word list
+ *     goes stale the next time someone adds one, which is exactly how this
+ *     broke: with only COOK and PROG, a *working* agent matched nothing and
+ *     reported no label, so the room strip showed a bare glyph for as long as
+ *     the work took. The one moment the operator most needs to know what is
+ *     happening was the one moment it said nothing.
+ *
+ * LIVE deliberately keeps its parenthesised group — "(38s · ↓ 2.1k tokens)" is
+ * the elapsed time and stream progress, which is what distinguishes "moving"
+ * from "wedged". PROG still stops at `(` because its verbs carry their own
+ * detail, and it is tried first so that stays true.
  *
  * Scan the last ~25 lines, return the newest match. Null when none → idle.
  */
+const ACTIVITY_LIVE = /([A-Za-zÀ-ÿ]+…\s*\([^)\n]*\))/;
 const ACTIVITY_COOK = /([A-Za-zÀ-ÿ]+ed\s+for\s+\d+s)/;
 const ACTIVITY_PROG = /((?:Compacting|Thinking|Loading|Connecting)[^()]*?(?:\s+\d+%)?)(?=\s*[(\n]|\s*$)/;
 export function extractActivityLabel(lines: string[]): string | null {
   if (lines.length === 0) return null;
   let best: string | null = null;
   for (const line of lines.slice(-25)) {
-    const m = line.match(ACTIVITY_COOK) ?? line.match(ACTIVITY_PROG);
+    // PROG first, then COOK, then LIVE. LIVE is the broadest — any word plus a
+    // parenthesised group — so it must go last or it swallows lines the narrower
+    // patterns own: "Compacting conversation… (2m 9s · ↑ 3.3k tokens)" is
+    // reported as "Compacting conversation…" on purpose, and LIVE-first turned
+    // that into "conversation… (2m 9s · ↑ 3.3k tokens)".
+    const m = line.match(ACTIVITY_PROG) ?? line.match(ACTIVITY_COOK) ?? line.match(ACTIVITY_LIVE);
     if (m) best = m[1].trim();
   }
   return best;
