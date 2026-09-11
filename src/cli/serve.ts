@@ -1515,8 +1515,12 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   }
 
   // Generate share tokens on boot
-  const adminToken = tokens.generateShareToken("admin", "admin")!;
-  const memberToken = tokens.generateShareToken("admin", "member")!;
+  // The room's own pair, persisted to ~/.apiary/sessions and used by
+  // `apiary room resume`. They outlive any TTL because they outlive nothing
+  // else: when they expired at 24h the owner was locked out of a room that was
+  // still running, with agents still working inside it.
+  const adminToken = tokens.generateShareToken("admin", "admin", { neverExpires: true })!;
+  const memberToken = tokens.generateShareToken("admin", "member", { neverExpires: true })!;
 
   // Persist room session for `apiary ps`
   saveRoomSession({ roomName, bind: boundAddress, serverUrl, publicUrl, adminToken, memberToken, pid: process.pid });
