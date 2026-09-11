@@ -319,7 +319,10 @@ export async function runClaude(options: AgentRuntimeOptions): Promise<void> {
     let state: AgentActivityState | undefined;
     try {
       label = bridge.getActivityLabel();
-      state = claudeStateToActivity(bridge.detectState());
+      // detectReportedState, not detectState: the latter is the delivery
+      // gate and deliberately over-matches prompts, which is right for
+      // deciding whether to type and wrong for telling a human "needs you".
+      state = claudeStateToActivity(bridge.detectReportedState());
     } catch { return; }
     // Report the state as well as the label. A permission prompt shows no
     // activity label at all, so on the label alone the room cannot tell

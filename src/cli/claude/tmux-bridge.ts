@@ -79,6 +79,51 @@ const PERMISSION_PATTERNS = [
   "Yes, I trust this folder",
 ];
 
+/**
+ * Patterns specific enough to put "⏸ needs you" in front of a human.
+ *
+ * DIALOG_PATTERNS and PERMISSION_PATTERNS above deliberately over-match, and
+ * for their original consumer that is correct: they gate DELIVERY, where a
+ * false positive only queues a room event for the drain loop to retry. Cheap.
+ *
+ * That reasoning was then reused for a second consumer with the opposite cost
+ * — the agent state reported to the room — where a false positive stops the
+ * operator and makes them wait on an agent that needs nothing. Observed: the
+ * bare substring `"approve"` matched an agent's own tool output, "hard cap, set
+ * by the approved top", and the room strip read "⏸ needs you" at an agent 23
+ * minutes into a harness run. `"to navigate"` is the same trap and worse — it
+ * matches any sentence about navigating, in a project whose entire subject is
+ * navigating by bearings.
+ *
+ * So: two lists. Over-match to protect the agent, under-match before
+ * interrupting the human. These are UI chrome a prompt actually renders —
+ * wordings and shapes, not vocabulary that can occur in prose.
+ */
+const BLOCKING_PATTERNS: Array<string | RegExp> = [
+  "Do you want to proceed?",
+  "don't ask again",
+  "Yes, I trust this folder",
+  "Ready to code?",
+  "Enter to select",
+  /❯\s*1\.\s*Yes/,
+  /\(y\s*\/\s*n\)/i,
+  // The arrow glyphs claude renders beside it. Bare "to navigate" is prose.
+  /[↑↓⬆⬇]\s*(?:[↑↓⬆⬇]\s*)?to navigate/,
+];
+
+/** Match a mixed string/RegExp pattern list, case-insensitively for strings. */
+function matchesAny(text: string, patterns: Array<string | RegExp>): boolean {
+  const haystack = text.toLowerCase();
+  for (const pattern of patterns) {
+    if (typeof pattern === "string") {
+      if (haystack.includes(pattern.toLowerCase())) return true;
+    } else if (pattern.test(text)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export interface DeliverOptions {
   /**
    * Drop this text if an identical copy is already queued. For callers that
@@ -131,6 +176,16 @@ export class TmuxBridge {
     if (tmuxPaneIsShell(this.session)) return "absent";
     const lines = this.captureScreen();
     return detectStateFromLines(lines);
+  }
+
+  /**
+   * State to REPORT to the room, as opposed to the state used to decide
+   * whether it is safe to type. Same screen, stricter about claiming a human
+   * is needed — see detectReportedStateFromLines.
+   */
+  detectReportedState(): TuiState {
+    if (tmuxPaneIsShell(this.session)) return "absent";
+    return detectReportedStateFromLines(this.captureScreen());
   }
 
   /**
@@ -362,21 +417,29 @@ export function extractActivityLabel(lines: string[]): string | null {
  *
  * The ❯ prompt sits between separator lines (─). No ❯❯ footer in v2.1+.
  */
-export function detectStateFromLines(lines: string[]): TuiState {
+export function detectStateFromLines(
+  lines: string[],
+  opts?: { ignorePrompts?: boolean },
+): TuiState {
   if (lines.length === 0) return "unknown";
 
   // Work with the last ~30 lines (the visible bottom of the screen)
   const tail = lines.slice(-30);
   const tailText = tail.join("\n");
 
-  // 1. Dialog: selection/question/plan approval
-  for (const pattern of DIALOG_PATTERNS) {
-    if (tailText.includes(pattern)) return "dialog";
-  }
+  // `ignorePrompts` asks "what is this screen doing APART from any prompt?" —
+  // used by detectReportedStateFromLines to answer the human's question once
+  // the loose lists have been found to be matching prose rather than chrome.
+  if (opts?.ignorePrompts !== true) {
+    // 1. Dialog: selection/question/plan approval
+    for (const pattern of DIALOG_PATTERNS) {
+      if (tailText.includes(pattern)) return "dialog";
+    }
 
-  // 2. Permission prompt
-  for (const pattern of PERMISSION_PATTERNS) {
-    if (tailText.includes(pattern)) return "permission";
+    // 2. Permission prompt
+    for (const pattern of PERMISSION_PATTERNS) {
+      if (tailText.includes(pattern)) return "permission";
+    }
   }
 
   // 3. Streaming: spinner characters in the last few lines
@@ -429,4 +492,23 @@ export function detectStateFromLines(lines: string[]): TuiState {
   }
 
   return "unknown";
+}
+
+/**
+ * The same screen read, but tuned for a human rather than for the delivery
+ * queue: only claim a prompt is waiting when one is actually on screen.
+ *
+ * `detectStateFromLines` leans toward "there is a prompt" because a false
+ * positive there merely queues an event. This one leans the other way, because
+ * its false positive is "⏸ needs you" in the operator's face at an agent that
+ * needs nothing — which costs a person's attention, and teaches them to stop
+ * trusting the strip. When the loose lists fire but no specific prompt wording
+ * is present, the screen is re-read with the prompt scan disabled so the
+ * spinner and composer get to answer instead.
+ */
+export function detectReportedStateFromLines(lines: string[]): TuiState {
+  const loose = detectStateFromLines(lines);
+  if (loose !== "dialog" && loose !== "permission") return loose;
+  if (matchesAny(lines.slice(-30).join("\n"), BLOCKING_PATTERNS)) return loose;
+  return detectStateFromLines(lines, { ignorePrompts: true });
 }
