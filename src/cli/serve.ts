@@ -28,12 +28,16 @@ import type { Channel } from "../core/channel.js";
 import { formatTimestamp } from "../agent/prompts.js";
 import { TokenManager, buildShareUrl } from "./auth.js";
 import { roomEmoji } from "./config.js";
+import { seatsToEvict, terminateLocalAgent } from "./terminate-agent.js";
+import { tmuxKillSession } from "./tmux.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ConnectedParticipant {
   id: string;
   name: string;
+  /** "human" or "agent" — kick stops an agent's runtime, never a person's. */
+  type: "human" | "agent";
   authority: AuthorityLevel;
   channel: Channel;
   sessionToken: string;
@@ -889,12 +893,41 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
           return;
         }
 
+        // An agent rejoining under a name that is already in the room replaces
+        // the old seat rather than adding a second one.
+        //
+        // Two participants with one name is not a cosmetic wart: every lookup
+        // that resolves a name has to pick, and they do not all pick the same
+        // one. Observed — a room held a live `aztraboy` and a dead one, an
+        // `@aztraboy` mention routed to the dead seat so the real agent never
+        // received it, and `/kick aztraboy` removed the LIVE agent and left the
+        // corpse behind. The whisper path already refuses an ambiguous name
+        // outright; the join path was creating the ambiguity.
+        {
+          const entries = [...participants.entries()];
+          const evicting = new Set(
+            seatsToEvict(entries.map(([, p]) => p), { name, type: participantType }).map((s) => s.id),
+          );
+          for (const [tok, existing] of entries) {
+            if (!evicting.has(existing.id)) continue;
+            log(`agent "${name}" rejoined — replacing its previous seat (${existing.id})`);
+            try { await existing.channel.disconnect(true); } catch { /* already gone */ }
+            participants.delete(tok);
+            idToSession.delete(existing.id);
+            tokens.revokeSessionToken(tok);
+            sseConnections.get(existing.id)?.end();
+            sseConnections.delete(existing.id);
+            presenceStatus.delete(existing.id);
+            lastSeenAt.delete(existing.id);
+          }
+        }
+
         // admin or participant — connect as a real participant
         const id = `${participantType}_${randomUUID().slice(0, 8)}`;
         const channel = await room.connect(id, name, { type: participantType, authority });
         const sessionToken = tokens.createSessionToken(id, authority);
 
-        participants.set(sessionToken, { id, name, authority, channel, sessionToken });
+        participants.set(sessionToken, { id, name, type: participantType, authority, channel, sessionToken });
         idToSession.set(id, sessionToken);
         touchParticipant(id);
         presenceStatus.set(id, "online");
@@ -1225,6 +1258,21 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
             guests.delete(targetSession);
             idToSession.delete(targetId);
             tokens.revokeSessionToken(targetSession);
+            // Stop the agent itself, not just its seat in the room.
+            //
+            // A kick that leaves the runtime alive produces the worst of both:
+            // the process keeps thinking and burning tokens while nothing it
+            // says can reach anybody, and `apiary ps` still lists it. Only
+            // agents this machine started are stopped — one that joined over
+            // the network belongs to whoever launched it.
+            if (targetParticipant?.type === "agent") {
+              const outcome = terminateLocalAgent(targetParticipant.name, { killTmux: tmuxKillSession });
+              if (outcome.stopped) {
+                log(`kicked ${targetParticipant.name}: stopped local ${outcome.runtime} runtime (pid ${outcome.pid})`);
+              } else {
+                log(`kicked ${targetParticipant.name}: disconnected only (${outcome.reason})`);
+              }
+            }
             // Close SSE connection
             const sse = sseConnections.get(targetId);
             if (sse) {
