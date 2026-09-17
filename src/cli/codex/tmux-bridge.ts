@@ -25,6 +25,7 @@ import {
   tmuxSendKey,
 } from "../tmux.js";
 import { queueCodexMessage } from "./queue.js";
+import { composerStillHolds } from "../composer.js";
 import { contentPartsToString } from "../../agent/prompts.js";
 import type { ContentPart } from "../../agent/types.js";
 
@@ -130,6 +131,23 @@ export interface CodexTmuxBridgeOptions {
   pasteDelayMs?: number;
   /** Delay between Ctrl+U/inject/Ctrl+Y steps (ms). Default: 50 */
   keystrokeDelayMs?: number;
+  /**
+   * Called when a message could not be got into the agent, after the retry.
+   *
+   * Delivery used to be assumed: apiary typed, reported success and moved on,
+   * so a swallowed submit looked exactly like an agent choosing not to answer.
+   * This is the hook that makes the difference visible to someone.
+   */
+  onUndelivered?: (text: string) => void;
+}
+
+/**
+ * Last resort when no one has wired a handler: say it on stderr, which lands in
+ * the launcher pane. Better than nothing, and a great deal better than success.
+ */
+function defaultUndeliveredWarning(text: string): void {
+  const preview = text.replace(/\s+/g, " ").slice(0, 80);
+  process.stderr.write(`apiary: message NOT delivered to the agent — still in its composer: ${preview}\n`);
 }
 
 export class CodexTmuxBridge {
@@ -142,6 +160,7 @@ export class CodexTmuxBridge {
   private stopped = false;
   private resolveThreadId?: () => string | null;
   private threadId: string | null = null;
+  private onUndelivered: (text: string) => void;
 
   constructor(session: string, opts?: CodexTmuxBridgeOptions) {
     this.session = session;
@@ -149,6 +168,7 @@ export class CodexTmuxBridge {
     this.pasteDelayMs = opts?.pasteDelayMs ?? 150;
     this.keystrokeDelayMs = opts?.keystrokeDelayMs ?? 50;
     this.resolveThreadId = opts?.resolveThreadId;
+    this.onUndelivered = opts?.onUndelivered ?? defaultUndeliveredWarning;
   }
 
   /**
@@ -252,6 +272,28 @@ export class CodexTmuxBridge {
     this.sleep(this.pasteDelayMs);
     this.dismissMentionPopup();
     tmuxSendEnter(this.session);
+    this.confirmSubmitted(text);
+  }
+
+  /**
+   * Check the message left the composer, and try once more if it did not.
+   *
+   * A submitted message moves into the transcript; one that is still in the
+   * composer was not sent. The retry re-runs the popup guard first, because the
+   * popup is what eats an Enter — and if the text is still there after that,
+   * nothing this bridge can do will send it, so it says so rather than leaving
+   * the room to infer silence.
+   */
+  private confirmSubmitted(text: string): void {
+    this.sleep(this.pasteDelayMs);
+    if (!composerStillHolds(this.captureScreen(), text)) return;
+
+    this.dismissMentionPopup();
+    tmuxSendEnter(this.session);
+    this.sleep(this.pasteDelayMs);
+    if (!composerStillHolds(this.captureScreen(), text)) return;
+
+    this.onUndelivered(text);
   }
 
   /**
@@ -294,6 +336,7 @@ export class CodexTmuxBridge {
     this.sleep(this.pasteDelayMs);
     this.dismissMentionPopup();
     tmuxSendEnter(this.session);
+    this.confirmSubmitted(text);
     this.sleep(this.keystrokeDelayMs);
 
     // Restore user's text

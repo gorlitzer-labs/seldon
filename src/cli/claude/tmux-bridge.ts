@@ -22,6 +22,7 @@ import {
   tmuxSendEnter,
   tmuxSendKey,
 } from "../tmux.js";
+import { composerStillHolds } from "../composer.js";
 import { contentPartsToString } from "../../agent/prompts.js";
 import type { ContentPart } from "../../agent/types.js";
 
@@ -137,6 +138,23 @@ export interface TmuxBridgeOptions {
   pollIntervalMs?: number;
   /** How long to wait between Ctrl+U/inject/Ctrl+Y steps (ms). Default: 50 */
   keystrokeDelayMs?: number;
+  /**
+   * Called when a message could not be got into the agent, after the retry.
+   *
+   * Delivery used to be assumed: apiary typed, reported success and moved on,
+   * so a swallowed submit looked exactly like an agent choosing not to answer.
+   * This is the hook that makes the difference visible to someone.
+   */
+  onUndelivered?: (text: string) => void;
+}
+
+/**
+ * Last resort when no one has wired a handler: say it on stderr, which lands in
+ * the launcher pane. Better than nothing, and a great deal better than success.
+ */
+function defaultUndeliveredWarning(text: string): void {
+  const preview = text.replace(/\s+/g, " ").slice(0, 80);
+  process.stderr.write(`apiary: message NOT delivered to the agent — still in its composer: ${preview}\n`);
 }
 
 export class TmuxBridge {
@@ -145,6 +163,7 @@ export class TmuxBridge {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pollIntervalMs: number;
   private keystrokeDelayMs: number;
+  private onUndelivered: (text: string) => void;
   private stopped = false;
   private blockedCount = 0;
   private static readonly BLOCKED_THRESHOLD = 150; // ~30s at 200ms poll — force inject if stuck
@@ -153,6 +172,7 @@ export class TmuxBridge {
     this.session = session;
     this.pollIntervalMs = opts?.pollIntervalMs ?? 200;
     this.keystrokeDelayMs = opts?.keystrokeDelayMs ?? 50;
+    this.onUndelivered = opts?.onUndelivered ?? defaultUndeliveredWarning;
   }
 
   /**
@@ -234,16 +254,36 @@ export class TmuxBridge {
   }
 
   /**
-   * Inject into an idle prompt: type text + Enter.
-   * Sends a second Enter after a short delay as a safety net — if Claude Code's
-   * paste detection swallowed the first Enter, the second one submits. If the
-   * first Enter worked, Claude is streaming and the second Enter is a no-op.
+   * Inject into an idle prompt: type text + Enter, then check it went.
+   *
+   * This used to fire a second Enter unconditionally as a "safety net" against
+   * Claude Code's paste detection swallowing the first. That is a guess in both
+   * directions: it cannot tell whether the first Enter worked, and it cannot
+   * tell whether the second one did either. Reading the composer back answers
+   * the question instead, and only sends the second Enter when it is needed.
    */
   private injectIdle(text: string): void {
     tmuxInjectText(this.session, text);
     tmuxSendEnter(this.session);
+    this.confirmSubmitted(text);
+  }
+
+  /**
+   * Check the message left the composer, and press Enter once more if it did not.
+   *
+   * A submitted message moves into the transcript; one still in the composer was
+   * never sent. If it is still there after the retry, the room is told rather
+   * than left to read the agent's silence as a choice.
+   */
+  private confirmSubmitted(text: string): void {
     this.sleep(80);
+    if (!composerStillHolds(this.captureScreen(), text)) return;
+
     tmuxSendEnter(this.session);
+    this.sleep(120);
+    if (!composerStillHolds(this.captureScreen(), text)) return;
+
+    this.onUndelivered(text);
   }
 
   /**
@@ -257,11 +297,10 @@ export class TmuxBridge {
     tmuxSendKey(this.session, "C-u");
     this.sleep(this.keystrokeDelayMs);
 
-    // Inject our event (double-Enter for paste detection resilience)
+    // Inject our event, then confirm rather than hope
     tmuxInjectText(this.session, text);
     tmuxSendEnter(this.session);
-    this.sleep(80);
-    tmuxSendEnter(this.session);
+    this.confirmSubmitted(text);
     this.sleep(this.keystrokeDelayMs);
 
     // Restore user's text
