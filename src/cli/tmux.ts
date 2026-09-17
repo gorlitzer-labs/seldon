@@ -95,6 +95,25 @@ export function tmuxInjectText(session: string, text: string): void {
   execFileSync("tmux", ["send-keys", "-t", name, "-l", text]);
 }
 
+/**
+ * Inject text as a single bracketed paste — start marker, payload and end
+ * marker in one `send-keys` call.
+ *
+ * Three separate calls would be equivalent on paper and worse in practice:
+ * each `execFileSync` spawns a tmux client, so the markers and the payload
+ * reach the pty with process-spawn gaps between them. Codex decides whether
+ * input is a paste or typing partly on timing, and a stretched gap makes the
+ * "typing" reading more likely. One write removes the gaps we control.
+ *
+ * This narrows the window; it does not close it, because the pty can still
+ * split a large write. The guarantee that a room message actually submits
+ * comes from the popup guard in CodexTmuxBridge, not from here.
+ */
+export function tmuxInjectPaste(session: string, text: string): void {
+  const name = sanitizeSessionName(session);
+  execFileSync("tmux", ["send-keys", "-t", name, "-l", `\x1b[200~${text}\x1b[201~`]);
+}
+
 /** Send Enter key to a tmux session (submits input). */
 export function tmuxSendEnter(session: string): void {
   const name = sanitizeSessionName(session);

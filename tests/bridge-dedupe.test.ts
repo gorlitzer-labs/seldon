@@ -16,6 +16,7 @@ let screen: string[] = [];
 vi.mock("../src/cli/tmux.js", () => ({
   tmuxCapturePane: () => screen,
   tmuxInjectText: (_s: string, text: string) => { captured.push(text); },
+  tmuxInjectPaste: (_s: string, text: string) => { captured.push(text); },
   tmuxSendEnter: () => {},
   tmuxSendKey: () => {},
   // These tests are about queue mechanics on a pane whose CLI is running, so

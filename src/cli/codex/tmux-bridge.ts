@@ -20,7 +20,7 @@
 import {
   tmuxPaneIsShell,
   tmuxCapturePane,
-  tmuxInjectText,
+  tmuxInjectPaste,
   tmuxSendEnter,
   tmuxSendKey,
 } from "../tmux.js";
@@ -86,6 +86,25 @@ const STREAMING_PATTERNS = [
   /Working\s*$/,                  // "Working" at end of line (just started)
   /esc to interrupt/,             // hint text during streaming
 ];
+
+// The footer of Codex's @-mention popup. Codex opens this when it reads a
+// `@` as a typed character, and while it is open Enter means "insert the
+// highlighted completion", not "submit" — see dismissMentionPopup.
+const MENTION_POPUP_PATTERNS: RegExp[] = [
+  /enter\s+insert\b[\s\S]{0,40}?esc\s+close/i,
+];
+
+/**
+ * Is Codex's @-mention popup on screen?
+ *
+ * Exported for tests, and matched only against the bottom of the screen: the
+ * popup is anchored above the composer, whereas an agent quoting the same
+ * words in its transcript must not count.
+ */
+export function codexMentionPopupIsOpen(lines: string[]): boolean {
+  const tail = lines.slice(-20).join("\n");
+  return MENTION_POPUP_PATTERNS.some((p) => p.test(tail));
+}
 
 export interface DeliverOptions {
   /**
@@ -184,15 +203,39 @@ export class CodexTmuxBridge {
    *
    * Bracketed paste wraps text in ESC[200~...ESC[201~ so crossterm
    * delivers it as a single Paste event, bypassing the burst detector.
-   * After the paste, we wait for the Enter suppression window (120ms)
-   * to expire, then send Enter to submit.
+   * The wrapping happens in one write — see tmuxInjectPaste for why that
+   * matters. After the paste, we wait for the Enter suppression window
+   * (120ms) to expire, then send Enter to submit.
    */
   private injectIdle(text: string): void {
-    tmuxInjectText(this.session, "\x1b[200~");
-    tmuxInjectText(this.session, text);
-    tmuxInjectText(this.session, "\x1b[201~");
+    tmuxInjectPaste(this.session, text);
     this.sleep(this.pasteDelayMs);
+    this.dismissMentionPopup();
     tmuxSendEnter(this.session);
+  }
+
+  /**
+   * Close the @-mention popup before submitting, if the injection opened it.
+   *
+   * Codex classifies incoming bytes as a paste or as typing partly on timing,
+   * so a payload we sent as a bracketed paste can still be read as typing on a
+   * loaded machine. When that happens a `@` opens the mention popup, and Enter
+   * there *inserts the highlighted completion* instead of submitting. On
+   * 2026-09-10 that turned a room message reading "sooo @all" into
+   * "sooo @Openai-Templates" — the top hit was an installed Codex plugin — and
+   * left it unsent in the composer, so the next message appended to the same
+   * stuck line and the agent looked like it was ignoring the operator.
+   *
+   * Escape closes the popup and leaves the composed text untouched, so the
+   * Enter that follows submits what we actually injected.
+   *
+   * Only ever sent when the popup is on screen: Escape is also Codex's
+   * interrupt, so an unconditional one would cancel a turn in progress.
+   */
+  private dismissMentionPopup(): void {
+    if (!codexMentionPopupIsOpen(this.captureScreen())) return;
+    tmuxSendKey(this.session, "Escape");
+    this.sleep(this.keystrokeDelayMs);
   }
 
   /**
@@ -207,10 +250,9 @@ export class CodexTmuxBridge {
     this.sleep(this.keystrokeDelayMs);
 
     // Inject our event via bracketed paste
-    tmuxInjectText(this.session, "\x1b[200~");
-    tmuxInjectText(this.session, text);
-    tmuxInjectText(this.session, "\x1b[201~");
+    tmuxInjectPaste(this.session, text);
     this.sleep(this.pasteDelayMs);
+    this.dismissMentionPopup();
     tmuxSendEnter(this.session);
     this.sleep(this.keystrokeDelayMs);
 
