@@ -23,6 +23,7 @@ import {
   resetTerminal,
 } from "../tmux.js";
 import { CodexTmuxBridge } from "./tmux-bridge.js";
+import { findCodexSessionId } from "./queue.js";
 import { setupAgentRuntime, type AgentRuntimeOptions } from "../runtime-setup.js";
 import { codexStateToActivity } from "../agent-state.js";
 import { shouldReportActivity, type AgentActivityState } from "../../agent/event-processor.js";
@@ -137,11 +138,18 @@ export async function runCodex(options: AgentRuntimeOptions): Promise<void> {
     ...listCodexSessions().filter(isAgentAlive).map((s) => s.agentName),
   ]);
   const { command } = prepareCodexLaunch(setup.agentName, mcpUrl, options.extraArgs ?? []);
+  // Stamped before the launch so the session we are about to start is never
+  // older than the floor findCodexSessionId searches from.
+  const launchedAt = Date.now();
   tmuxSendCommand(tmuxSession, command);
 
   // ── Start event loop + attach ──────────────────────────────────────────
 
-  const bridge = new CodexTmuxBridge(tmuxSession);
+  // Deliver through `codex queue` once the session can be identified, falling
+  // back to the composer until then — see queue.ts for why that is preferable.
+  const bridge = new CodexTmuxBridge(tmuxSession, {
+    resolveThreadId: () => findCodexSessionId({ cwd: cwdFull, startedAfter: launchedAt }),
+  });
 
   // Start the event loop in the background — no initial injection.
   // The agent joins rooms by calling join_room() when the user tells it to.

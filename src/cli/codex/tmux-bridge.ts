@@ -24,6 +24,7 @@ import {
   tmuxSendEnter,
   tmuxSendKey,
 } from "../tmux.js";
+import { queueCodexMessage } from "./queue.js";
 import { contentPartsToString } from "../../agent/prompts.js";
 import type { ContentPart } from "../../agent/types.js";
 
@@ -115,6 +116,14 @@ export interface DeliverOptions {
 }
 
 export interface CodexTmuxBridgeOptions {
+  /**
+   * Resolve the Codex session id for this agent, if it can be known.
+   *
+   * When it returns an id, messages go through `codex queue` instead of the
+   * composer — see queue.ts. Called lazily and memoised, because the session
+   * does not exist until Codex has finished starting.
+   */
+  resolveThreadId?: () => string | null;
   /** How often to poll when events are queued (ms). Default: 200 */
   pollIntervalMs?: number;
   /** Delay after bracketed paste before sending Enter (ms). Default: 150 */
@@ -131,12 +140,33 @@ export class CodexTmuxBridge {
   private pasteDelayMs: number;
   private keystrokeDelayMs: number;
   private stopped = false;
+  private resolveThreadId?: () => string | null;
+  private threadId: string | null = null;
 
   constructor(session: string, opts?: CodexTmuxBridgeOptions) {
     this.session = session;
     this.pollIntervalMs = opts?.pollIntervalMs ?? 200;
     this.pasteDelayMs = opts?.pasteDelayMs ?? 150;
     this.keystrokeDelayMs = opts?.keystrokeDelayMs ?? 50;
+    this.resolveThreadId = opts?.resolveThreadId;
+  }
+
+  /**
+   * The Codex session id, resolved once and remembered.
+   *
+   * Resolution is deferred because the session does not exist at construction
+   * time — Codex is still starting — and it is retried on later deliveries
+   * until it succeeds.
+   */
+  private thread(): string | null {
+    if (this.threadId) return this.threadId;
+    if (!this.resolveThreadId) return null;
+    try {
+      this.threadId = this.resolveThreadId();
+    } catch {
+      this.threadId = null;
+    }
+    return this.threadId;
   }
 
   /**
@@ -178,6 +208,16 @@ export class CodexTmuxBridge {
   private inject(text: string, dedupe: boolean): void {
     const flat = text.replace(/\n/g, " ");
     const state = this.detectState();
+
+    // Prefer handing the message to Codex itself. Nothing is typed, so the
+    // composer's paste-vs-typing timing and its @-mention popup cannot apply,
+    // and Codex holds the message for a busy agent rather than us polling for
+    // an injectable moment. Skipped when the CLI is gone: queueing into a
+    // session nothing is reading would silently swallow the message.
+    if (state !== "absent") {
+      const threadId = this.thread();
+      if (threadId && queueCodexMessage(threadId, flat)) return;
+    }
 
     switch (state) {
       case "idle":
