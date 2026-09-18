@@ -87,6 +87,19 @@ export function ensureImage({ rebuild = false } = {}) {
 }
 
 /**
+ * Wrap a docker invocation in `comb run` when secrets are wanted.
+ *
+ * factory deliberately never learns the values. comb injects them into docker's
+ * environment and docker forwards them by name, so the secret exists in exactly
+ * two places — comb's memory and the container — and in neither argv, neither
+ * shell history, nor this process.
+ */
+export function wrapWithSecrets(dockerArgs, secrets) {
+  if (secrets.length === 0) return { bin: "docker", args: dockerArgs };
+  return { bin: "comb", args: ["run", "--with", secrets.join(","), "--", "docker", ...dockerArgs] };
+}
+
+/**
  * Assemble the `docker run` argv.
  *
  * Exported so the tests can read the policy off the command rather than trust a
@@ -103,6 +116,7 @@ export function runArgs({
   network = true,
   tty = false,
   home = true,
+  secrets = [],
   command = [],
 }) {
   const args = ["run", "--rm"];
@@ -137,6 +151,14 @@ export function runArgs({
   );
   if (!network) args.push("--network", "none");
 
+  // `-e NAME` with no value: docker forwards the variable from ITS OWN
+  // environment. The alternative, `-e NAME=value`, writes the secret into the
+  // argv of a process — visible in `ps` to anyone on the machine, and in the
+  // shell history of whoever typed it. This way the value never appears in a
+  // command line at all; comb puts it in docker's environment and docker hands
+  // it to the container.
+  for (const name of secrets) args.push("-e", name);
+
   args.push(IMAGE);
   if (command.length > 0) {
     args.push(...command);
@@ -163,9 +185,17 @@ export async function factoryBox(pos, flags) {
 
   ensureImage({ rebuild: flags.rebuild === true });
 
+  const secrets = typeof flags.with === "string"
+    ? flags.with.split(",").map((x) => x.trim()).filter(Boolean)
+    : [];
+  if (secrets.length > 0 && spawnSync("comb", ["version"], { encoding: "utf-8" }).status !== 0) {
+    throw new Error("--with needs comb on PATH (gorlitzer-labs/comb) — it is what holds the secrets");
+  }
+
   const args = runArgs({
     repo,
     harness,
+    secrets,
     creds: flags.creds === true,
     memory: typeof flags.memory === "string" ? flags.memory : "4g",
     cpus: typeof flags.cpus === "string" ? flags.cpus : "2",
@@ -184,11 +214,13 @@ export async function factoryBox(pos, flags) {
       : flags.fresh
         ? "throwaway home — you will be asked to log in"
         : `fleet home (volume ${HOME_VOLUME}) — log in once, it sticks`}`,
+    `   secrets   ${secrets.length ? `${secrets.join(", ")} ${c.dim("(via comb, never in a command line)")}` : "none"}`,
     `   ceiling   ${typeof flags.memory === "string" ? flags.memory : "4g"} memory · ${typeof flags.cpus === "string" ? flags.cpus : "2"} cpus`,
     "",
   ].join("\n"));
 
-  const r = docker(args, { stdio: "inherit" });
+  const { bin, args: finalArgs } = wrapWithSecrets(args, secrets);
+  const r = spawnSync(bin, finalArgs, { stdio: "inherit", encoding: "utf-8" });
   process.exit(r.status ?? 1);
 }
 

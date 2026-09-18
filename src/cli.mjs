@@ -16,6 +16,10 @@ function parse(args) {
   const flags = {}, pos = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    // Everything after a bare `--` is the user's command, not our flags.
+    // Without this, `box . -- sh -c '...'` parses `--` as an empty flag and the
+    // command is silently dropped.
+    if (a === "--") { flags["--"] = args.slice(i + 1); break; }
     if (a.startsWith("--")) {
       const k = a.slice(2), n = args[i + 1];
       if (n === undefined || n.startsWith("--")) flags[k] = true; else { flags[k] = n; i++; }
@@ -42,9 +46,10 @@ function help() {
     `        and the decisions pending your call.`,
     "",
     `  ${c.cyan("state")} [--compact]            Everything board shows, as JSON (read-only)`,
-    `  ${c.cyan("box")} [dir] [--agent claude|codex] [--creds] [--fresh] [--memory 4g] [--cpus 2]`,
+    `  ${c.cyan("box")} [dir] [--agent claude|codex] [--with A,B] [--fresh] [--memory 4g] [--cpus 2]`,
     `        Run an agent with its permissions skipped, inside a container that`,
     `        mounts one repo and nothing else. Log in once; the fleet home sticks.`,
+    `        ${c.dim("--with hands it secrets via comb — never in a command line.")}`,
     `  ${c.cyan("box doctor")} [dir]            Try to read your host secrets from inside the box`,
     "",
     `  ${c.cyan("decide")} <id> "<your call>"    Answer a pending decision (posts it to the hive)`,

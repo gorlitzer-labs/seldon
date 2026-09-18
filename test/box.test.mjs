@@ -10,7 +10,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
-import { runArgs, HARNESSES, HOME_VOLUME } from "../src/box.mjs";
+import { runArgs, HARNESSES, HOME_VOLUME, IMAGE, wrapWithSecrets } from "../src/box.mjs";
 
 const REPO = "/Users/someone/Desktop/project";
 const mountsOf = (args) => args.filter((a, i) => args[i - 1] === "-v");
@@ -83,5 +83,35 @@ describe("harnesses", () => {
     for (const h of Object.values(HARNESSES)) {
       for (const flag of h.bypass) assert.ok(!args.includes(flag));
     }
+  });
+});
+
+describe("secrets", () => {
+  test("forwards by NAME only — a value must never reach a command line", () => {
+    const args = runArgs({ repo: REPO, secrets: ["CF_API_TOKEN", "GITHUB_TOKEN"] });
+    // `-e NAME` (no =) tells docker to take it from its own environment. The
+    // `-e NAME=value` form would put the secret in argv, where `ps` shows it to
+    // anyone on the machine and shell history keeps it.
+    assert.ok(args.includes("-e"));
+    assert.ok(args.includes("CF_API_TOKEN"));
+    assert.ok(!args.some((a) => a.includes("=") && a.includes("CF_API_TOKEN")),
+      "a NAME=value pair would leak the secret into argv");
+  });
+
+  test("no secrets requested, no -e flags invented", () => {
+    const args = runArgs({ repo: REPO });
+    assert.equal(args.includes("-e"), false);
+  });
+
+  test("docker is run through comb when secrets are wanted, so factory never holds a value", () => {
+    const { bin, args } = wrapWithSecrets(["run", "--rm", IMAGE], ["CF_API_TOKEN"]);
+    assert.equal(bin, "comb");
+    assert.deepEqual(args, ["run", "--with", "CF_API_TOKEN", "--", "docker", "run", "--rm", IMAGE]);
+  });
+
+  test("docker is called directly when no secrets are wanted — no needless dependency", () => {
+    const { bin, args } = wrapWithSecrets(["run", "--rm", IMAGE], []);
+    assert.equal(bin, "docker");
+    assert.deepEqual(args, ["run", "--rm", IMAGE]);
   });
 });

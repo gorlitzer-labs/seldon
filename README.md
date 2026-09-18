@@ -122,6 +122,7 @@ box be both credentialed and sealed. Revoking it is
 | `--agent claude\|codex` | launch that harness with its own permission bypass |
 | `--fresh` | throwaway home — forces a login, useful for testing |
 | `--creds` | mount *your* credential for that agent instead of the fleet's (the unsafe shortcut) |
+| `--with A,B` | hand those secrets to the agent via [comb](https://github.com/gorlitzer-labs/comb) |
 | `--memory` / `--cpus` | ceilings, default 4g / 2 |
 | `--no-net` | cut the network entirely |
 
@@ -145,6 +146,27 @@ tries to read each host secret at its real path, then reports what it reached:
 
 Harness-agnostic on purpose: adding a new agent is one entry in `HARNESSES` and a
 line in the Dockerfile. Nothing else in the box knows which CLI is running.
+
+### Secrets
+
+```bash
+factory box ~/Desktop/stranded --agent codex --with CF_API_TOKEN,GITHUB_TOKEN
+```
+
+The value never reaches a command line. `factory` does not learn it either: it
+builds the docker command with `-e NAME` — no `=`, which tells docker to take the
+variable from *its own* environment — and then runs that command through
+`comb run`, which is what puts it there. So the secret exists in exactly two
+places, comb's memory and the container, and in neither argv, shell history, nor
+factory itself.
+
+Verified by watching `ps auxww` while a box runs with a secret: present inside
+the container, absent from every process command line on the machine, including
+docker's own.
+
+That is the point of the pair. A boxed agent gets the credential it needs at the
+moment it needs it, and the credential is never in the image, never in the
+volume, and never in a transcript.
 
 **What it does not do.** An agent must hold *some* model credential to work, and a
 box cannot hide the credential it is using. What it hides is the other five. If the
