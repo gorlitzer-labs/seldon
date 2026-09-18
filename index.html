@@ -19,7 +19,7 @@
 <div id="reel" aria-live="polite">
 
   <!-- 1 cold open -->
-  <section class="slide" data-dur="8">
+  <section class="slide" data-dur="8" data-scene="open">
     <div class="inner" style="text-align:center">
       <svg class="mark" viewBox="0 0 120 120" fill="none">
         <circle cx="60" cy="60" r="54" stroke-width="1.4" class="stroke"/>
@@ -35,7 +35,7 @@
   </section>
 
   <!-- 2 problem -->
-  <section class="slide" data-dur="14">
+  <section class="slide" data-dur="13" data-scene="text">
     <div class="inner">
       <div class="eyebrow anim">The problem</div>
       <div class="big anim" style="margin-top:20px;max-width:20ch">AI agents are powerful. Left alone, they're <span class="gold">chaos</span>.</div>
@@ -44,7 +44,7 @@
   </section>
 
   <!-- 3 thesis -->
-  <section class="slide" data-dur="14">
+  <section class="slide" data-dur="13" data-scene="text">
     <div class="inner">
       <div class="eyebrow anim">The thesis</div>
       <h2 class="anim" style="margin-top:18px;max-width:18ch">A factory that runs the plan — and wakes you only for the pivotal calls.</h2>
@@ -53,7 +53,7 @@
   </section>
 
   <!-- 4 the plan line -->
-  <section class="slide" data-dur="16">
+  <section class="slide" data-dur="15" data-scene="plan">
     <div class="inner">
       <div class="eyebrow anim">The plan, as a line</div>
       <h2 class="anim" style="margin-top:16px">One idea, walked to shipped.</h2>
@@ -68,135 +68,46 @@
     </div>
   </section>
 
-  <!-- 5 apiary -->
-  <section class="slide mod-slide" data-dur="15">
-    <div class="inner"><div class="mod">
-      <div>
-        <h2 class="anim"><small>the conversation · v1.13.3</small>apiary</h2>
-        <div class="say anim">Shared rooms for AI agents — mentions, whispers, history, a human in the room. The hive where a build actually happens.</div>
-        <div class="proof anim">✓ 669 tests · delivery fixed three ways today</div>
+  <!-- 5 THE ASSEMBLY — hexes zoom, explain, dock into a flower -->
+  <section class="slide" data-dur="30" data-scene="assembly">
+    <div class="assembly-wrap">
+      <div class="asm-caption" id="asmCaption">
+        <div class="eyebrow">Six tools, put together</div>
+        <h2 id="asmTitle">The pieces</h2>
       </div>
-      <div class="emblem"><svg viewBox="0 0 200 200">
-        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
-        <path class="gl" d="M62 78 h56 a8 8 0 0 1 8 8 v22 a8 8 0 0 1 -8 8 h-30 l-14 12 v-12 h-12 a8 8 0 0 1 -8 -8 v-22 a8 8 0 0 1 8 -8 z"/>
-        <circle class="fl dotmark" cx="80" cy="97" r="3.5"/><circle class="fl dotmark" cx="100" cy="97" r="3.5"/><circle class="fl dotmark" cx="120" cy="97" r="3.5"/>
-      </svg></div>
-    </div></div>
-  </section>
-
-  <!-- 6 bifrost -->
-  <section class="slide mod-slide" data-dur="15">
-    <div class="inner"><div class="mod">
-      <div>
-        <h2 class="anim"><small>the bridge · v1.7.0</small>bifrost</h2>
-        <div class="say anim">tmux + Tailscale as one workspace. Sessions survive the closed lid, reachable from a phone — each agent flagged <span style="color:var(--idle)">●</span> <span style="color:var(--work)">◐</span> <span style="color:var(--block)">■</span> by what it's doing.</div>
-        <div class="proof anim">✓ 30 tests · agent-state on the board</div>
-      </div>
-      <div class="emblem"><svg viewBox="0 0 200 200">
-        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
-        <path class="gl" d="M50 128 Q100 62 150 128"/>
-        <circle class="fl dotmark" cx="50" cy="128" r="6"/><circle class="fl dotmark" cx="150" cy="128" r="6"/>
-        <circle class="gl dotmark" cx="100" cy="95" r="7" style="fill:var(--bg)"/>
-      </svg></div>
-    </div></div>
-  </section>
-
-  <!-- 7 factory -->
-  <section class="slide mod-slide" data-dur="15">
-    <div class="inner"><div class="mod">
-      <div>
-        <h2 class="anim"><small>the floor · CLI</small>factory</h2>
-        <div class="say anim">The 24/7 supervisor: <span class="mono">new · watch · board · box · realms</span>. Heals dead agents — across machines — and escalates the hard calls to you.</div>
-        <div class="proof anim">✓ 26 tests · boxed agents · reaches realms</div>
-      </div>
-      <div class="emblem"><svg viewBox="0 0 200 200">
-        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
-        <circle class="gl" cx="100" cy="100" r="27"/>
-        <g class="fl dotmark">
-          <rect x="96" y="60" width="8" height="16" rx="2"/><rect x="96" y="124" width="8" height="16" rx="2"/>
-          <rect x="60" y="96" width="16" height="8" rx="2"/><rect x="124" y="96" width="16" height="8" rx="2"/>
-        </g>
-        <circle class="fl dotmark" cx="100" cy="100" r="7"/>
-      </svg></div>
-    </div></div>
-  </section>
-
-  <!-- 8 comb -->
-  <section class="slide mod-slide" data-dur="15">
-    <div class="inner"><div class="mod">
-      <div>
-        <h2 class="anim"><small>the vault · v0.1.0</small>comb</h2>
-        <div class="say anim">Keys by name, never by value. SOPS + age, no server. A leak audit no vault does — and credentials that follow an agent to another machine, safely.</div>
-        <div class="proof anim">✓ 27 tests · multi-machine secrets</div>
-      </div>
-      <div class="emblem"><svg viewBox="0 0 200 200">
-        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
-        <circle class="gl" cx="100" cy="86" r="22"/>
-        <path class="gl" d="M100 108 v36 M100 122 h16 M100 134 h12"/>
-        <circle class="fl dotmark" cx="100" cy="86" r="6"/>
-      </svg></div>
-    </div></div>
-  </section>
-
-  <!-- 9 foundation -->
-  <section class="slide mod-slide" data-dur="14">
-    <div class="inner"><div class="mod">
-      <div>
-        <h2 class="anim"><small>the seam · the substrate</small>foundation</h2>
-        <div class="say anim">The deterministic project workflow beneath it all — QUEUE → WORKSTREAMS → DONE → FACTS, one writer per file, every fact tool-stamped. Named for Asimov; the seed of the whole world.</div>
-        <div class="proof anim">◇ the record the rest is built on</div>
-      </div>
-      <div class="emblem"><svg viewBox="0 0 200 200">
-        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
-        <path class="gl" d="M64 78 h72 M64 100 h72 M64 122 h72 M84 66 v68 M114 66 v68"/>
-      </svg></div>
-    </div></div>
-  </section>
-
-  <!-- 10 demerzel -->
-  <section class="slide mod-slide" data-dur="16">
-    <div class="inner"><div class="mod">
-      <div>
-        <h2 class="anim"><small>the voice · fully local</small>Demerzel</h2>
-        <div class="say anim">A voice you talk to — 35B brain on-device, ~2s from your last word to hers, nothing leaving the machine. Named for Seldon's First Minister: the operator behind the throne, the way a human steers the factory.</div>
-        <div class="proof anim">◇ Qwen3.6-35B · offline · the human seam</div>
-      </div>
-      <div class="emblem"><svg viewBox="0 0 200 200">
-        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
-        <path class="gl" d="M56 100 h10 l8 -26 8 46 8 -60 8 74 8 -46 8 22 h14"/>
-      </svg></div>
-    </div></div>
-  </section>
-
-  <!-- 11 assemble -->
-  <section class="slide" data-dur="14">
-    <div class="inner">
-      <div class="eyebrow anim">Six tools, one system</div>
-      <h2 class="anim">Each stands alone. Together they close the loop.</h2>
-      <div class="constel" id="constel">
-        <svg id="links"></svg>
-      </div>
+      <div class="flower" id="flower"><!-- center + petals injected --></div>
     </div>
   </section>
 
-  <!-- 12 removal demo -->
-  <section class="slide" data-dur="27" id="slide-demo">
+  <!-- 6 IT BUILDS ITSELF — layered product surfaces -->
+  <section class="slide" data-dur="22" data-scene="buildup">
+    <div class="inner buildup-head">
+      <div class="eyebrow anim">And then it runs</div>
+      <h2 class="anim">The factory builds itself.</h2>
+    </div>
+    <div class="surfaces" id="surfaces"><!-- windows injected --></div>
+  </section>
+
+  <!-- 7 COMBOS — remove pieces, read the fitness -->
+  <section class="slide" data-dur="30" data-scene="combos">
     <div class="inner">
-      <div class="eyebrow anim">Composable — pull a piece</div>
-      <h2 class="anim" style="margin-bottom:6px">Take one out. Watch what breaks.</h2>
-      <div class="demo">
-        <div class="demogrid" id="demogrid"></div>
-        <div class="dpanel">
-          <div class="dverdict" id="dverdict">The whole factory.</div>
-          <div class="dcap" id="dcap">Runs itself across machines, and you talk to it.</div>
-          <div class="dtag" id="dtag"></div>
+      <div class="eyebrow anim">Composable — it's about the job</div>
+      <h2 class="anim" style="margin-bottom:4px">Different combos, different powers.</h2>
+      <div class="combo">
+        <div class="combogrid" id="combogrid"></div>
+        <div class="comboverdict">
+          <div class="cv-title" id="cvTitle">The whole factory</div>
+          <div class="cv-cols">
+            <div class="cv-good"><h4>Good for</h4><ul id="cvGood"></ul></div>
+            <div class="cv-weak"><h4>Weak for</h4><ul id="cvWeak"></ul></div>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- 13 e2e -->
-  <section class="slide" data-dur="22">
+  <!-- 8 e2e -->
+  <section class="slide" data-dur="20" data-scene="e2e">
     <div class="inner">
       <div class="eyebrow anim">One run, end to end</div>
       <h2 class="anim">An idea, through the whole stack.</h2>
@@ -212,8 +123,8 @@
     </div>
   </section>
 
-  <!-- 15 machines -->
-  <section class="slide" data-dur="15">
+  <!-- 9 machines -->
+  <section class="slide" data-dur="15" data-scene="machines">
     <div class="inner">
       <div class="eyebrow anim">Across machines</div>
       <h2 class="anim">One workspace, three roles.</h2>
@@ -226,8 +137,8 @@
     </div>
   </section>
 
-  <!-- 16 close -->
-  <section class="slide" data-dur="13">
+  <!-- 10 close -->
+  <section class="slide" data-dur="13" data-scene="close">
     <div class="inner" style="text-align:center">
       <div class="big anim" style="max-width:22ch;margin:0 auto">Six tools. One plan.</div>
       <h2 class="anim" style="margin-top:14px;max-width:20ch;margin-left:auto;margin-right:auto">A factory that runs while you <span class="gold">sleep on it</span> — not through it.</h2>
@@ -242,7 +153,7 @@
   <button class="cbtn" id="playpause" aria-label="Pause">❚❚</button>
   <button class="cbtn" id="next" aria-label="Next slide">›</button>
   <div class="dots" id="dots"></div>
-  <span class="counter" id="counter">1 / 15</span>
+  <span class="counter" id="counter">1 / 10</span>
 </div>
 
 <script type="module" src="./src/main.js"></script>
