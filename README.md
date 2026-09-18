@@ -93,6 +93,64 @@ factory briefing                    # the accumulating ~/.factory/briefing.md yo
 `DECISION:` and `BLOCKER:` messages become pending decisions; alerts fire on macOS (`osascript`).
 The factory escalates — it never decides the irreversible.
 
+## `factory box` — run an agent with permissions skipped, safely
+
+Agents get their permissions skipped, because one that stops to ask cannot work a
+shift. On the host that hands it `~/.ssh`, `~/.aws`, the `gh` token, both AI logins
+and every repo on the machine. That it has not gone wrong yet is luck, not design.
+
+`factory box` moves the bypass somewhere it cannot cost much. The agent still runs
+fully unrestricted — that is the point — but "unrestricted" now means one mounted
+repo and nothing else.
+
+```bash
+factory box ~/Desktop/stranded --agent codex    # codex, permissions skipped, in a box
+factory box ~/Desktop/stranded --agent claude   # same for Claude Code
+factory box ~/Desktop/stranded                  # just a shell in the box
+factory box doctor ~/Desktop/stranded           # try to read your secrets from inside
+```
+
+**Authentication happens once.** The box keeps its own home in a docker volume
+(`factory-agentbox-home`), so you sign in *inside* the box the first time and the
+tokens are still there next run, next week, next reboot. That home is not your
+`~/.codex` or `~/.claude` — it is the fleet's own identity, which is what lets the
+box be both credentialed and sealed. Revoking it is
+`docker volume rm factory-agentbox-home`, and it leaves your own logins untouched.
+
+| flag | what it does |
+|---|---|
+| `--agent claude\|codex` | launch that harness with its own permission bypass |
+| `--fresh` | throwaway home — forces a login, useful for testing |
+| `--creds` | mount *your* credential for that agent instead of the fleet's (the unsafe shortcut) |
+| `--memory` / `--cpus` | ceilings, default 4g / 2 |
+| `--no-net` | cut the network entirely |
+
+Every run drops all capabilities, forbids privilege escalation, and caps memory,
+CPU and process count, so a runaway agent hits a wall instead of the laptop.
+
+**The walls are tested, not asserted.** `factory box doctor` goes into the box and
+tries to read each host secret at its real path, then reports what it reached:
+
+```
+📦 box doctor
+   sealed    .ssh
+   sealed    .aws
+   sealed    .config/gh
+   sealed    .codex
+   sealed    .claude
+   work mount OK
+
+   every host secret is sealed off from the box
+```
+
+Harness-agnostic on purpose: adding a new agent is one entry in `HARNESSES` and a
+line in the Dockerfile. Nothing else in the box knows which CLI is running.
+
+**What it does not do.** An agent must hold *some* model credential to work, and a
+box cannot hide the credential it is using. What it hides is the other five. If the
+fleet's token is ever abused, you revoke one volume rather than rotating your whole
+machine.
+
 ## Roadmap
 
 - **Phase 1 — Front Door** (`factory new`) ✅

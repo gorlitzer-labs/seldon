@@ -6,6 +6,7 @@ import { factoryNew } from "./new.mjs";
 import { factoryWatch } from "./watch.mjs";
 import { factoryBoard, factoryLs } from "./board.mjs";
 import { factoryDecide, factoryBriefing } from "./decide.mjs";
+import { factoryBox } from "./box.mjs";
 import { factoryState } from "./state.mjs";
 
 const argv = process.argv.slice(2);
@@ -41,6 +42,11 @@ function help() {
     `        and the decisions pending your call.`,
     "",
     `  ${c.cyan("state")} [--compact]            Everything board shows, as JSON (read-only)`,
+    `  ${c.cyan("box")} [dir] [--agent claude|codex] [--creds] [--fresh] [--memory 4g] [--cpus 2]`,
+    `        Run an agent with its permissions skipped, inside a container that`,
+    `        mounts one repo and nothing else. Log in once; the fleet home sticks.`,
+    `  ${c.cyan("box doctor")} [dir]            Try to read your host secrets from inside the box`,
+    "",
     `  ${c.cyan("decide")} <id> "<your call>"    Answer a pending decision (posts it to the hive)`,
     `  ${c.cyan("briefing")}                     Print the accumulating morning briefing`,
   ].join("\n"));
@@ -54,6 +60,7 @@ try {
     case "board": await factoryBoard(flags); break;
     case "state": await factoryState(flags); break;
     case "ls": factoryLs(); break;
+    case "box": await factoryBox(pos, flags); break;
     case "decide": await factoryDecide(pos[0], pos.slice(1)); break;
     case "briefing": await factoryBriefing(); break;
     case "version": case "--version": case "-v": say("factory 0.1.0"); break;
