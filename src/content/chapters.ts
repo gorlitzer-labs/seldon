@@ -90,7 +90,7 @@ export const chapters: Chapter[] = [
         say: [{ text: "Put them together and one idea walks itself to shipped — the weather CLI, planned, built, verified, and live." }] },
       { id: "apart", kicker: "composable — it's about the job", heading: "Take one out, and it's a different tool.",
         body: ["Drop the voice and you drive by terminal. Drop the vault and remote agents go blind. Drop the floor and it stops being a factory at all. Every combo is powerful for a different job."],
-        focus: null, view: "hive",
+        focus: null, view: "combo",
         say: [{ text: "Pull a piece, and it becomes something else — good for a different job. That's the point: match the combo to the work." }] },
     ],
   },

@@ -32,7 +32,7 @@ function Honeycomb() {
 
   useFrame((state, dt) => {
     const t = state.clock.elapsedTime;
-    const k = Math.min(1, dt * 3.2); // lerp factor
+    const k = Math.min(1, dt * 1.9); // lerp factor — deliberate fly between modules
 
     // camera framing
     if (focus) {

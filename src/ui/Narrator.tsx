@@ -24,23 +24,30 @@ export function Narrator() {
 
     let cancelled = false;
     let i = 0;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
+    setCaption(null); // blank while the camera flies to this module
+
     const playLine = () => {
       if (cancelled) return;
       if (i >= lines.length) {
-        if (useDeck.getState().index < stepCount - 1) next();   // auto-advance the lecture
-        else setCaption(null);                                   // last beat: rest
+        setCaption(null);                                        // silence during the transition
+        if (useDeck.getState().index < stepCount - 1) at(1100, () => { if (!cancelled) next(); });
         return;
       }
       setCaption(lines[i].text);
       const a = new Audio(`vo/${voice}/${chap.id}-${beat.id}-${i}.mp3`);
+      // a touch slower and deeper, for a calmer read
+      a.preservesPitch = false;
+      a.playbackRate = 0.92;
       audioRef.current = a;
       const step = () => { i++; playLine(); };
       a.onended = step;
       a.onerror = step;
       a.play().catch(() => {});
     };
-    playLine();
-    return () => { cancelled = true; stop(); };
+    at(700, playLine);   // lead-in: let the camera arrive before she speaks
+    return () => { cancelled = true; timers.forEach(clearTimeout); stop(); };
   }, [index, view, sound, voice, next]);
 
   if (!caption) return null;

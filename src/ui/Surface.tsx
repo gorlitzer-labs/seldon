@@ -1,7 +1,8 @@
-import { useChapter, useView } from "../deck/deck";
+import { useBeat, useChapter, useView } from "../deck/deck";
 import { ApiarySurface } from "./surfaces/Apiary";
 import { DemerzelSurface } from "./surfaces/Demerzel";
 import { StackSurface } from "./surfaces/Stack";
+import { StackApartSurface } from "./surfaces/StackApart";
 import { TypedTerminal } from "./surfaces/TypedTerminal";
 import comb from "../content/captures/comb.txt?raw";
 import foundation from "../content/captures/foundation.txt?raw";
@@ -10,10 +11,12 @@ import bifrost from "../content/captures/bifrost.txt?raw";
 
 export function Surface() {
   const chapter = useChapter();
+  const beat = useBeat();
   const view = useView();
   const on = view === "surface" || view === "combo";
   let inner = null;
-  if (view === "combo") return <div className={"surface" + (on ? " on" : "")}><StackSurface /></div>;
+  if (view === "combo")
+    return <div className="surface on">{beat.id === "apart" ? <StackApartSurface /> : <StackSurface />}</div>;
   switch (chapter.module) {
     case "apiary": inner = <ApiarySurface />; break;
     case "comb": inner = <TypedTerminal title="comb — real run" text={comb} boot="comb" />; break;
