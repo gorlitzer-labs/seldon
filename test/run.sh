@@ -88,6 +88,28 @@ else
   no "BIFROST_REMOTE_PATH present" "variable vanished"
 fi
 
+
+echo "── agent-state classifier (mirrors apiary's detectors) ──"
+eq "working" "$(classify_agent_state 'esc to interrupt')"                 "interrupt hint → working"
+eq "working" "$(classify_agent_state 'Working (12s')"                     "Working timer → working"
+eq "working" "$(classify_agent_state 'thinking hard ⠹ still going')"      "spinner braille → working"
+eq "blocked" "$(classify_agent_state 'Do you want to approve this edit?')" "approval prompt → blocked"
+eq "blocked" "$(classify_agent_state 'Allow the apiary MCP server to run tool')" "MCP tool prompt → blocked"
+eq "blocked" "$(classify_agent_state 'Do you trust the files in this folder')" "trust prompt → blocked"
+eq "blocked" "$(classify_agent_state 'Sign in with ChatGPT to continue')"  "sign-in → blocked"
+eq "idle"    "$(classify_agent_state 'Ask Codex to do anything')"          "empty composer → idle"
+eq "idle"    "$(classify_agent_state '')"                                  "blank screen → idle"
+# order: a human-gating prompt outranks a spinner on the same screen
+eq "blocked" "$(classify_agent_state 'Working (3s ... Do you want to approve?')" "blocked outranks working"
+
+echo "── state glyphs ──"
+[[ -n "$(agent_state_glyph working)" ]] && ok "working has a glyph" || no "working glyph" "empty"
+[[ "$(agent_state_glyph working)" != "$(agent_state_glyph blocked)" ]] && ok "states render distinctly" || no "distinct glyphs" "same"
+
+echo "── list_agent_sessions filters to apiary_* ──"
+# pure string check: the filter regex only accepts apiary_ prefix
+grep -q "grep -E '\^apiary_'" "$ROOT/bifrost" && ok "list_agent_sessions scoped to apiary_ prefix" || no "agent-session scope" "filter changed"
+
 echo
 echo "──────────────────────────────────────"
 if [[ $FAIL -eq 0 ]]; then
