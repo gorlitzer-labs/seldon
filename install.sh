@@ -11,7 +11,7 @@ set -euo pipefail
 
 REPO="gorlitzer-labs/bifrost"
 # Pin to a tag for reproducible installs. Override with: BIFROST_REF=main bash install.sh
-BIFROST_REF="${BIFROST_REF:-v1.5.1}"
+BIFROST_REF="${BIFROST_REF:-v1.6.0}"
 RAW_URL="https://raw.githubusercontent.com/$REPO/$BIFROST_REF"
 
 # ── Colors ──
@@ -288,13 +288,13 @@ SHORTCUT
   chmod +x "$WIDGET_DIR/bifrost-gateway"
   info "Widget shortcut: bifrost-gateway"
 
-  cat > "$WIDGET_DIR/bifrost-workspace" <<'SHORTCUT'
+  cat > "$WIDGET_DIR/bifrost-summon" <<'SHORTCUT'
 #!/usr/bin/env bash
-# Termux:Widget shortcut — launches bifrost workspace
-bifrost workspace
+# Termux:Widget shortcut — launches bifrost summon
+bifrost summon
 SHORTCUT
-  chmod +x "$WIDGET_DIR/bifrost-workspace"
-  info "Widget shortcut: bifrost-workspace"
+  chmod +x "$WIDGET_DIR/bifrost-summon"
+  info "Widget shortcut: bifrost-summon"
 
   cat > "$WIDGET_DIR/bifrost-sessions" <<'SHORTCUT'
 #!/usr/bin/env bash
@@ -317,7 +317,7 @@ echo ""
 echo -e "  ${G}bifrost doctor${N}            ${D}check everything${N}"
 echo -e "  ${G}bifrost realm scan${N}         ${D}find your machines${N}"
 echo -e "  ${G}bifrost realm add${N} <name>   ${D}add a realm${N}"
-echo -e "  ${G}bifrost workspace${N}          ${D}launch${N}"
+echo -e "  ${G}bifrost summon${N}             ${D}launch${N}"
 echo ""
 
 if [[ "$PLATFORM" == "termux" ]]; then

@@ -13,7 +13,7 @@
 set -euo pipefail
 
 # ── Version ──────────────────────────────────────────────────────
-BIFROST_VERSION="1.5.1"
+BIFROST_VERSION="1.6.0"
 BIFROST_REPO="gorlitzer-labs/bifrost"
 BIFROST_VERSION_CACHE="${HOME}/.config/bifrost/version-check.json"
 
@@ -54,7 +54,11 @@ BIFROST_TMUX_CONF="${BIFROST_CONFIG_DIR}/tmux.conf"
 # regardless of the realm's dotfiles. $HOME/$PATH expand on the REMOTE side.
 # NOTE: kept in sync with the literal `export PATH=...` lines in the remote
 # `bash -s` heredocs below (quoted heredocs can't interpolate this variable).
-BIFROST_REMOTE_PATH='export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"'
+# NO double quotes: this string is embedded inside double-quoted AppleScript
+# `write text "..."` (via ssh_reconnect_cmd), where a `"` would close the string
+# early and break `summon`/`mobile`/`direct` on iTerm. The path has no spaces,
+# so quotes aren't needed anyway. $HOME/$PATH expand on the REMOTE side.
+BIFROST_REMOTE_PATH='export PATH=/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH'
 
 # ── SSH options ───────────────────────────────────────────────────
 # ControlMaster reuses a single TCP connection across calls — huge win
@@ -1167,7 +1171,7 @@ mode_workspace_iterm() {
   local realms
   realms=$(list_realms)
 
-  echo "Setting up workspace..."
+  echo "Summoning realms..."
 
   # Pick emojis for Heimdall
   local e1 e2 e3 e4
@@ -1243,11 +1247,11 @@ end tell'
   if [[ -z "$realms" ]]; then
     echo "  Heimdall only. Add realms: bifrost realm add <name>"
   fi
-  echo "Workspace ready."
+  echo "Summoned. All realms bridged."
 }
 
 mode_workspace_tmux() {
-  echo "Setting up workspace (tmux-native)..."
+  echo "Summoning realms (tmux-native)..."
   echo ""
 
   local bsession="bifrost"
@@ -1326,15 +1330,15 @@ REMOTE
     echo "  No active sessions found."
     echo ""
     echo "  Launch sessions first:"
-    echo "    bifrost workspace   (on your Heimdall/Mac)"
+    echo "    bifrost summon   (on your Heimdall/Mac)"
     echo "  Then connect from here:"
-    echo "    bifrost workspace   (discovers and attaches)"
+    echo "    bifrost summon   (discovers and attaches)"
     tmux kill-session -t "$bsession" 2>/dev/null || true
     return
   fi
 
   echo ""
-  echo "Workspace ready — $win_idx session(s) attached."
+  echo "Summoned — $win_idx session(s) attached."
   echo "  Switch windows: Ctrl-b n/p (next/prev)"
   echo "  List windows:   Ctrl-b w"
   echo ""
@@ -1685,7 +1689,7 @@ REMOTE
   done
 
   if [[ ${#session_names[@]} -eq 0 ]]; then
-    echo "  No active sessions. Launch a workspace first."
+    echo "  No active sessions. Run 'bifrost summon' first."
     exit 1
   fi
 
@@ -1740,7 +1744,7 @@ ${C}  ╚═╝╩╚  ╩╚═╚═╝╚═╝ ╩${N}
   ${G}realm add${N} <name>      add a realm
   ${G}realm list${N}            show realms
 
-  ${C}${B}workspace${N}              launch 2x2 grids          ${Y}← try it${N}
+  ${C}${B}summon${N}                 launch 2x2 grids          ${Y}← try it${N}
   ${C}mobile${N}                 tmux tabs
   ${C}direct${N}                 split panes
 
@@ -1827,7 +1831,7 @@ ${B}STEP 3 — ADD REALMS${N}
 
 ${B}STEP 4 — LAUNCH${N}
 
-  ${Y}\$${N} ${G}bifrost workspace${N}
+  ${Y}\$${N} ${G}bifrost summon${N}
 
   ${D}On macOS + iTerm2:${N}
     Opens one iTerm window per realm, each with a 2x2 grid.
@@ -1898,7 +1902,8 @@ case "${1:-}" in
   run)               shift; mode_run "$@" ;;
   mobile)            mode_mobile ;;
   direct)            mode_direct ;;
-  workspace)         mode_workspace ;;
+  summon)            mode_workspace ;;
+  workspace)         mode_workspace ;;  # backwards compat alias
   kill)              mode_kill ;;
   upgrade|update)    mode_upgrade ;;
   version|--version) mode_version ;;

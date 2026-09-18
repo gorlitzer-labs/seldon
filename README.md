@@ -48,7 +48,7 @@ when you want to check in.
 
 🏠 Start a training run at home — 4 panes (GPU, logs, Claude Code, shell). Close the lid, walk out.
 
-☕ `bifrost workspace` from the laptop — same 4 panes, right where you left them, while home keeps crunching.
+☕ `bifrost summon` from the laptop — same 4 panes, right where you left them, while home keeps crunching.
 
 📱 Phone buzzes when the run finishes. `ssh home && bifrost gateway` — pick a session, hop in, kick off the next one.
 
@@ -60,7 +60,7 @@ when you want to check in.
 
 ```
    HEIMDALL (the machine you sit at)
-   └── bifrost workspace
+   └── bifrost summon
          ├── local-1..4               sessions on Heimdall itself
          ├── SSH ──→ asgard-1..4      a Realm  (red grid)
          └── SSH ──→ tatooine-1..4    a Realm  (blue grid)
@@ -105,7 +105,7 @@ ssh <realm-host> tmux -V    # SSH key works and tmux is installed?
 ```bash
 git clone https://github.com/gorlitzer-labs/bifrost.git
 cd bifrost
-bash install.sh
+make install      # or: bash install.sh
 ```
 
 `install.sh` checks dependencies, copies `bifrost` into your PATH, generates a
@@ -135,13 +135,24 @@ pkg install tmux        # Termux (Android)
 
 ## First run
 
-Four steps, start to finish:
+The whole flow is one word at a time with `make` (run `make` on its own to see
+every target):
+
+```bash
+make install                # deps + bifrost into your PATH + tmux.conf
+make setup                  # one-time config (host + SSH user)
+make scan                   # see which Tailscale machines are available
+make add NAME=asgard        # add a realm (tests SSH, copies key, syncs config)
+make summon                 # launch — a grid/tabs for every realm
+```
+
+Prefer calling `bifrost` directly? Same four steps:
 
 ```bash
 bifrost setup               # 1. one-time config (host + SSH user, tmux.conf)
 bifrost realm scan          # 2. see which Tailscale machines are available
 bifrost realm add asgard    # 3. add a realm (tests SSH, copies your key, syncs config)
-bifrost workspace           # 4. launch — opens a grid/tabs for every realm
+bifrost summon              # 4. launch — opens a grid/tabs for every realm
 ```
 
 **What `bifrost setup` does:** an interactive, one-time step. It asks for a
@@ -170,6 +181,9 @@ ssh my-mac && bifrost gateway   # pick a session from a list, auto-hop in
 
 ## Commands
 
+> The everyday ones have a `make` shortcut (`make summon`, `make doctor`,
+> `make add NAME=…`, etc.) — run `make` to list them. The full set is below.
+
 ```bash
 # Setup & realms
 bifrost setup                  # one-time config (host, SSH user, tmux.conf)
@@ -178,7 +192,7 @@ bifrost realm add <name>       # add a realm (auto-syncs tmux.conf)
 bifrost realm list / remove    # manage realms
 
 # Launch
-bifrost workspace              # ★ the main one — a grid/tabs for ALL realms
+bifrost summon                 # ★ the main one — a grid/tabs for ALL realms
 bifrost mobile                 # simple tmux tabs: Heimdall + your default remote
 bifrost direct                 # split panes: Heimdall + your default remote
 
@@ -197,7 +211,7 @@ bifrost kill                   # tear down all sessions
 bifrost quickstart / help      # guided onboarding / command reference
 ```
 
-> **`workspace` vs `mobile`/`direct`:** `workspace` spans every realm you've
+> **`summon` vs `mobile`/`direct`:** `summon` spans every realm you've
 > added. `mobile` and `direct` are lightweight layouts that connect Heimdall to
 > just the single *default remote* from `bifrost setup` — handy for a quick
 > two-machine view, but they don't fan out across all realms.
@@ -242,7 +256,7 @@ git clone https://github.com/gorlitzer-labs/bifrost.git && cd bifrost && bash in
 # 3. Set up and launch:
 bifrost setup
 bifrost realm add my-mac
-bifrost workspace            # one tmux window per active session
+bifrost summon               # one tmux window per active session
 ```
 
 Mouse mode is disabled automatically on Termux so the soft keyboard keeps
