@@ -38,8 +38,10 @@ export function App() {
             <Credits />
           ) : (
             <>
-              <Story />
-              <Surface />
+              <div className="reelwrap">
+                <Story />
+                <Surface />
+              </div>
               <Rail />
             </>
           )}

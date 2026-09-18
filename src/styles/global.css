@@ -17,6 +17,7 @@ h1,h2,h3{margin:0;font-family:var(--disp);letter-spacing:-.02em;text-wrap:balanc
   background:linear-gradient(100deg,rgba(8,9,14,.94) 0%,rgba(8,9,14,.8) 26%,rgba(8,9,14,.12) 52%,transparent 66%)}
 
 /* ---- story panel (left) ---- */
+.reelwrap{display:contents}
 .story{position:fixed;left:0;top:0;bottom:0;z-index:3;width:min(46%,540px);
   display:flex;flex-direction:column;justify-content:center;gap:14px;padding:clamp(28px,5vw,72px);pointer-events:none}
 .story .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--gold)}
@@ -123,17 +124,18 @@ h1,h2,h3{margin:0;font-family:var(--disp);letter-spacing:-.02em;text-wrap:balanc
 @media (max-width:820px){
   .rail{display:none}
   .scrim{background:linear-gradient(180deg,rgba(8,9,14,.86) 0%,rgba(8,9,14,.5) 46%,rgba(8,9,14,.6) 100%)}
-  /* story: pinned to the top, compact */
-  .story{left:0;right:0;top:0;bottom:auto;width:auto;height:auto;justify-content:flex-start;
-    padding:calc(env(safe-area-inset-top,0px) + 22px) 20px 14px;gap:9px}
+  /* reel becomes a flex column: compact story on top, surface takes ALL the
+     rest and scrolls only when its content overflows (so the terminal is as
+     large as it can be before scrolling). */
+  .reelwrap{position:fixed;left:0;right:0;top:0;bottom:calc(58px + env(safe-area-inset-bottom,0px));
+    z-index:3;display:flex;flex-direction:column;pointer-events:none}
+  .story{position:static;flex:0 0 auto;left:auto;right:auto;top:auto;bottom:auto;width:auto;height:auto;
+    justify-content:flex-start;padding:calc(env(safe-area-inset-top,0px) + 20px) 20px 10px;gap:8px}
   .story h2{font-size:clamp(24px,7vw,32px)}
   .story .body{max-width:none} .story .body p{font-size:14px}
-  /* surface: a bounded card in the lower half. The SURFACE is the scroller and
-     the term grows to its content inside it, so the terminal always scrolls to
-     the last line (a capped term with overflow:hidden used to clip it). */
-  .surface{left:0;right:0;width:auto;top:auto;bottom:calc(64px + env(safe-area-inset-bottom,0px));
-    height:auto;max-height:54vh;display:block;overflow-y:auto;overflow-x:hidden;
-    -webkit-overflow-scrolling:touch;padding:0 14px 4px;transform:translateY(6%)}
+  .surface{position:static;flex:1 1 auto;min-height:0;left:auto;right:auto;top:auto;bottom:auto;width:auto;
+    max-height:none;display:block;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+    padding:0 14px 6px;pointer-events:auto;transform:translateY(6%)}
   .surface.on{transform:none}
   .controls{padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
 }
@@ -237,12 +239,8 @@ h1,h2,h3{margin:0;font-family:var(--disp);letter-spacing:-.02em;text-wrap:balanc
   box-shadow:0 0 10px var(--accent);transition:background .4s,box-shadow .4s;align-self:center}
 .term.dz .dzspacer{flex:1}
 .term.dz .dzread{font-size:11px;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
-.term.dz .dzstage{display:grid;place-items:center;padding:14px 0 18px}
-.term.dz .dzorb{width:104px;height:104px;border-radius:50%;
-  background:radial-gradient(circle at 35% 30%,#1c2b3a,#0a1017 70%);
-  box-shadow:0 0 0 1px var(--accent), 0 0 42px -6px var(--accent), inset 0 0 26px -8px var(--accent);
-  transition:box-shadow .5s;animation:dzpulse 2.4s ease-in-out infinite}
-@keyframes dzpulse{50%{box-shadow:0 0 0 1px var(--accent), 0 0 58px 0 var(--accent), inset 0 0 30px -6px var(--accent)}}
+.term.dz .dzstage{display:grid;place-items:center;padding:8px 0 12px}
+.term.dz .dzcanvas{width:190px;height:190px;display:block}
 .term.dz .dzlog{display:flex;flex-direction:column;gap:8px;flex:1;min-height:70px;
   justify-content:flex-end;overflow:hidden}
 .term.dz .dzmsg{margin:0;padding:6px 11px;max-width:88%;line-height:1.5;border-left:2px solid var(--c);
@@ -277,9 +275,9 @@ h1,h2,h3{margin:0;font-family:var(--disp);letter-spacing:-.02em;text-wrap:balanc
    selectors — the same trap this file hit before). ---- */
 @media (max-width:820px){
   .term,.win{max-width:none;max-height:none;overflow:visible;box-shadow:0 18px 50px rgba(0,0,0,.55)}
-  .term .tbody{font-size:10px;line-height:1.5;padding:12px}
-  .term.ap .apbody,.term.stack .stbody{font-size:10px;padding:12px 13px}
+  .term .tbody{font-size:11px;line-height:1.55;padding:13px}
+  .term.ap .apbody,.term.stack .stbody{font-size:11px;padding:13px}
   .term.dz{min-height:0;font-size:11px}
-  .term.dz .dzstage{padding:8px 0 12px}
-  .term.dz .dzorb{width:80px;height:80px}
+  .term.dz .dzstage{padding:6px 0 10px}
+  .term.dz .dzcanvas{width:150px;height:150px}
 }

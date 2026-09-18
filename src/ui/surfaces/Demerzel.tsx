@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /* Demerzel's real UI (demerzel/web/index.html + demerzel.js):
    its own palette, state-driven accent, me/them log, the rail. */
@@ -26,6 +26,20 @@ export function DemerzelSurface() {
   const [readout, setReadout] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [pendDone, setPendDone] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const avatarRef = useRef<{ setState: (s: string) => void; dispose: () => void } | null>(null);
+
+  // mount the REAL avatar (demerzel/web/avatar.js + its vendored three)
+  useEffect(() => {
+    let disposed = false;
+    import("../../demerzel-avatar/avatar.js").then((m) => {
+      if (disposed || !canvasRef.current) return;
+      const av = m.createAvatar(canvasRef.current);
+      avatarRef.current = av;
+      av.setState("offline");
+    });
+    return () => { disposed = true; avatarRef.current?.dispose(); avatarRef.current = null; };
+  }, []);
 
   useEffect(() => {
     setState("offline"); setReadout(""); setMsgs([]); setPendDone(false);
@@ -41,6 +55,9 @@ export function DemerzelSurface() {
     return () => timers.forEach(clearTimeout);
   }, []);
 
+  // drive the real avatar from the scripted state
+  useEffect(() => { avatarRef.current?.setState(state); }, [state]);
+
   const accent = ACCENT[state] || ACCENT.idle;
   return (
     <div className="term dz" key="demerzel" style={{ ["--accent" as string]: accent }}>
@@ -50,7 +67,7 @@ export function DemerzelSurface() {
         <span className="dzread">{readout}</span>
       </div>
       <div className="dzstage">
-        <div className="dzorb" />
+        <canvas className="dzcanvas" ref={canvasRef} width={360} height={360} />
       </div>
       <div className="dzlog">
         {msgs.map((m, i) => {
