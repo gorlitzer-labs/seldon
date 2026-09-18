@@ -42,6 +42,14 @@ semver_gt() {
   return 1
 }
 
+cmd_test() {
+  echo -e "${C}Tests${N}"
+  # bash -n on both scripts first — a syntax error is the cheapest bug to catch.
+  bash -n bifrost && info "bifrost: syntax clean" || { err "bifrost: syntax error"; exit 1; }
+  bash -n install.sh && info "install.sh: syntax clean" || { err "install.sh: syntax error"; exit 1; }
+  bash test/run.sh || { err "test suite failed"; exit 1; }
+}
+
 cmd_check() {
   echo -e "${C}Version check${N}"
   git fetch -q origin main 2>/dev/null || warn "could not fetch origin/main (using cached ref)"
@@ -126,6 +134,7 @@ $commits"
 
 case "${1:-check}" in
   check)   cmd_check ;;
-  release) cmd_release ;;
-  *) echo "Usage: scripts/ci.sh [check|release]"; exit 1 ;;
+  test)    cmd_test ;;
+  release) cmd_test && cmd_release ;;
+  *) echo "Usage: scripts/ci.sh [check|test|release]"; exit 1 ;;
 esac

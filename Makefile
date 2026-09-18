@@ -60,3 +60,6 @@ release: ## Cut the v<version> GitHub release (manual)
 
 uninstall: ## Remove bifrost from ~/bin and ~/.local/bin (config left intact)
 	@rm -f "$$HOME/bin/bifrost" "$$HOME/.local/bin/bifrost" && echo "removed bifrost (config under ~/.config/bifrost left intact)"
+
+test: ## run the test suite (no deps, just bash)
+	@bash scripts/ci.sh test

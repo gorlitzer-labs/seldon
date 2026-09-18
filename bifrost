@@ -13,7 +13,7 @@
 set -euo pipefail
 
 # ── Version ──────────────────────────────────────────────────────
-BIFROST_VERSION="1.6.0"
+BIFROST_VERSION="1.6.1"
 BIFROST_REPO="gorlitzer-labs/bifrost"
 BIFROST_VERSION_CACHE="${HOME}/.config/bifrost/version-check.json"
 
@@ -557,12 +557,16 @@ get_realm_color() {
 }
 
 list_realms() {
-  if [[ -d "$BIFROST_REALMS_DIR" ]]; then
-    local name
-    for name in $(ls "$BIFROST_REALMS_DIR" 2>/dev/null); do
-      [[ "$name" =~ $BIFROST_REALM_NAME_RE ]] && echo "$name"
-    done
-  fi
+  [[ -d "$BIFROST_REALMS_DIR" ]] || return 0
+  local path name
+  # Glob, not $(ls …): `for x in $(ls)` word-splits on spaces, so a file named
+  # "bad name" would be seen as two entries "bad" and "name", each of which
+  # passes the regex on its own — smuggling an invalid realm past the filter.
+  for path in "$BIFROST_REALMS_DIR"/*; do
+    [[ -e "$path" ]] || continue          # empty dir: the literal glob
+    name="${path##*/}"
+    [[ "$name" =~ $BIFROST_REALM_NAME_RE ]] && echo "$name"
+  done
 }
 
 load_realm() {
@@ -1888,6 +1892,13 @@ ${B}USEFUL COMMANDS${N}
 }
 
 # ── Main ──────────────────────────────────────────────────────────
+
+# Let the test suite (and any other tool) source this file to call its
+# functions without firing the dispatcher. A script run normally has
+# BASH_SOURCE[0] == $0; a sourced one does not. No effect on normal use.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+  return 0 2>/dev/null || true
+fi
 
 case "${1:-}" in
   setup)             mode_setup ;;
