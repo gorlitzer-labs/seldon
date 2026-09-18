@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22 fill=%22none%22 stroke=%22%23e8ad3c%22 stroke-width=%221.4%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%222.6%22 fill=%22%23e8ad3c%22/%3E%3C/svg%3E">
+<title>The Seldon Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+<canvas id="radiant" aria-hidden="true"></canvas>
+<div class="vign" aria-hidden="true"></div>
+<div class="pbar" id="pbar" aria-hidden="true"></div>
+<div class="hint" aria-hidden="true">← → to drive · space pauses</div>
+
+<div id="reel" aria-live="polite">
+
+  <!-- 1 cold open -->
+  <section class="slide" data-dur="8">
+    <div class="inner" style="text-align:center">
+      <svg class="mark" viewBox="0 0 120 120" fill="none">
+        <circle cx="60" cy="60" r="54" stroke-width="1.4" class="stroke"/>
+        <circle cx="60" cy="60" r="10" class="fl mark-core"/>
+        <line x1="60" y1="60" x2="104" y2="38" stroke-width="1.2" class="stroke"/>
+        <line x1="60" y1="60" x2="22" y2="30" stroke-width="1.2" class="stroke"/>
+        <line x1="60" y1="60" x2="34" y2="102" stroke-width="1.2" class="stroke"/>
+        <line x1="60" y1="60" x2="98" y2="96" stroke-width="1.2" class="stroke"/>
+      </svg>
+      <h1 class="anim">Seldon</h1>
+      <div class="kick anim" style="margin-top:20px">a software factory of AI agents · the plan, executing</div>
+    </div>
+  </section>
+
+  <!-- 2 problem -->
+  <section class="slide" data-dur="14">
+    <div class="inner">
+      <div class="eyebrow anim">The problem</div>
+      <div class="big anim" style="margin-top:20px;max-width:20ch">AI agents are powerful. Left alone, they're <span class="gold">chaos</span>.</div>
+      <p class="lede anim" style="margin-top:24px">They forget delivery, leak keys into transcripts, die when a laptop sleeps, and can't tell you which one is stuck. A single agent is a demo. A hundred, unattended, is a liability.</p>
+    </div>
+  </section>
+
+  <!-- 3 thesis -->
+  <section class="slide" data-dur="14">
+    <div class="inner">
+      <div class="eyebrow anim">The thesis</div>
+      <h2 class="anim" style="margin-top:18px;max-width:18ch">A factory that runs the plan — and wakes you only for the pivotal calls.</h2>
+      <div class="kick anim">Hari Seldon built a system to steer a thousand years, surfacing only the decisions a human had to make. This is that, for software.</div>
+    </div>
+  </section>
+
+  <!-- 4 the plan line -->
+  <section class="slide" data-dur="16">
+    <div class="inner">
+      <div class="eyebrow anim">The plan, as a line</div>
+      <h2 class="anim" style="margin-top:16px">One idea, walked to shipped.</h2>
+      <div class="plan">
+        <div class="planline"></div>
+        <div class="pstep"><div class="dot"></div><div class="pl">Idea</div><div class="pd">a brief becomes a repo</div></div>
+        <div class="pstep"><div class="dot"></div><div class="pl">Plan</div><div class="pd">the seam seeds the queue</div></div>
+        <div class="pstep"><div class="dot"></div><div class="pl">Build</div><div class="pd">a hive claims the lanes</div></div>
+        <div class="pstep"><div class="dot"></div><div class="pl">Verify</div><div class="pd">a real gate, a killed mutant</div></div>
+        <div class="pstep"><div class="dot"></div><div class="pl">Ship</div><div class="pd">merge · release · confirm live</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 apiary -->
+  <section class="slide mod-slide" data-dur="15">
+    <div class="inner"><div class="mod">
+      <div>
+        <h2 class="anim"><small>the conversation · v1.13.3</small>apiary</h2>
+        <div class="say anim">Shared rooms for AI agents — mentions, whispers, history, a human in the room. The hive where a build actually happens.</div>
+        <div class="proof anim">✓ 669 tests · delivery fixed three ways today</div>
+      </div>
+      <div class="emblem"><svg viewBox="0 0 200 200">
+        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
+        <path class="gl" d="M62 78 h56 a8 8 0 0 1 8 8 v22 a8 8 0 0 1 -8 8 h-30 l-14 12 v-12 h-12 a8 8 0 0 1 -8 -8 v-22 a8 8 0 0 1 8 -8 z"/>
+        <circle class="fl dotmark" cx="80" cy="97" r="3.5"/><circle class="fl dotmark" cx="100" cy="97" r="3.5"/><circle class="fl dotmark" cx="120" cy="97" r="3.5"/>
+      </svg></div>
+    </div></div>
+  </section>
+
+  <!-- 6 bifrost -->
+  <section class="slide mod-slide" data-dur="15">
+    <div class="inner"><div class="mod">
+      <div>
+        <h2 class="anim"><small>the bridge · v1.7.0</small>bifrost</h2>
+        <div class="say anim">tmux + Tailscale as one workspace. Sessions survive the closed lid, reachable from a phone — each agent flagged <span style="color:var(--idle)">●</span> <span style="color:var(--work)">◐</span> <span style="color:var(--block)">■</span> by what it's doing.</div>
+        <div class="proof anim">✓ 30 tests · agent-state on the board</div>
+      </div>
+      <div class="emblem"><svg viewBox="0 0 200 200">
+        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
+        <path class="gl" d="M50 128 Q100 62 150 128"/>
+        <circle class="fl dotmark" cx="50" cy="128" r="6"/><circle class="fl dotmark" cx="150" cy="128" r="6"/>
+        <circle class="gl dotmark" cx="100" cy="95" r="7" style="fill:var(--bg)"/>
+      </svg></div>
+    </div></div>
+  </section>
+
+  <!-- 7 factory -->
+  <section class="slide mod-slide" data-dur="15">
+    <div class="inner"><div class="mod">
+      <div>
+        <h2 class="anim"><small>the floor · CLI</small>factory</h2>
+        <div class="say anim">The 24/7 supervisor: <span class="mono">new · watch · board · box · realms</span>. Heals dead agents — across machines — and escalates the hard calls to you.</div>
+        <div class="proof anim">✓ 26 tests · boxed agents · reaches realms</div>
+      </div>
+      <div class="emblem"><svg viewBox="0 0 200 200">
+        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
+        <circle class="gl" cx="100" cy="100" r="27"/>
+        <g class="fl dotmark">
+          <rect x="96" y="60" width="8" height="16" rx="2"/><rect x="96" y="124" width="8" height="16" rx="2"/>
+          <rect x="60" y="96" width="16" height="8" rx="2"/><rect x="124" y="96" width="16" height="8" rx="2"/>
+        </g>
+        <circle class="fl dotmark" cx="100" cy="100" r="7"/>
+      </svg></div>
+    </div></div>
+  </section>
+
+  <!-- 8 comb -->
+  <section class="slide mod-slide" data-dur="15">
+    <div class="inner"><div class="mod">
+      <div>
+        <h2 class="anim"><small>the vault · v0.1.0</small>comb</h2>
+        <div class="say anim">Keys by name, never by value. SOPS + age, no server. A leak audit no vault does — and credentials that follow an agent to another machine, safely.</div>
+        <div class="proof anim">✓ 27 tests · multi-machine secrets</div>
+      </div>
+      <div class="emblem"><svg viewBox="0 0 200 200">
+        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
+        <circle class="gl" cx="100" cy="86" r="22"/>
+        <path class="gl" d="M100 108 v36 M100 122 h16 M100 134 h12"/>
+        <circle class="fl dotmark" cx="100" cy="86" r="6"/>
+      </svg></div>
+    </div></div>
+  </section>
+
+  <!-- 9 foundation -->
+  <section class="slide mod-slide" data-dur="14">
+    <div class="inner"><div class="mod">
+      <div>
+        <h2 class="anim"><small>the seam · the substrate</small>foundation</h2>
+        <div class="say anim">The deterministic project workflow beneath it all — QUEUE → WORKSTREAMS → DONE → FACTS, one writer per file, every fact tool-stamped. Named for Asimov; the seed of the whole world.</div>
+        <div class="proof anim">◇ the record the rest is built on</div>
+      </div>
+      <div class="emblem"><svg viewBox="0 0 200 200">
+        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
+        <path class="gl" d="M64 78 h72 M64 100 h72 M64 122 h72 M84 66 v68 M114 66 v68"/>
+      </svg></div>
+    </div></div>
+  </section>
+
+  <!-- 10 demerzel -->
+  <section class="slide mod-slide" data-dur="16">
+    <div class="inner"><div class="mod">
+      <div>
+        <h2 class="anim"><small>the voice · fully local</small>Demerzel</h2>
+        <div class="say anim">A voice you talk to — 35B brain on-device, ~2s from your last word to hers, nothing leaving the machine. Named for Seldon's First Minister: the operator behind the throne, the way a human steers the factory.</div>
+        <div class="proof anim">◇ Qwen3.6-35B · offline · the human seam</div>
+      </div>
+      <div class="emblem"><svg viewBox="0 0 200 200">
+        <polygon class="hx" points="100,18 168,58 168,142 100,182 32,142 32,58"/>
+        <path class="gl" d="M56 100 h10 l8 -26 8 46 8 -60 8 74 8 -46 8 22 h14"/>
+      </svg></div>
+    </div></div>
+  </section>
+
+  <!-- 11 assemble -->
+  <section class="slide" data-dur="14">
+    <div class="inner">
+      <div class="eyebrow anim">Six tools, one system</div>
+      <h2 class="anim">Each stands alone. Together they close the loop.</h2>
+      <div class="constel" id="constel">
+        <svg id="links"></svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 removal demo -->
+  <section class="slide" data-dur="27" id="slide-demo">
+    <div class="inner">
+      <div class="eyebrow anim">Composable — pull a piece</div>
+      <h2 class="anim" style="margin-bottom:6px">Take one out. Watch what breaks.</h2>
+      <div class="demo">
+        <div class="demogrid" id="demogrid"></div>
+        <div class="dpanel">
+          <div class="dverdict" id="dverdict">The whole factory.</div>
+          <div class="dcap" id="dcap">Runs itself across machines, and you talk to it.</div>
+          <div class="dtag" id="dtag"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13 e2e -->
+  <section class="slide" data-dur="22">
+    <div class="inner">
+      <div class="eyebrow anim">One run, end to end</div>
+      <h2 class="anim">An idea, through the whole stack.</h2>
+      <div class="e2e">
+        <div class="estep"><span class="en">01</span><span class="et">You brief it, out loud</span><span class="eu">Demerzel</span></div>
+        <div class="estep"><span class="en">02</span><span class="et">It becomes a repo and a plan</span><span class="eu">factory · foundation</span></div>
+        <div class="estep"><span class="en">03</span><span class="et">A hive of agents builds it</span><span class="eu">apiary</span></div>
+        <div class="estep"><span class="en">04</span><span class="et">Each agent gets its keys, safely</span><span class="eu">comb</span></div>
+        <div class="estep"><span class="en">05</span><span class="et">The gate verifies it, in a box</span><span class="eu">factory · comb</span></div>
+        <div class="estep"><span class="en">06</span><span class="et">You watch from your phone</span><span class="eu">bifrost</span></div>
+        <div class="estep"><span class="en">07</span><span class="et">It ships — and you confirm it's live</span><span class="eu">factory · apiary</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 14 benchmark -->
+  <section class="slide" data-dur="18">
+    <div class="inner">
+      <div class="eyebrow anim">The measurement that set the architecture</div>
+      <h2 class="anim">One message to Codex.</h2>
+      <div class="kick anim">Same message, same model, same machine — the share that arrived intact and submitted.</div>
+      <div class="bench">
+        <div class="brow"><div class="bl">Seldon · codex queue<small>the fix that shipped</small></div><div class="bt"><i class="bf g" data-w="100%"></i></div><div class="bv g">4/4 intact</div></div>
+        <div class="brow"><div class="bl">Seldon · keystrokes<small>with the popup guard</small></div><div class="bt"><i class="bf g" data-w="100%"></i></div><div class="bv g">0/6 stuck</div></div>
+        <div class="brow"><div class="bl">herdr · agent.prompt<small>the alternative, tested</small></div><div class="bt"><i class="bf b" data-w="100%"></i></div><div class="bv b">6/6 stuck</div></div>
+      </div>
+      <div class="kick anim">This is why Seldon composes with tmux instead of replacing it.</div>
+    </div>
+  </section>
+
+  <!-- 15 machines -->
+  <section class="slide" data-dur="15">
+    <div class="inner">
+      <div class="eyebrow anim">Across machines</div>
+      <h2 class="anim">One workspace, three roles.</h2>
+      <div class="topo" id="topo">
+        <svg id="wires"></svg>
+        <div class="mnode" style="left:20%;top:64%"><div class="mrole">Heimdall</div><div class="mh">legendary</div><div class="mdisc"></div><div class="mm">the desk you sit at</div></div>
+        <div class="mnode" style="left:50%;top:24%"><div class="mrole">Realm</div><div class="mh">zanpakuto</div><div class="mdisc"></div><div class="mm">Docker · verified over ssh</div></div>
+        <div class="mnode" style="left:80%;top:64%"><div class="mrole">Raven</div><div class="mh">pixel-9a</div><div class="mdisc"></div><div class="mm">whatever you're holding</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 16 close -->
+  <section class="slide" data-dur="13">
+    <div class="inner" style="text-align:center">
+      <div class="big anim" style="max-width:22ch;margin:0 auto">Six tools. One plan.</div>
+      <h2 class="anim" style="margin-top:14px;max-width:20ch;margin-left:auto;margin-right:auto">A factory that runs while you <span class="gold">sleep on it</span> — not through it.</h2>
+      <div class="kick anim">Seldon · apiary · bifrost · factory · comb · foundation · demerzel</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="controls">
+  <button class="cbtn" id="prev" aria-label="Previous slide">‹</button>
+  <button class="cbtn" id="playpause" aria-label="Pause">❚❚</button>
+  <button class="cbtn" id="next" aria-label="Next slide">›</button>
+  <div class="dots" id="dots"></div>
+  <span class="counter" id="counter">1 / 16</span>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
