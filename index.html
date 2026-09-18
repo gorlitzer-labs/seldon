@@ -3,159 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22 fill=%22none%22 stroke=%22%23e8ad3c%22 stroke-width=%221.4%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%222.6%22 fill=%22%23e8ad3c%22/%3E%3C/svg%3E">
-<title>The Seldon Plan</title>
+<title>The Seldon Stack</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
-<link rel="stylesheet" href="./src/style.css">
+<style>
+  :root{ --bg:#0a0b10; --ink:#f3efe6; --muted:#a7a596; --gold:#e8ad3c; color-scheme:dark; }
+  html,body,#root{height:100%}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;overflow:hidden}
+</style>
 </head>
 <body>
-<canvas id="radiant" aria-hidden="true"></canvas>
-<div class="vign" aria-hidden="true"></div>
-<div class="pbar" id="pbar" aria-hidden="true"></div>
-<div class="hint" aria-hidden="true">← → to drive · space pauses</div>
-
-<div id="reel" aria-live="polite">
-
-  <!-- 1 cold open -->
-  <section class="slide" data-dur="8" data-scene="open">
-    <div class="inner" style="text-align:center">
-      <svg class="mark" viewBox="0 0 120 120" fill="none">
-        <circle cx="60" cy="60" r="54" stroke-width="1.4" class="stroke"/>
-        <circle cx="60" cy="60" r="10" class="fl mark-core"/>
-        <line x1="60" y1="60" x2="104" y2="38" stroke-width="1.2" class="stroke"/>
-        <line x1="60" y1="60" x2="22" y2="30" stroke-width="1.2" class="stroke"/>
-        <line x1="60" y1="60" x2="34" y2="102" stroke-width="1.2" class="stroke"/>
-        <line x1="60" y1="60" x2="98" y2="96" stroke-width="1.2" class="stroke"/>
-      </svg>
-      <h1 class="anim">Seldon</h1>
-      <div class="kick anim" style="margin-top:20px">a software factory of AI agents · the plan, executing</div>
-    </div>
-  </section>
-
-  <!-- 2 problem -->
-  <section class="slide" data-dur="13" data-scene="text">
-    <div class="inner">
-      <div class="eyebrow anim">The problem</div>
-      <div class="big anim" style="margin-top:20px;max-width:20ch">AI agents are powerful. Left alone, they're <span class="gold">chaos</span>.</div>
-      <p class="lede anim" style="margin-top:24px">They forget delivery, leak keys into transcripts, die when a laptop sleeps, and can't tell you which one is stuck. A single agent is a demo. A hundred, unattended, is a liability.</p>
-    </div>
-  </section>
-
-  <!-- 3 thesis -->
-  <section class="slide" data-dur="13" data-scene="text">
-    <div class="inner">
-      <div class="eyebrow anim">The thesis</div>
-      <h2 class="anim" style="margin-top:18px;max-width:18ch">A factory that runs the plan — and wakes you only for the pivotal calls.</h2>
-      <div class="kick anim">Hari Seldon built a system to steer a thousand years, surfacing only the decisions a human had to make. This is that, for software.</div>
-    </div>
-  </section>
-
-  <!-- 4 the plan line -->
-  <section class="slide" data-dur="15" data-scene="plan">
-    <div class="inner">
-      <div class="eyebrow anim">The plan, as a line</div>
-      <h2 class="anim" style="margin-top:16px">One idea, walked to shipped.</h2>
-      <div class="plan">
-        <div class="planline"></div>
-        <div class="pstep"><div class="dot"></div><div class="pl">Idea</div><div class="pd">a brief becomes a repo</div></div>
-        <div class="pstep"><div class="dot"></div><div class="pl">Plan</div><div class="pd">the seam seeds the queue</div></div>
-        <div class="pstep"><div class="dot"></div><div class="pl">Build</div><div class="pd">a hive claims the lanes</div></div>
-        <div class="pstep"><div class="dot"></div><div class="pl">Verify</div><div class="pd">a real gate, a killed mutant</div></div>
-        <div class="pstep"><div class="dot"></div><div class="pl">Ship</div><div class="pd">merge · release · confirm live</div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 5 THE ASSEMBLY — hexes zoom, explain, dock into a flower -->
-  <section class="slide" data-dur="30" data-scene="assembly">
-    <div class="assembly-wrap">
-      <div class="asm-caption" id="asmCaption">
-        <div class="eyebrow">Six tools, put together</div>
-        <h2 id="asmTitle">The pieces</h2>
-      </div>
-      <div class="flower" id="flower"><!-- center + petals injected --></div>
-    </div>
-  </section>
-
-  <!-- 6 IT BUILDS ITSELF — layered product surfaces -->
-  <section class="slide" data-dur="22" data-scene="buildup">
-    <div class="inner buildup-head">
-      <div class="eyebrow anim">And then it runs</div>
-      <h2 class="anim">The factory builds itself.</h2>
-    </div>
-    <div class="surfaces" id="surfaces"><!-- windows injected --></div>
-  </section>
-
-  <!-- 7 COMBOS — remove pieces, read the fitness -->
-  <section class="slide" data-dur="30" data-scene="combos">
-    <div class="inner">
-      <div class="eyebrow anim">Composable — it's about the job</div>
-      <h2 class="anim" style="margin-bottom:4px">Different combos, different powers.</h2>
-      <div class="combo">
-        <div class="combogrid" id="combogrid"></div>
-        <div class="comboverdict">
-          <div class="cv-title" id="cvTitle">The whole factory</div>
-          <div class="cv-cols">
-            <div class="cv-good"><h4>Good for</h4><ul id="cvGood"></ul></div>
-            <div class="cv-weak"><h4>Weak for</h4><ul id="cvWeak"></ul></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 8 e2e -->
-  <section class="slide" data-dur="20" data-scene="e2e">
-    <div class="inner">
-      <div class="eyebrow anim">One run, end to end</div>
-      <h2 class="anim">An idea, through the whole stack.</h2>
-      <div class="e2e">
-        <div class="estep"><span class="en">01</span><span class="et">You brief it, out loud</span><span class="eu">Demerzel</span></div>
-        <div class="estep"><span class="en">02</span><span class="et">It becomes a repo and a plan</span><span class="eu">factory · foundation</span></div>
-        <div class="estep"><span class="en">03</span><span class="et">A hive of agents builds it</span><span class="eu">apiary</span></div>
-        <div class="estep"><span class="en">04</span><span class="et">Each agent gets its keys, safely</span><span class="eu">comb</span></div>
-        <div class="estep"><span class="en">05</span><span class="et">The gate verifies it, in a box</span><span class="eu">factory · comb</span></div>
-        <div class="estep"><span class="en">06</span><span class="et">You watch from your phone</span><span class="eu">bifrost</span></div>
-        <div class="estep"><span class="en">07</span><span class="et">It ships — and you confirm it's live</span><span class="eu">factory · apiary</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 9 machines -->
-  <section class="slide" data-dur="15" data-scene="machines">
-    <div class="inner">
-      <div class="eyebrow anim">Across machines</div>
-      <h2 class="anim">One workspace, three roles.</h2>
-      <div class="topo" id="topo">
-        <svg id="wires"></svg>
-        <div class="mnode" style="left:20%;top:64%"><div class="mrole">Heimdall</div><div class="mh">legendary</div><div class="mdisc"></div><div class="mm">the desk you sit at</div></div>
-        <div class="mnode" style="left:50%;top:24%"><div class="mrole">Realm</div><div class="mh">zanpakuto</div><div class="mdisc"></div><div class="mm">a Mac on the tailnet · over ssh</div></div>
-        <div class="mnode" style="left:80%;top:64%"><div class="mrole">Raven</div><div class="mh">pixel-9a</div><div class="mdisc"></div><div class="mm">whatever you're holding</div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 10 close -->
-  <section class="slide" data-dur="13" data-scene="close">
-    <div class="inner" style="text-align:center">
-      <div class="big anim" style="max-width:22ch;margin:0 auto">Six tools. One plan.</div>
-      <h2 class="anim" style="margin-top:14px;max-width:20ch;margin-left:auto;margin-right:auto">A factory that runs while you <span class="gold">sleep on it</span> — not through it.</h2>
-      <div class="kick anim">Seldon · apiary · bifrost · factory · comb · foundation · demerzel</div>
-    </div>
-  </section>
-
-</div>
-
-<div class="controls">
-  <button class="cbtn" id="prev" aria-label="Previous slide">‹</button>
-  <button class="cbtn" id="playpause" aria-label="Pause">❚❚</button>
-  <button class="cbtn" id="next" aria-label="Next slide">›</button>
-  <div class="dots" id="dots"></div>
-  <span class="counter" id="counter">1 / 10</span>
-</div>
-
-<script type="module" src="./src/main.js"></script>
+<div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
 </body>
 </html>
