@@ -21,6 +21,7 @@
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import * as store from "./backends/sops.mjs";
+import * as realms from "./realms.mjs";
 import { scan, defaultTargets } from "./audit.mjs";
 
 const B = (s) => `\x1b[1m${s}\x1b[0m`;
@@ -67,6 +68,10 @@ function help() {
     `  ${B("comb run")} --with A,B -- <cmd>    run a command with those secrets in its env`,
     `  ${B("comb rotate")} <NAME>              where to go, then take the new value`,
     `  ${B("comb audit")}                      which secrets leaked into transcripts and history`,
+    `  ${B("comb realm add")} <name> <age1…>   let a realm's key read the store (re-encrypts)`,
+    `  ${B("comb realm rm")} <name>             revoke a realm (re-encrypts without it)`,
+    `  ${B("comb realm ls")}                    realms that can read the store`,
+    `  ${B("comb pubkey")}                      print THIS machine's age public key`,
     `  ${B("comb rm")} <NAME>                  forget one`,
     "",
     dim("  Values are never printed, never passed as arguments, never logged."),
@@ -162,6 +167,39 @@ try {
       if (!name) throw new Error("which one?");
       store.deleteSecret(name);
       say(`${green("✓")} ${name} removed from the store ${dim("(this does NOT revoke it at the provider)")}`);
+      break;
+    }
+
+    case "pubkey": {
+      say(realms.localRecipient());
+      break;
+    }
+
+    case "realm": {
+      const sub = pos[0];
+      if (sub === "add") {
+        const name = pos[1];
+        // key may be an arg, or piped (so it need not sit in shell history)
+        let key = pos[2];
+        if (!key && !process.stdin.isTTY) {
+          key = await new Promise((r) => { let d=""; process.stdin.on("data",c=>d+=c); process.stdin.on("end",()=>r(d.trim())); });
+        }
+        if (!name || !key) throw new Error("usage: comb realm add <name> <age1…>  (key may be piped)");
+        const n = realms.addRealm(name, key);
+        say(`${green("✓")} realm ${B(name)} can now read the store ${dim(`(re-encrypted to ${n} recipients)`)}`);
+      } else if (sub === "rm" || sub === "remove") {
+        const name = pos[1];
+        if (!name) throw new Error("usage: comb realm rm <name>");
+        const n = realms.removeRealm(name);
+        say(`${green("✓")} realm ${B(name)} revoked ${dim(`(store re-encrypted to ${n} recipients; it can no longer decrypt, old copies included)`)}`);
+      } else if (sub === "ls" || sub === undefined) {
+        const list = realms.listRealmRecipients();
+        say(`${B("comb realms")} ${dim("(can read the store, besides this machine)")}`);
+        if (!list.length) say(dim("  none — `comb realm add <name> <age1…>`"));
+        for (const r of list) say(`  ${B(r.name)}  ${dim(r.key.slice(0, 24) + "…")}`);
+      } else {
+        throw new Error(`unknown: comb realm ${sub}`);
+      }
       break;
     }
 

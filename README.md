@@ -98,6 +98,35 @@ a token you have handed it to work with. What it stops is the token entering a
 conversation, a file, or your shell history in the first place — and it makes
 rotating one cheap enough that you actually do it.
 
+## Across machines — `comb realm`
+
+An agent running on another machine needs credentials too, but the store and its
+key live here. age solves this: a secret can be encrypted to **several
+recipients** at once, each with its own keypair, any one of which decrypts. So
+each realm gets its own age key, the store is encrypted to all of them, and the
+**same encrypted file** can be copied to every realm — over bifrost's sync, or a
+private repo — leaking nothing, because it is ciphertext.
+
+```bash
+# on the realm, once:
+comb init && comb pubkey            # → age1realm…
+
+# here, register it:
+comb realm add zanpakuto age1realm…  # re-encrypts the store to include it
+comb realm ls                        # who can read the store
+comb realm rm zanpakuto              # revoke — re-encrypts WITHOUT it
+```
+
+Revoking a realm re-encrypts the store without its key, so it can no longer
+decrypt the **current** store — no secret has to be rotated.
+
+**The honest limit:** revocation seals the current and future store, not the
+past. A copy of the ciphertext a realm decrypted *while it was a recipient* stays
+readable by that realm — you cannot un-share what was already shared. If a realm
+is actually compromised, revoke it here **and** rotate the secrets it held
+(`comb rotate`), exactly as you would for any exposed credential. Revocation
+stops future leaks; rotation closes the ones already out.
+
 ## Requires
 
 `sops` and `age` on PATH (`brew install sops age`, or your package manager).
