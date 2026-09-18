@@ -1,7 +1,7 @@
 """Semantic endpointing: has the user actually finished, or just paused?
 
 A fixed VAD hangover has to choose between cutting people off mid-thought and
-feeling sluggish after they clearly stopped. Boomer's 600 ms compromise was the
+feeling sluggish after they clearly stopped. Demerzel's 600 ms compromise was the
 single largest slice of perceived latency -- 576 of ~1956 ms.
 
 Smart Turn v3 listens to the waveform (not the transcript) and predicts whether

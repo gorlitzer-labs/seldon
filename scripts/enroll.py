@@ -2,7 +2,7 @@
 """Enrol Franko's voice, and report whether the enrolment is actually usable.
 
 Usage:
-  scripts/enroll.py recordings/*.wav      # from BOOMER_RECORD captures
+  scripts/enroll.py recordings/*.wav      # from DEMERZEL_RECORD captures
   scripts/enroll.py --check other.wav     # score a clip against the saved print
 
 The report matters more than the file it writes. If a speaker's own samples do
@@ -14,8 +14,8 @@ warnings.filterwarnings("ignore")
 import numpy as np, soundfile as sf, librosa
 
 sys.path.insert(0, ".")
-from boomer.protocol import MIC_SR
-from boomer.speaker import Speaker, CONVERSE, WRITE
+from demerzel.protocol import MIC_SR
+from demerzel.speaker import Speaker, CONVERSE, WRITE
 
 
 def load(path):

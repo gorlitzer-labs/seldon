@@ -1,4 +1,4 @@
-"""The wire contract between Boomer's brain and her face.
+"""The wire contract between Demerzel's brain and her face.
 
 One definition, three consumers: the Python pipeline emits these, the web page
 renders them, and the three.js avatar will drive its poses from the same
@@ -31,7 +31,7 @@ HTTP_PORT = 8770
 
 
 class State(str, Enum):
-    """What Boomer is doing. The avatar maps each of these to a pose."""
+    """What Demerzel is doing. The avatar maps each of these to a pose."""
     IDLE = "idle"           # dormant, sitting
     LISTENING = "listening" # speech detected, capturing
     THINKING = "thinking"   # transcribing or generating

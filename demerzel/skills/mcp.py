@@ -7,20 +7,20 @@ already uses -- and the servers Franko runs are local processes: `playwright`,
 
 NOTHING IS ENABLED BY DEFAULT. He chose to stay fully local, and some servers
 can obviously reach the network (a browser being the clearest case), so every
-server must be turned on by hand in ~/.boomer/mcp.json and declares whether it
+server must be turned on by hand in ~/.demerzel/mcp.json and declares whether it
 is local. A server left at the default does not run, is not discovered, and
 costs nothing.
 
   {
     "servers": {
-      "apiary":     {"command": "apiary", "args": ["mcp", "Boomer"],
+      "apiary":     {"command": "apiary", "args": ["mcp", "Demerzel"],
                      "enabled": false, "local": true},
       "playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest"],
                      "enabled": false, "local": false}
     }
   }
 
-The protocol is async and Boomer's tools are called synchronously on the single
+The protocol is async and Demerzel's tools are called synchronously on the single
 GPU worker thread, so one dedicated event-loop thread owns every session for the
 life of the process and calls are bridged onto it.
 """
@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from ..tools import Tool, register
 
 CONFIG = pathlib.Path(os.environ.get(
-    "BOOMER_MCP_CONFIG", pathlib.Path.home() / ".boomer" / "mcp.json"))
+    "DEMERZEL_MCP_CONFIG", pathlib.Path.home() / ".demerzel" / "mcp.json"))
 CALL_TIMEOUT_S = 60.0
 CONNECT_TIMEOUT_S = 25.0
 MAX_RESULT_CHARS = 3000
@@ -87,7 +87,7 @@ class Bridge:
         if not live:
             return []
         t = threading.Thread(target=self._run, args=(live,), daemon=True,
-                             name="boomer-mcp")
+                             name="demerzel-mcp")
         t.start()
         self._ready.wait(CONNECT_TIMEOUT_S)
         return sorted(self.sessions)
@@ -181,7 +181,7 @@ def load() -> list[str]:
     for qualified, (server, meta) in sorted(BRIDGE.tools.items()):
         props = (meta["schema"] or {}).get("properties") or {}
         required = (meta["schema"] or {}).get("required") or []
-        # Everything an MCP server exposes is treated as a WRITE: Boomer cannot
+        # Everything an MCP server exposes is treated as a WRITE: Demerzel cannot
         # know whether a remote tool mutates anything, and guessing in the
         # permissive direction would let a guest act through it.
         register(Tool(
@@ -203,7 +203,7 @@ def write_example_config() -> pathlib.Path:
         "_comment": "Nothing runs until enabled is true. 'local' false means "
                     "that server can reach the network.",
         "servers": {
-            "apiary": {"command": "apiary", "args": ["mcp", "Boomer"],
+            "apiary": {"command": "apiary", "args": ["mcp", "Demerzel"],
                        "enabled": False, "local": True},
             "playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest"],
                            "enabled": False, "local": False},

@@ -1,4 +1,4 @@
-// Boomer's presence: a reactive core, not a body.
+// Demerzel's presence: a reactive core, not a body.
 //
 // The first version was a humanoid wireframe, borrowed from the Reddit build
 // that inspired this project. That was the wrong idea twice over: he wanted a

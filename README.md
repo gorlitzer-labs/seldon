@@ -1,4 +1,4 @@
-# Boomer
+# Demerzel
 
 A voice assistant that runs entirely on one MacBook Pro. You say her name, she
 listens, she answers, she does things. Nothing leaves the machine — no API key,
@@ -14,7 +14,7 @@ first word, with a 35B model doing the thinking.
 | Layer | What | Why |
 |---|---|---|
 | **Brain** | `Qwen3.6-35B-A3B-4bit` via **MLX** | MoE, 3B active. Non-negotiable: this machine has 150 GB/s bandwidth, so a dense 27B would read ~16 GB per token and never keep the speech fed. Decodes at **52 tok/s**. |
-| **Ears** | `Qwen3-ASR-1.7B-8bit` via **mlx-audio**, with hotword biasing | Chosen for accented English (16.07 WER vs Whisper large-v3's 21.30 on dialog-accented). Hotwords are what make domain vocabulary come out right. `BOOMER_STT=parakeet` swaps in Parakeet TDT v3 — ~190 ms faster, worse vocabulary. |
+| **Ears** | `Qwen3-ASR-1.7B-8bit` via **mlx-audio**, with hotword biasing | Chosen for accented English (16.07 WER vs Whisper large-v3's 21.30 on dialog-accented). Hotwords are what make domain vocabulary come out right. `DEMERZEL_STT=parakeet` swaps in Parakeet TDT v3 — ~190 ms faster, worse vocabulary. |
 | **Mouth** | `Kokoro-82M` via **PyTorch/MPS** | The MLX port emits NaN. PyTorch it is. |
 | **Endpointing** | **Silero VAD**, 576 ms hangover | Smart Turn v3 is built but not wired — see *Not done yet*. |
 | **Who's talking** | **CAM++** `en_voxceleb`, ONNX on CPU | 29.6 MB. A filter, not a credential — see *Voices*. |
@@ -37,7 +37,7 @@ livekit. The pipeline is short enough to read in an afternoon.
 - **`scripts/check-offline.sh`** inspects the running server's open sockets
   with `lsof` and fails if a single one is not loopback.
 - **The MCP client ships with everything disabled.** Each server in
-  `~/.boomer/mcp.json` declares whether it can reach the network, and you turn
+  `~/.demerzel/mcp.json` declares whether it can reach the network, and you turn
   it on by hand. Every MCP tool is treated as a *write*, because she cannot know
   whether a remote tool mutates something and guessing permissively would let a
   guest act through it.
@@ -46,7 +46,7 @@ livekit. The pipeline is short enough to read in an afternoon.
   (self-hosted SearXNG vs a provider API that sees your queries), and that
   choice is deliberately still open.
 
-Sharing over a tailnet is possible (`BOOMER_READONLY=1`) but voids the
+Sharing over a tailnet is possible (`DEMERZEL_READONLY=1`) but voids the
 loopback-only guarantee — your microphone audio crosses the tailnet. It is
 called out in the queue rather than quietly allowed.
 
@@ -95,20 +95,20 @@ log line is never clipped.
 
 ## ⚠️ This is coupled to a private stack — you will need to adapt it
 
-Boomer is the voice of **[factory / foundation / apiary](https://github.com/gorlitzer-labs)**,
+Demerzel is the voice of **[factory / foundation / apiary](https://github.com/gorlitzer-labs)**,
 Franko's own agent-orchestration tooling. That coupling is real, but it is
 contained in a few named places rather than smeared through the pipeline:
 
 | What | Where | To adapt |
 |---|---|---|
-| Factory skill — read the board, queue work, create a project, staff a hive | `boomer/skills/factory.py` | Delete the module. The registry keeps working; you lose 6 tools of 19. |
-| Escalation watcher — she speaks up unprompted when a hive is blocked | `boomer/factory.py` | Same: drop it, or point it at your own state source. |
+| Factory skill — read the board, queue work, create a project, staff a hive | `demerzel/skills/factory.py` | Delete the module. The registry keeps working; you lose 6 tools of 19. |
+| Escalation watcher — she speaks up unprompted when a hive is blocked | `demerzel/factory.py` | Same: drop it, or point it at your own state source. |
 | `docs/` is a **Foundation seam** (`QUEUE`, `WORKSTREAMS`, `DONE`, `FACTS`) | `docs/` | Those files are never hand-edited; every mutation goes through a `foundation` command. Without the CLI they are still readable Markdown — `docs/FACTS.md` is the interesting one. |
-| Hotwords, system prompt, file roots | `boomer/models.py`, `boomer/skills/files.py` | Franko's vocabulary and name are hardcoded. Change them. |
+| Hotwords, system prompt, file roots | `demerzel/models.py`, `demerzel/skills/files.py` | Franko's vocabulary and name are hardcoded. Change them. |
 
-**The point of the skills layer is exactly this.** `boomer/tools.py` holds only
+**The point of the skills layer is exactly this.** `demerzel/tools.py` holds only
 the mechanism — the `Tool` dataclass, the registry, the call format, narrated
-execution. Every capability is a module under `boomer/skills/` that registers
+execution. Every capability is a module under `demerzel/skills/` that registers
 into it. The factory is *one skill*, not what she is. Adding MCP later was a new
 module, not a rewrite.
 
@@ -163,7 +163,7 @@ Nothing in there is a claim without a `verified:` line.
 
 ## Attention: a name opens a conversation, not a turn
 
-Saying "Boomer" opens a **window**, not a single exchange. For 25 s afterwards
+Saying "Demerzel" opens a **window**, not a single exchange. For 25 s afterwards
 follow-ups need no wake word, and every completed turn extends it. "That's all"
 closes it; "stay with me" removes the timeout. An announcement *she* initiates
 also opens the window, so replying to her own escalation needs no wake word.
@@ -180,7 +180,7 @@ Two bugs worth stealing the fixes for:
   of them. Comprehension was never wired to state. She now has a
   `stop_listening` tool, so any wording in any language works.
 
-There is no acoustic wake word: openWakeWord ships no model for "boomer", and a
+There is no acoustic wake word: openWakeWord ships no model for "demerzel", and a
 custom one is hours of synthesis for uncertain recall. Since every utterance is
 transcribed anyway, the trigger is her name in the *transcript*.
 `Attention.wake_detected` is the seam to swap an acoustic model in behind.
@@ -189,7 +189,7 @@ transcribed anyway, the trigger is her name in the *transcript*.
 
 ## Voices
 
-Multiple named voiceprints with roles, in `~/.boomer/voices.json`. Enrolment is
+Multiple named voiceprints with roles, in `~/.demerzel/voices.json`. Enrolment is
 open-set, so an unenrolled speaker comes back as *nobody* rather than the
 nearest profile.
 
@@ -249,7 +249,7 @@ Needs Apple Silicon with ≥ 36 GB. She holds ~21.5 GB resident.
 python3.13 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python scripts/fetch-models.py     # ~24 GB, resumable
-python -m boomer.server            # then open http://localhost:8770
+python -m demerzel.server            # then open http://localhost:8770
 ```
 
 Press **listen**, allow the microphone, say her name.
@@ -267,12 +267,12 @@ that refusal is load-bearing.
 
 | Variable | Default | |
 |---|---|---|
-| `BOOMER_STT` | `qwen` | `parakeet` to A/B for speed over vocabulary |
-| `BOOMER_READONLY` | off | disables all writes; set this before sharing a session |
-| `BOOMER_FILE_ROOTS` | `~/Desktop` | where `read_file` / `find_files` may look |
-| `BOOMER_AGENT_HARNESS` | `claude` | passed to apiary — `codex`, `opencode` |
-| `BOOMER_MEMORY` / `BOOMER_VOICES` / `BOOMER_TIMERS` / `BOOMER_MCP_CONFIG` | `~/.boomer/*` | state |
-| `BOOMER_RECORD` | off | dump utterances to `recordings/` for voiceprint calibration |
+| `DEMERZEL_STT` | `qwen` | `parakeet` to A/B for speed over vocabulary |
+| `DEMERZEL_READONLY` | off | disables all writes; set this before sharing a session |
+| `DEMERZEL_FILE_ROOTS` | `~/Desktop` | where `read_file` / `find_files` may look |
+| `DEMERZEL_AGENT_HARNESS` | `claude` | passed to apiary — `codex`, `opencode` |
+| `DEMERZEL_MEMORY` / `DEMERZEL_VOICES` / `DEMERZEL_TIMERS` / `DEMERZEL_MCP_CONFIG` | `~/.demerzel/*` | state |
+| `DEMERZEL_RECORD` | off | dump utterances to `recordings/` for voiceprint calibration |
 
 ---
 
@@ -302,7 +302,7 @@ Honest list, all of it in `docs/QUEUE.md`:
 ## Credits
 
 - **David** — **Groundswork** and **mcp-coord**, the prior art this borrows
-  from. Boomer's MCP client skill was built and verified against a live
+  from. Demerzel's MCP client skill was built and verified against a live
   `agent-coord` server:
   connected, discovered 34 tools, registered them prefixed and marked local, and
   timed out a hanging call rather than wedging the turn.

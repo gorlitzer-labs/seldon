@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from ..tools import Tool, register
 
 STORE = pathlib.Path(os.environ.get(
-    "BOOMER_TIMERS", pathlib.Path.home() / ".boomer" / "timers.json"))
+    "DEMERZEL_TIMERS", pathlib.Path.home() / ".demerzel" / "timers.json"))
 MAX_ACTIVE = 20
 
 # "twenty minutes", "1 hour", "90 seconds", "an hour and a half"

@@ -12,7 +12,7 @@ from ..tools import TIMEOUT_S, Tool, register
 
 FOUNDATION = ["npx", "-y", "github:gorlitzer-labs/foundation"]
 ROOTS = [pathlib.Path(p).expanduser().resolve() for p in
-         os.environ.get("BOOMER_FILE_ROOTS",
+         os.environ.get("DEMERZEL_FILE_ROOTS",
                         str(pathlib.Path.home() / "Desktop")).split(":")]
 
 
@@ -115,7 +115,7 @@ register(
 # and is the strongest at code, `opencode` against a local endpoint keeps the
 # agents on this machine. Naming it here rather than burying it means the
 # cloud-versus-local decision stays visible.
-AGENT_HARNESS = os.environ.get("BOOMER_AGENT_HARNESS", "claude")
+AGENT_HARNESS = os.environ.get("DEMERZEL_AGENT_HARNESS", "claude")
 APIARY = "apiary"
 
 

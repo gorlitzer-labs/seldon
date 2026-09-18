@@ -169,7 +169,7 @@ def _handle_pending_tool(transcript: str, ctx: dict) -> str | None:
 def _handle_factory(transcript: str, ctx: dict) -> str | None:
     """Board queries and decision answers. Returns what to say, or None.
 
-    The confirmation gate lives here. `factory decide` is the only write Boomer
+    The confirmation gate lives here. `factory decide` is the only write Demerzel
     makes to the factory, resolveDecision() has no un-resolve path, and the input
     is speech-to-text that was measured turning "Postgres" into "poskers". So an
     answer is never filed on first utterance: it is read back, and only a plain
@@ -226,7 +226,7 @@ def _handle_factory(transcript: str, ctx: dict) -> str | None:
 
 def _readonly() -> bool:
     import os
-    return os.environ.get("BOOMER_READONLY", "").lower() in {"1", "true", "yes"}
+    return os.environ.get("DEMERZEL_READONLY", "").lower() in {"1", "true", "yes"}
 
 
 def _handle_memory(intent: str, payload: str, ctx: dict | None = None) -> str:

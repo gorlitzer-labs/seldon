@@ -14,10 +14,10 @@ warnings.filterwarnings("ignore")
 import numpy as np, soundfile as sf, librosa
 
 sys.path.insert(0, ".")
-from boomer.audio import Endpointer
-from boomer.protocol import MIC_SR
-from boomer.runtime import load_all
-from boomer.turn import run_turn
+from demerzel.audio import Endpointer
+from demerzel.protocol import MIC_SR
+from demerzel.runtime import load_all
+from demerzel.turn import run_turn
 
 CLIP = sys.argv[1] if len(sys.argv) > 1 else "spikes/utt-medium.wav"
 TURNS = 2

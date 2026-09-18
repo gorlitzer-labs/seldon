@@ -1,11 +1,11 @@
-# Boomer — Apple Silicon only. Python 3.13.
+# Demerzel — Apple Silicon only. Python 3.13.
 # Versions are the ones this was built and measured against.
 
 # Brain — MLX
 mlx==0.32.2
 mlx-lm==0.31.3
 
-# Ears — Qwen3-ASR (default) and Parakeet (BOOMER_STT=parakeet)
+# Ears — Qwen3-ASR (default) and Parakeet (DEMERZEL_STT=parakeet)
 mlx-audio==0.5.1
 parakeet-mlx==0.5.2
 

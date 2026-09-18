@@ -12,7 +12,7 @@ import pathlib
 from ..tools import Tool, register
 
 ROOTS = [pathlib.Path(p).expanduser().resolve() for p in
-         os.environ.get("BOOMER_FILE_ROOTS",
+         os.environ.get("DEMERZEL_FILE_ROOTS",
                         str(pathlib.Path.home() / "Desktop")).split(":")]
 MAX_CHARS = 4000
 MAX_HITS = 12

@@ -1,6 +1,6 @@
-"""The tool mechanism. Capabilities live in boomer/skills/.
+"""The tool mechanism. Capabilities live in demerzel/skills/.
 
-Boomer is an everyday assistant, and the factory is one skill inside her rather
+Demerzel is an everyday assistant, and the factory is one skill inside her rather
 than the thing she is. That is Franko's framing and it is the right one: a voice
 assistant that can only talk to a build system is a build system with a
 microphone.

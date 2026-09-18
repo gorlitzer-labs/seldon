@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Does a retained KV cache cut Boomer's time-to-first-token?
+"""Does a retained KV cache cut Demerzel's time-to-first-token?
 
 The uncached bench re-prefills the system prompt on every turn. A real
 conversation keeps the cache and only prefills the new user turn. This measures
@@ -13,7 +13,7 @@ from mlx_lm.models.cache import make_prompt_cache
 from mlx_lm.sample_utils import make_sampler
 
 MODEL = "mlx-community/Qwen3.6-35B-A3B-4bit"
-SYSTEM = ("You are Boomer, a local voice assistant. Answer in one or two short "
+SYSTEM = ("You are Demerzel, a local voice assistant. Answer in one or two short "
           "spoken sentences. Never use markdown or lists.")
 TURNS = ["What's on the board?",
          "And how many are blocked?",

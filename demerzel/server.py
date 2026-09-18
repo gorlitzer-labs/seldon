@@ -1,4 +1,4 @@
-"""Boomer's runtime: the browser is her ears and mouth, this process is the rest.
+"""Demerzel's runtime: the browser is her ears and mouth, this process is the rest.
 
 The page captures microphone audio with echo cancellation on (measured at
 26.8 dB ERLE, which is why Python needs no CoreAudio binding), streams it here
@@ -44,11 +44,11 @@ WATCH_INTERVAL_S = 2.0
 # per-session (they are 20.5 GB, so they will not be).
 _active: dict = {"session": None}
 
-# Writes Boomer can make: resolving a factory decision is permanent, and memory
+# Writes Demerzel can make: resolving a factory decision is permanent, and memory
 # is durable. Off behind a shared link.
-READONLY = os.environ.get("BOOMER_READONLY", "").lower() in {"1", "true", "yes"}
+READONLY = os.environ.get("DEMERZEL_READONLY", "").lower() in {"1", "true", "yes"}
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
-worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="boomer-gpu")
+worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="demerzel-gpu")
 
 ears: Ears
 brain: Brain
@@ -72,7 +72,7 @@ class Session:
         # Enrolment reuses the endpointer that already segments utterances, so
         # "read three phrases" costs no new audio plumbing.
         self.enrolling: dict | None = None
-        # Her name opens a session, not a turn. See boomer/attention.py.
+        # Her name opens a session, not a turn. See demerzel/attention.py.
         self.attention = Attention()
 
     # --- emitting back to the page (called from the worker thread) ---
@@ -182,7 +182,7 @@ class Session:
 
     # --- enrolment ----------------------------------------------------------
     ENROL_PHRASES = [
-        "Boomer, what is on the board this morning?",
+        "Demerzel, what is on the board this morning?",
         "Is anything blocked or waiting on me right now?",
         "Remember that I prefer short answers.",
     ]
@@ -331,7 +331,7 @@ async def handler(ws):
     loop = asyncio.get_running_loop()
     if _active["session"] is not None:
         await ws.send(json.dumps(P.msg(
-            "busy", detail="Another session already has Boomer. "
+            "busy", detail="Another session already has Demerzel. "
                            "Close the other tab and reload.")))
         await ws.close()
         return
@@ -340,7 +340,7 @@ async def handler(ws):
     s.emit(P.state(State.IDLE))
     s.emit_attention("connected")
     s.emit(P.msg("ready", hangoverMs=s.ep.hangover_ms, readonly=READONLY,
-                 wakeWord="boomer",
+                 wakeWord="demerzel",
                  voiceCheck=bool(speaker and speaker.enrolled),
                  voices=speaker.roster() if speaker else [],
                  canEnrol=speaker is not None))
@@ -423,7 +423,7 @@ async def main():
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(worker, load_models)   # same thread as every turn
     threading.Thread(target=serve_http, daemon=True).start()
-    print(f"\n  Boomer is listening -- open http://localhost:{HTTP_PORT}/\n", flush=True)
+    print(f"\n  Demerzel is listening -- open http://localhost:{HTTP_PORT}/\n", flush=True)
     async with websockets.serve(handler, "127.0.0.1", WS_PORT, max_size=None):
         await asyncio.Future()
 

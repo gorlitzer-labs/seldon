@@ -1,4 +1,4 @@
-"""Load and warm Boomer's three models, in the order that keeps them fast.
+"""Load and warm Demerzel's three models, in the order that keeps them fast.
 
 Two measured effects drive everything here:
 
@@ -27,7 +27,7 @@ from .models import Brain, Ears, Voice
 
 GB = 1 << 30
 CACHE_GB = 4
-LOCK = pathlib.Path(tempfile.gettempdir()) / "boomer-models.lock"
+LOCK = pathlib.Path(tempfile.gettempdir()) / "demerzel-models.lock"
 
 
 def _physical_gb() -> float:
@@ -72,23 +72,23 @@ def _holder() -> int | None:
 def acquire_models_lock() -> None:
     """Refuse to load a second copy of the models on this machine.
 
-    Boomer's working set is ~20.5 GB of a 36 GB machine. Two processes holding
+    Demerzel's working set is ~20.5 GB of a 36 GB machine. Two processes holding
     it do not merely thrash -- with MLX wired limits set they exhausted
     non-pageable memory and hung the Mac, which is exactly how the first crash
     happened (a benchmark launched while the server was running).
 
-    Set BOOMER_ALLOW_MULTI=1 only if you genuinely have the headroom.
+    Set DEMERZEL_ALLOW_MULTI=1 only if you genuinely have the headroom.
     """
-    if os.environ.get("BOOMER_ALLOW_MULTI", "").lower() in {"1", "true", "yes"}:
+    if os.environ.get("DEMERZEL_ALLOW_MULTI", "").lower() in {"1", "true", "yes"}:
         return
     pid = _holder()
     if pid is not None:
         raise RuntimeError(
-            f"another Boomer process (pid {pid}) already has the models loaded.\n"
+            f"another Demerzel process (pid {pid}) already has the models loaded.\n"
             f"  Loading a second copy needs ~{2 * 20.5:.0f} GB on a "
             f"{_physical_gb():.0f} GB machine and will hang it.\n"
             f"  Stop it first:  kill {pid}\n"
-            f"  Override (only with real headroom):  BOOMER_ALLOW_MULTI=1")
+            f"  Override (only with real headroom):  DEMERZEL_ALLOW_MULTI=1")
     LOCK.write_text(str(os.getpid()))
     atexit.register(release_models_lock)
 

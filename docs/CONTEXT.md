@@ -5,14 +5,14 @@ entry: the term, its meaning, and `_Avoid_:` the rejected synonyms.
 
 ## Glossary
 
-- **Boomer** — the local voice assistant this repo builds. Python package `boomer/`, browser front
+- **Demerzel** — the local voice assistant this repo builds. Python package `demerzel/`, browser front
   end `web/`. Renamed from Aria on 2026-09-05 for two reasons: the factory's own docs use "Aria" as
   an example agent name, so a decision spoken *by* Aria *from* Aria would be ambiguous; and the
   plosive /b/ makes a far stronger wake word. Parakeet was observed transcribing "Aria" as "Area".
   _Avoid_: Aria, Cortana, the assistant.
 
 - **the factory** — Franko's agent orchestration stack: `factory` (CLI + supervisor), `foundation`
-  (this seam), `apiary` (transport/hives). Boomer is its voice, not a replacement for it.
+  (this seam), `apiary` (transport/hives). Demerzel is its voice, not a replacement for it.
   _Avoid_: the fleet, the swarm.
 
 - **turn** — one exchange: endpoint fires, transcript decoded, reply generated, speech played.

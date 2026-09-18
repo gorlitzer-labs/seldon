@@ -10,7 +10,7 @@ record what it already captures: the utterance audio plus what it thought was
 said. Replaying that corpus offline answers both, repeatably.
 
 Off by default -- this is a microphone writing to disk. Enable with
-BOOMER_RECORD=1; files land in recordings/ (git-ignored).
+DEMERZEL_RECORD=1; files land in recordings/ (git-ignored).
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import numpy as np
 
 from .protocol import MIC_SR
 
-ENABLED = os.environ.get("BOOMER_RECORD", "").lower() in {"1", "true", "yes"}
+ENABLED = os.environ.get("DEMERZEL_RECORD", "").lower() in {"1", "true", "yes"}
 DIR = pathlib.Path(__file__).resolve().parent.parent / "recordings"
 
 
@@ -38,7 +38,7 @@ def record_utterance(audio: np.ndarray | None, transcript: str) -> str | None:
         sf.write(DIR / f"{stem}.wav", np.asarray(audio, dtype=np.float32), MIC_SR)
         (DIR / f"{stem}.json").write_text(json.dumps(
             {"transcript": transcript, "seconds": len(audio) / MIC_SR,
-             "stt": os.environ.get("BOOMER_STT", "qwen")}, indent=2))
+             "stt": os.environ.get("DEMERZEL_STT", "qwen")}, indent=2))
         return stem
     except Exception:
         return None            # recording must never break a turn

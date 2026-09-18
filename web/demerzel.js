@@ -1,4 +1,4 @@
-// Boomer's face: microphone in, speech out, state on screen.
+// Demerzel's face: microphone in, speech out, state on screen.
 //
 // Structure, after Franko pointed out that one long scrolling page is unusable:
 //   the console  -- instrument, log, rail. Fixed to the viewport, never scrolls.
@@ -268,7 +268,7 @@ function onMessage(ev) {
         if (pending) pending.classList.remove('pending');
         pending = null;
       } else if (!pending) {
-        pending = addMessage('BOOMER', m.text, 'them pending');
+        pending = addMessage('DEMERZEL', m.text, 'them pending');
       } else {
         const t = pending.querySelector('.txt');
         t.textContent += (t.textContent ? ' ' : '') + m.text;
@@ -278,7 +278,7 @@ function onMessage(ev) {
 
     case 'announce':
       pending = null;
-      addMessage(`BOOMER / ${(m.hive || 'factory').toUpperCase()}`, m.text,
+      addMessage(`DEMERZEL / ${(m.hive || 'factory').toUpperCase()}`, m.text,
                  `them unprompted${m.kind === 'blocker' ? ' alert' : ''}`);
       break;
 
@@ -287,7 +287,7 @@ function onMessage(ev) {
       a.dataset.s = m.state;
       a.textContent = m.state === 'held' ? 'holding'
         : m.state === 'open' ? `open ${m.secondsLeft ?? ''}s`.trim()
-        : 'say "boomer"';
+        : 'say "demerzel"';
       break;
     }
 
@@ -317,7 +317,7 @@ function onMessage(ev) {
         toast('anyone can talk', 'No voice is enrolled, so she answers whoever '
           + 'speaks. Enrol yourself in voices to change that.', '', 9000);
       }
-      hint(`Say "${m.wakeWord || 'boomer'}" to start. `
+      hint(`Say "${m.wakeWord || 'demerzel'}" to start. `
         + 'Follow-ups need no wake word; "that\'s all" ends it.');
       break;
 
@@ -464,7 +464,7 @@ el('ecancel').onclick = () => ws && ws.send(JSON.stringify({ type: 'enrol_cancel
 try {
   avatar = createAvatar(el('avatar'));
   document.body.dataset.avatar = 'on';
-  window.__boomer = { avatar, setState, toast };   // headless checks
+  window.__demerzel = { avatar, setState, toast };   // headless checks
   requestAnimationFrame(pumpAudio);
 } catch (e) {
   console.warn('avatar unavailable, using the orb:', e);

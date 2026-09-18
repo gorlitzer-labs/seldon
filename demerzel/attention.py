@@ -1,4 +1,4 @@
-"""When is Boomer being spoken TO, rather than merely spoken NEAR?
+"""When is Demerzel being spoken TO, rather than merely spoken NEAR?
 
 Requiring a wake word on every sentence is unusable -- it stops being a
 conversation. So the wake word opens a SESSION, not a turn:
@@ -13,7 +13,7 @@ all" dismissal was reaching for.
 
 The trigger is her NAME IN THE TRANSCRIPT, not an acoustic wake-word model.
 openWakeWord ships alexa / hey_mycroft / hey_jarvis / hey_rhasspy and nothing
-for "boomer"; a custom model is hours of synthesis and augmentation for
+for "demerzel"; a custom model is hours of synthesis and augmentation for
 uncertain recall (the build that inspired this got 0.22 on synthetic test data).
 Meanwhile she already transcribes every utterance, so gating on the transcript
 costs nothing new and uses her actual name today.
@@ -30,13 +30,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 WINDOW_S = 25.0          # follow-ups need no wake word for this long
-NAME = "boomer"
+NAME = "demerzel"
 
-# Tolerant of what speech-to-text actually returns: "Boomer," "boomer" and the
+# Tolerant of what speech-to-text actually returns: "Demerzel," "demerzel" and the
 # near-misses a recogniser produces for a two-syllable name.
-_WAKE = re.compile(r"\b(hey\s+|ok(ay)?\s+|yo\s+)?(boomer|bloomer|boomber|bumer)\b", re.I)
+_WAKE = re.compile(r"\b(hey\s+|ok(ay)?\s+|yo\s+)?(demerzel|bloomer|boomber|bumer)\b", re.I)
 _CLOSE = re.compile(
-    r"\b(that'?s all|that will be all|that'?ll be all|thanks?( you)?,? boomer|"
+    r"\b(that'?s all|that will be all|that'?ll be all|thanks?( you)?,? demerzel|"
     r"dismissed|nothing else|we'?re done|go to sleep|stand down)\b", re.I)
 _HOLD = re.compile(
     r"\b(stay with me|keep listening|stay awake|stay open|don'?t go)\b", re.I)
@@ -114,7 +114,7 @@ class Attention:
         if woken:
             self.state = State.OPEN
             self._extend()
-            # Her name is an address, not content. "Boomer, what's on the
+            # Her name is an address, not content. "Demerzel, what's on the
             # board?" must reach the model as "what's on the board?".
             stripped = self._strip(text)
             return Decision(True, self.state, text=stripped or "yes?", reason="woken")
@@ -131,7 +131,7 @@ class Attention:
         """Remove the address, and the punctuation that only held it in place.
 
         Naive removal leaves debris the model then has to interpret:
-        "Hello, Boomer, how you doing?" became "Hello, , how you doing?" -- a
+        "Hello, Demerzel, how you doing?" became "Hello, , how you doing?" -- a
         real transcript from Franko's first conversation.
         """
         out = _WAKE.sub("\x00", text, count=1)

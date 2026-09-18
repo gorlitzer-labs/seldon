@@ -6,7 +6,7 @@ from its own src/lib/decisions.mjs:
     {id, hive, dir, from, text, kind: "decision"|"blocker", ts, status}
 
 with pending() filtering on status === "pending". Today that queue only reaches a
-human who is sitting in front of `factory board`. Boomer's whole point is that
+human who is sitting in front of `factory board`. Demerzel's whole point is that
 the factory runs 24/7 and a human does not.
 
 Announcing costs no LLM. The text was already written by an agent for a human to
@@ -207,7 +207,7 @@ def board_spoken(state: dict | None) -> str:
 
 
 def answer_decision(decision_id: str, answer: str) -> tuple[bool, str]:
-    """Run `factory decide`. THIS IS THE ONE WRITE Boomer makes to the factory.
+    """Run `factory decide`. THIS IS THE ONE WRITE Demerzel makes to the factory.
 
     resolveDecision() in factory only matches status === "pending" and there is
     no un-resolve path, so a misheard answer is filed permanently as the human's

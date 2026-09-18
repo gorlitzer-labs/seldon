@@ -1,4 +1,4 @@
-"""What Boomer remembers between conversations.
+"""What Demerzel remembers between conversations.
 
 Today her only memory is a KV cache that dies with the process. Ask her to
 remember something and it is gone on restart, which is the gap between a voice
@@ -21,7 +21,7 @@ Design choices worth stating, because the obvious answers are wrong here:
   durable memory means quietly remembering something the user never said, so
   every write is read back first.
 
-* PLAIN MARKDOWN. Readable and correctable in an editor. If Boomer's memory is
+* PLAIN MARKDOWN. Readable and correctable in an editor. If Demerzel's memory is
   wrong the fix should be one line in a text file, not a database migration.
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ import re
 from dataclasses import dataclass
 
 STORE = pathlib.Path(os.environ.get(
-    "BOOMER_MEMORY", pathlib.Path.home() / ".boomer" / "memory.md"))
+    "DEMERZEL_MEMORY", pathlib.Path.home() / ".demerzel" / "memory.md"))
 
 MAX_ITEMS = 200          # a guardrail, not a target
 MAX_LEN = 300            # one remembered thing is a sentence, not an essay
@@ -71,12 +71,12 @@ def load() -> list[Memory]:
 def normalise(text: str) -> str:
     """Trim to one clean line: drop the vocative, the verb, and the leading 'that'.
 
-    "Boomer, make a note that standup is at nine thirty"  ->
+    "Demerzel, make a note that standup is at nine thirty"  ->
     "standup is at nine thirty"
     """
     text = " ".join((text or "").split())
-    # a vocative at the front ("Boomer," / "hey Boomer")
-    text = re.sub(r"^(hey\s+|ok(ay)?\s+)?boomer\b[,:]?\s*", "", text, flags=re.I)
+    # a vocative at the front ("Demerzel," / "hey Demerzel")
+    text = re.sub(r"^(hey\s+|ok(ay)?\s+)?demerzel\b[,:]?\s*", "", text, flags=re.I)
     text = re.sub(r"^(please\s+)?(remember|make a note|note|keep in mind)\b", "", text, flags=re.I)
     # the conjunction left behind by either the verb or detect()
     text = re.sub(r"^\s*(that|this|about)\b[,:]?\s*", "", text, flags=re.I)
@@ -98,7 +98,7 @@ def remember(text: str) -> Memory | None:
     STORE.parent.mkdir(parents=True, exist_ok=True)
     with STORE.open("a") as fh:                       # append-only: O_APPEND, lock-free
         if not STORE.stat().st_size:
-            fh.write("# Boomer's memory\n\nOne line per remembered item. "
+            fh.write("# Demerzel's memory\n\nOne line per remembered item. "
                      "Safe to edit or delete by hand.\n\n")
         fh.write(item.line() + "\n")
     return item
@@ -133,7 +133,7 @@ def forget(fragment: str) -> list[Memory]:
     keep = [m for m in items if not hit(m)]
     dropped = [m for m in items if hit(m)]
     if dropped:
-        header = ("# Boomer's memory\n\nOne line per remembered item. "
+        header = ("# Demerzel's memory\n\nOne line per remembered item. "
                   "Safe to edit or delete by hand.\n\n")
         STORE.write_text(header + "".join(m.line() + "\n" for m in keep))
     return dropped

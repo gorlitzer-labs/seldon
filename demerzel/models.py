@@ -1,4 +1,4 @@
-"""Boomer's ears, brain and mouth.
+"""Demerzel's ears, brain and mouth.
 
 Each class encodes something the benchmarks in spikes/ actually measured:
 
@@ -30,20 +30,20 @@ STT_QWEN = "mlx-community/Qwen3-ASR-1.7B-8bit"
 STT_PARAKEET = "mlx-community/parakeet-tdt-0.6b-v3"
 TTS_VOICE = "af_heart"
 
-# Words the generic model has no reason to know but Boomer hears constantly.
+# Words the generic model has no reason to know but Demerzel hears constantly.
 # Measured: without these, "Postgres or SQLite" came back as "posters or SQ
 # light"; with them it is exact. Costs ~8 ms.
 HOTWORDS = [
-    "Boomer", "netreach", "apiary", "foundation", "factory", "gorlitzer",
+    "Demerzel", "netreach", "apiary", "foundation", "factory", "gorlitzer",
     "Postgres", "SQLite", "Cloudflare", "wrangler", "worktree", "PR",
     "coordinator", "hive", "queue", "blocker", "netwatch", "bifrost",
 ]
 
-# BOOMER_STT=parakeet falls back to the faster, less accent-robust model.
-STT_BACKEND = os.environ.get("BOOMER_STT", "qwen").lower()
+# DEMERZEL_STT=parakeet falls back to the faster, less accent-robust model.
+STT_BACKEND = os.environ.get("DEMERZEL_STT", "qwen").lower()
 
 SYSTEM = (
-    "You are Boomer, Franko's everyday assistant. You run entirely on his Mac "
+    "You are Demerzel, Franko's everyday assistant. You run entirely on his Mac "
     "and nothing you hear leaves it.\n"
     "Use your tools whenever they can answer better than you can: the time, this "
     "machine, his files, his timers, and his software projects. His agent factory "
@@ -78,7 +78,7 @@ class Ears:
     technical terms; whether it also helps a given real accent has to be tested
     by that speaker, not inferred from a leaderboard.
 
-    Set BOOMER_STT=parakeet to A/B against the faster model.
+    Set DEMERZEL_STT=parakeet to A/B against the faster model.
 
     Streaming is deliberately not used. StreamingParakeet proved unreliable at
     utterance scale -- on a 1.86 s clip, chunked calls returned empty strings
@@ -134,8 +134,8 @@ class Ears:
     def _reject_hotword_echo(text: str) -> str:
         """Drop a transcript that is really just the bias list read back.
 
-        Observed live: Boomer transcribed an utterance as the entire hotword
-        list -- "Boomer, netreach, apiary, foundation, factory, gorlitzer,
+        Observed live: Demerzel transcribed an utterance as the entire hotword
+        list -- "Demerzel, netreach, apiary, foundation, factory, gorlitzer,
         Postgres, SQLite, ..." -- and the model then answered it as if Franko had
         said it. Biasing lists can leak into the output of an
         attention-based ASR, and it is not reproducible on demand (silence,

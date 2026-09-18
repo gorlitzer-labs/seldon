@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pull Boomer's model set into the HF cache. Safe to re-run: resumes, skips complete files."""
+"""Pull Demerzel's model set into the HF cache. Safe to re-run: resumes, skips complete files."""
 import os, pathlib, sys, time, urllib.request
 os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
 from huggingface_hub import snapshot_download
@@ -7,7 +7,7 @@ from huggingface_hub import snapshot_download
 MODELS = [
     ("mlx-community/Qwen3.6-35B-A3B-4bit", "LLM  (20.4 GB)"),
     ("mlx-community/Qwen3-ASR-1.7B-8bit",  "STT  (1.9 GB)  default"),
-    ("mlx-community/parakeet-tdt-0.6b-v3", "STT  (2.5 GB)  BOOMER_STT=parakeet"),
+    ("mlx-community/parakeet-tdt-0.6b-v3", "STT  (2.5 GB)  DEMERZEL_STT=parakeet"),
     ("hexgrad/Kokoro-82M",                 "TTS  (0.4 GB)"),
 ]
 

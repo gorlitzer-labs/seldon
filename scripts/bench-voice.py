@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure Boomer's ears and mouth, and close the loop between them.
+"""Measure Demerzel's ears and mouth, and close the loop between them.
 
 Kokoro speaks a line, Parakeet transcribes the audio back. That yields both
 benchmarks and proves the two ends agree -- a silent-audio or wrong-samplerate
@@ -16,7 +16,7 @@ import numpy as np, soundfile as sf
 
 LINES = [
     "The board is clear. Nothing needs you right now.",
-    "Boomer on netreach is blocked on a storage decision. Postgres or SQLite?",
+    "Demerzel on netreach is blocked on a storage decision. Postgres or SQLite?",
     "Four lanes are running and two tasks landed since this morning.",
 ]
 OUT = "spikes/tts-sample.wav"

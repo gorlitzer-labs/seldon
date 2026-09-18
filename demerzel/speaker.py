@@ -1,4 +1,4 @@
-"""Does Boomer know it is Franko talking?
+"""Does Demerzel know it is Franko talking?
 
 An always-listening assistant with a write path is a security problem, not just
 a convenience one. Right now anyone within earshot could say "go with SQLite,
@@ -40,7 +40,7 @@ from .protocol import MIC_SR
 
 MODEL = pathlib.Path(__file__).resolve().parent.parent / "models" / "campplus_en.onnx"
 STORE = pathlib.Path(os.environ.get(
-    "BOOMER_VOICES", pathlib.Path.home() / ".boomer" / "voices.json"))
+    "DEMERZEL_VOICES", pathlib.Path.home() / ".demerzel" / "voices.json"))
 
 # Roles, not just identities. Recognising a guest is only useful if it changes
 # what she will do for them: conversation is harmless, resolving someone's
@@ -53,7 +53,7 @@ OWNER, GUEST = "owner", "guest"
 # not a safe way to allocate identity. Round-robin over unused entries cannot
 # collide until the palette is exhausted.
 #
-# All warm or magenta: Boomer owns the cyan band and an alert owns the red, so a
+# All warm or magenta: Demerzel owns the cyan band and an alert owns the red, so a
 # person is never mistaken for either.
 PERSON_COLORS = ["#FF9E3D", "#C08CFF", "#FFD54A", "#FF7BA8", "#E8A06A", "#B0D46A"]
 

@@ -6,7 +6,7 @@ synthesize the whole first sentence" -- it is not a streaming first frame.
 That means first-audio latency is a function of how long the opening chunk is,
 which is something we control.
 
-Boomer streams the LLM token-by-token anyway, so she can synthesize a short
+Demerzel streams the LLM token-by-token anyway, so she can synthesize a short
 opening clause immediately and keep synthesizing while it plays.
 """
 import json, time, warnings
@@ -19,9 +19,9 @@ SR = 24000
 
 # Same information, progressively shorter opening chunk.
 CASES = [
-    ("one long sentence", ["Boomer on netreach is blocked on a storage decision, Postgres or SQLite?"]),
-    ("split at the comma", ["Boomer on netreach is blocked on a storage decision.", "Postgres or SQLite?"]),
-    ("short opener first", ["Heads up.", "Boomer on netreach is blocked on a storage decision.", "Postgres or SQLite?"]),
+    ("one long sentence", ["Demerzel on netreach is blocked on a storage decision, Postgres or SQLite?"]),
+    ("split at the comma", ["Demerzel on netreach is blocked on a storage decision.", "Postgres or SQLite?"]),
+    ("short opener first", ["Heads up.", "Demerzel on netreach is blocked on a storage decision.", "Postgres or SQLite?"]),
 ]
 
 # warm up so we are not measuring graph build
