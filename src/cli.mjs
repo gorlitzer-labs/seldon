@@ -7,6 +7,7 @@ import { factoryWatch } from "./watch.mjs";
 import { factoryBoard, factoryLs } from "./board.mjs";
 import { factoryDecide, factoryBriefing } from "./decide.mjs";
 import { factoryBox } from "./box.mjs";
+import { factoryRealms } from "./realms.mjs";
 import { factoryState } from "./state.mjs";
 
 const argv = process.argv.slice(2);
@@ -52,6 +53,8 @@ function help() {
     `        ${c.dim("--with hands it secrets via comb — never in a command line.")}`,
     `  ${c.cyan("box doctor")} [dir]            Try to read your host secrets from inside the box`,
     "",
+    `  ${c.cyan("realms")}                       Machines factory can reach (read from bifrost)`,
+    "",
     `  ${c.cyan("decide")} <id> "<your call>"    Answer a pending decision (posts it to the hive)`,
     `  ${c.cyan("briefing")}                     Print the accumulating morning briefing`,
   ].join("\n"));
@@ -66,6 +69,7 @@ try {
     case "state": await factoryState(flags); break;
     case "ls": factoryLs(); break;
     case "box": await factoryBox(pos, flags); break;
+    case "realms": await factoryRealms(flags); break;
     case "decide": await factoryDecide(pos[0], pos.slice(1)); break;
     case "briefing": await factoryBriefing(); break;
     case "version": case "--version": case "-v": say("factory 0.1.0"); break;

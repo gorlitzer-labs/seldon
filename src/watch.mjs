@@ -9,9 +9,15 @@ import { c, say, ok, warn } from "./lib/log.mjs";
 import { notify, brief } from "./lib/notify.mjs";
 import { fileDecision } from "./lib/decisions.mjs";
 import { readRegistry } from "./lib/hive.mjs";
+import { resolveRealm, runnerArgv } from "./lib/realm.mjs";
 
 const shOut = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch (e) { return (e.stdout || "").toString(); } };
-const tmuxAlive = (name) => { try { execFileSync("tmux", ["has-session", "-t", `apiary_${name}`], { stdio: "ignore" }); return true; } catch { return false; } };
+// Is an agent's tmux session alive? Locally when the hive has no realm, else
+// over ssh to the realm — the check is the same, only the machine differs.
+const tmuxAliveOn = (realm, name) => {
+  const { bin, args } = runnerArgv(realm, ["tmux", "has-session", "-t", `apiary_${name}`]);
+  try { execFileSync(bin, args, { stdio: "ignore" }); return true; } catch { return false; }
+};
 const nowHM = () => new Date().toTimeString().slice(0, 5);
 const readSafe = (p) => (existsSync(p) ? readFileSync(p, "utf8") : "");
 const count = (s, re) => (s.match(re) || []).length;
@@ -60,7 +66,8 @@ async function makeSupervisor(entry, flags, roster) {
 
   const tick = async () => {
     const events = [];
-    for (const a of roster) if (!tmuxAlive(a)) { respawn(a, hive, dir); events.push(`healed: respawned dead agent ${a}`); }
+    const realm = entry.realm ? resolveRealm(entry.realm) : null;
+    for (const a of roster) if (!tmuxAliveOn(realm, a)) { respawn(a, hive, dir, realm); events.push(`healed: respawned dead agent ${a}${realm ? ` on ${entry.realm}` : ""}`); }
     const online = stok ? await getOnline(hive, stok) : [];
     if (stok) {
       for (const m of await getMessages(hive, stok)) {
@@ -116,8 +123,18 @@ async function join_(hive) {
 async function getOnline(hive, stok) { try { const d = await (await fetch(`${hive.serverUrl}/participants`, { headers: { Authorization: `Bearer ${stok}` } })).json(); return (d.participants || []).map((p) => p.name); } catch { return []; } }
 async function getMessages(hive, stok) { try { const d = await (await fetch(`${hive.serverUrl}/messages`, { headers: { Authorization: `Bearer ${stok}` } })).json(); return d.items || []; } catch { return []; } }
 async function postMsg(hive, stok, content) { try { await fetch(`${hive.serverUrl}/message`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${stok}` }, body: JSON.stringify({ content }) }); } catch {} }
-function respawn(name, hive, dir) {
+function respawn(name, hive, dir, realm = null) {
   try {
+    if (realm) {
+      // On a realm, the invite and the apiary launch both happen there. The
+      // agent joins the same hive URL — a tailnet address reachable from either
+      // machine — so a realm agent lands in exactly the same room as a local one.
+      const url = `${hive.serverUrl}/?token=${hive.adminToken}`;
+      const remote = `mkdir -p ~/.apiary/invites && printf %s ${JSON.stringify(url)} > ~/.apiary/invites/${name} && apiary claude ${name} --admin --background`;
+      const { bin, args } = runnerArgv(realm, ["sh", "-c", JSON.stringify(remote)]);
+      spawn(bin, args, { detached: true, stdio: "ignore" }).unref();
+      return;
+    }
     mkdirSync(join(homedir(), ".apiary", "invites"), { recursive: true });
     writeFileSync(join(homedir(), ".apiary", "invites", name), `${hive.serverUrl}/?token=${hive.adminToken}`);
     spawn("apiary", ["claude", name, "--admin", "--background"], { cwd: dir, detached: true, stdio: "ignore" }).unref();

@@ -173,6 +173,26 @@ box cannot hide the credential it is using. What it hides is the other five. If 
 fleet's token is ever abused, you revoke one volume rather than rotating your whole
 machine.
 
+## `factory realms` — reach hives on other machines (via bifrost)
+
+factory does not keep its own list of machines. It reads **bifrost's** realm
+registry (`~/.config/bifrost/realms/`), so "what machines exist" has one source
+of truth: bifrost.
+
+```bash
+factory realms          # the machines factory can reach, with reachability
+```
+
+A hive registered with a `realm` has its host-coupled supervision — is the
+agent's tmux session alive, respawn it if not — run **over ssh to that realm**
+instead of locally. Everything else already works across the tailnet unchanged,
+because a hive URL is just an address: a respawned agent on a realm joins the
+same room as a local one.
+
+The ssh is batch-mode with a short connect timeout, so a supervisor tick can
+never hang on a dead realm. Realm names are validated to a strict charset before
+they become an ssh target, so a crafted name cannot smuggle an option or a path.
+
 ## Roadmap
 
 - **Phase 1 — Front Door** (`factory new`) ✅
