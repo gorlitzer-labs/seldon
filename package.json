@@ -1,0 +1,10 @@
+{
+  "name": "comb",
+  "version": "0.1.0",
+  "description": "Keep your keys out of your conversations. A small vault front-end over SOPS + age.",
+  "type": "module",
+  "bin": { "comb": "src/cli.mjs" },
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "license": "MIT",
+  "engines": { "node": ">=20" }
+}
