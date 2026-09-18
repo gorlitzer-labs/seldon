@@ -168,12 +168,6 @@ function buildEnter(slide) {
   if (slide.querySelector(".e2e")) {
     tl.from(slide.querySelectorAll(".estep"), { opacity: 0, x: -24, duration: 0.45, stagger: 0.12, ease: "power2.out" }, 0.4);
   }
-  // slide 14 — benchmark bars fill
-  if (slide.querySelector(".bench")) {
-    slide.querySelectorAll(".bf").forEach((bf, i) => {
-      tl.fromTo(bf, { width: 0 }, { width: bf.dataset.w, duration: 1.3, ease: "power2.out" }, 0.6 + i * 0.15);
-    });
-  }
   // slide 15 — machine discs + wires
   if (slide.querySelector("#topo")) {
     tl.from(slide.querySelectorAll(".mnode"), { opacity: 0, y: 18, duration: 0.5, stagger: 0.2, ease: "power2.out" }, 0.3);

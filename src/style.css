@@ -90,17 +90,6 @@ h2{font-family:var(--disp);font-weight:800;letter-spacing:-.025em;line-height:1.
 .estep .et{font-family:var(--disp);font-weight:600;font-size:clamp(14px,1.9vw,18px)}
 .estep .eu{font-family:var(--mono);font-size:10.5px;color:var(--gold)}
 
-/* benchmark */
-.bench{margin-top:30px;display:flex;flex-direction:column;gap:18px;max-width:760px}
-.brow{display:grid;grid-template-columns:clamp(150px,26vw,230px) 1fr auto;gap:16px;align-items:center}
-.brow .bl{font-family:var(--mono);font-size:clamp(12px,1.6vw,15px)}
-.brow .bl small{display:block;color:var(--faint);font-size:11px}
-.bt{height:30px;background:var(--panel);border-radius:7px;overflow:hidden}
-.bf{height:100%;width:0;border-radius:7px}
-.bf.g{background:linear-gradient(90deg,var(--idle),color-mix(in srgb,var(--idle) 60%,var(--gold)))}
-.bf.b{background:linear-gradient(90deg,var(--block),#7a2a1e)}
-.brow .bv{font-family:var(--mono);font-size:clamp(12px,1.6vw,15px);white-space:nowrap;font-variant-numeric:tabular-nums}
-.brow .bv.g{color:var(--idle)} .brow .bv.b{color:var(--block)}
 
 /* topology */
 .topo{position:relative;height:min(46vh,360px);margin-top:24px}
