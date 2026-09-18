@@ -125,15 +125,16 @@ h1,h2,h3{margin:0;font-family:var(--disp);letter-spacing:-.02em;text-wrap:balanc
   .scrim{background:linear-gradient(180deg,rgba(8,9,14,.86) 0%,rgba(8,9,14,.5) 46%,rgba(8,9,14,.6) 100%)}
   /* story: pinned to the top, compact */
   .story{left:0;right:0;top:0;bottom:auto;width:auto;height:auto;justify-content:flex-start;
-    padding:calc(env(safe-area-inset-top,0px)+22px) 20px 14px;gap:9px}
+    padding:calc(env(safe-area-inset-top,0px) + 22px) 20px 14px;gap:9px}
   .story h2{font-size:clamp(24px,7vw,32px)}
   .story .body{max-width:none} .story .body p{font-size:14px}
-  /* surface: a bounded, scrollable card in the lower half */
-  .surface{left:0;right:0;width:auto;top:auto;bottom:72px;height:auto;max-height:50vh;
-    padding:0 14px;align-items:stretch;justify-content:flex-end;transform:translateY(6%)}
+  /* surface: a bounded card in the lower half. The SURFACE is the scroller and
+     the term grows to its content inside it, so the terminal always scrolls to
+     the last line (a capped term with overflow:hidden used to clip it). */
+  .surface{left:0;right:0;width:auto;top:auto;bottom:calc(64px + env(safe-area-inset-bottom,0px));
+    height:auto;max-height:54vh;display:block;overflow-y:auto;overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;padding:0 14px 4px;transform:translateY(6%)}
   .surface.on{transform:none}
-  .term,.win{max-width:none;max-height:50vh;overflow:auto}
-  .term .tbody{font-size:9.5px;line-height:1.5;padding:12px}
   .controls{padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
 }
 
@@ -270,3 +271,15 @@ h1,h2,h3{margin:0;font-family:var(--disp);letter-spacing:-.02em;text-wrap:balanc
 .voiceui .vyou{color:#a7a596} .voiceui .vher{color:#f3efe6}
 .voiceui .vmeta{font-family:var(--mono);font-size:10.5px;margin-top:16px}
 @media (prefers-reduced-motion:reduce){.voiceui .vwave span{animation:none;height:50%}}
+
+/* ---- mobile surface internals: LAST so they beat the base .term/.tbody rules
+   (a media query adds no specificity, so an earlier one loses to later base
+   selectors — the same trap this file hit before). ---- */
+@media (max-width:820px){
+  .term,.win{max-width:none;max-height:none;overflow:visible;box-shadow:0 18px 50px rgba(0,0,0,.55)}
+  .term .tbody{font-size:10px;line-height:1.5;padding:12px}
+  .term.ap .apbody,.term.stack .stbody{font-size:10px;padding:12px 13px}
+  .term.dz{min-height:0;font-size:11px}
+  .term.dz .dzstage{padding:8px 0 12px}
+  .term.dz .dzorb{width:80px;height:80px}
+}
