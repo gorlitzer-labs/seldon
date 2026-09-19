@@ -84,10 +84,19 @@ export const chapters: Chapter[] = [
   {
     id: "combos", marker: "07", title: "Together — and apart", short: "Combos",
     beats: [
-      { id: "together", kicker: "the whole hive", heading: "Together, it runs itself.",
-        body: ["Foundation plans, apiary builds, comb holds the keys, factory supervises, bifrost spans the machines, Demerzel takes the call. One idea to shipped — the weather CLI, live."],
+      { id: "together", kicker: "the whole hive", heading: "One idea, walking itself to shipped.",
+        body: ["You tell Demerzel what you want. apiary opens the room, foundation plans it, comb holds the keys, factory supervises, bifrost spans the machines — then it comes back to Demerzel to tell you it is live. That loop, run once, is the weather CLI shipping itself."],
         focus: null, view: "combo",
-        say: [{ text: "Put them together and one idea walks itself to shipped — the weather CLI, planned, built, verified, and live." }] },
+        say: [
+          { text: "Put them together and one idea walks itself to shipped — the weather CLI, planned, built, verified, and live.", look: null, view: "combo" },
+          { text: "It starts with you: you tell Demerzel what to build.", look: "demerzel", view: "hive" },
+          { text: "The idea lands in a room where the agents meet,", look: "apiary", view: "hive" },
+          { text: "foundation gives it a deterministic plan,", look: "foundation", view: "hive" },
+          { text: "comb hands over the keys, by name,", look: "comb", view: "hive" },
+          { text: "factory keeps it on the rails, around the clock,", look: "factory", view: "hive" },
+          { text: "bifrost spreads the work across your machines,", look: "bifrost", view: "hive" },
+          { text: "and it closes where it began: Demerzel tells you it shipped.", look: "demerzel", view: "hive" },
+        ] },
       { id: "apart", kicker: "composable — it's about the job", heading: "Take one out, and it's a different tool.",
         body: ["Drop the voice and you drive by terminal. Drop the vault and remote agents go blind. Drop the floor and it stops being a factory at all. Every combo is powerful for a different job."],
         focus: null, view: "combo",
