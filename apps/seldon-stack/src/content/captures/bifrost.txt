@@ -1,0 +1,9 @@
+$ bifrost status
+Bifrost status
+
+  HEIMDALL (ML6MCWV0MW):
+    No active sessions
+
+  REALM — zanpakuto (zanpakuto):
+    ✓ Reachable
+    No active sessions
