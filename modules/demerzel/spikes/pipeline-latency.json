@@ -1,0 +1,6 @@
+{
+  "steady_state": {"stt_ms": 113, "llm_ttft_ms": 308, "tts_first_ms": 468, "total_from_endpoint_ms": 889},
+  "first_turn": {"llm_ttft_ms": 1365, "note": "cold conversation cache, system prompt prefill"},
+  "endpoint_hangover_ms": 600,
+  "total_from_last_word_ms": 1489
+}

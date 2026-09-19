@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "case": "one long sentence",
+      "first_audio_ms": 1006.661042018095,
+      "total_s": 1.0066946250153705,
+      "audio_s": 5.2
+    },
+    {
+      "case": "split at the comma",
+      "first_audio_ms": 692.7129169926047,
+      "total_s": 1.1220031249977183,
+      "audio_s": 5.7
+    },
+    {
+      "case": "short opener first",
+      "first_audio_ms": 328.82724999217317,
+      "total_s": 1.4446365839976352,
+      "audio_s": 7.1
+    }
+  ],
+  "best_first_audio_ms": 328.82724999217317,
+  "worst_first_audio_ms": 1006.661042018095
+}

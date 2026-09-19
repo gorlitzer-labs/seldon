@@ -1,0 +1,34 @@
+{
+  "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+  "load_s": 10.481427833990892,
+  "active_gb": 18.168974168598652,
+  "peak_gb": 18.352873418480158,
+  "ttft_ms_warm_avg": 404.2516665213043,
+  "decode_tok_s_warm_avg": 52.38484383779331,
+  "runs": [
+    {
+      "prompt": "What's on the board?",
+      "ttft_ms": 8050.416750018485,
+      "tokens": 19,
+      "decode_tok_s": 51.575672614710925,
+      "total_s": 8.399418500019237,
+      "reply": "The board is currently empty. Would you like me to create a new list for you?"
+    },
+    {
+      "prompt": "Tell me in one sentence why the sky is blue.",
+      "ttft_ms": 411.36262501822785,
+      "tokens": 19,
+      "decode_tok_s": 51.72408219372939,
+      "total_s": 0.7593630000192206,
+      "reply": "The sky looks blue because air molecules scatter sunlight more in the blue direction than other colors."
+    },
+    {
+      "prompt": "Aria, is netreach still blocked?",
+      "ttft_ms": 397.14070802438073,
+      "tokens": 40,
+      "decode_tok_s": 53.04560548185724,
+      "total_s": 1.1323571250250097,
+      "reply": "I do not have access to real-time network status information, so I cannot confirm if Netreach is currently blocked. Plea"
+    }
+  ]
+}
