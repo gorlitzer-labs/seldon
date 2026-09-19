@@ -1,7 +1,7 @@
 {
   "name": "@gorlitzer-labs/factory",
   "version": "0.1.0",
-  "description": "The AI Agentic Factory \u2014 front door + supervisor for a 24/7 agent software factory. Runs the line: idea -> repo -> Foundation -> plan -> apiary hive.",
+  "description": "The AI Agentic Factory — front door + supervisor for a 24/7 agent software factory. Runs the line: idea -> repo -> Foundation -> plan -> apiary hive.",
   "type": "module",
   "bin": {
     "factory": "src/cli.mjs"
@@ -26,5 +26,8 @@
   "license": "MIT",
   "scripts": {
     "test": "node --test test/*.test.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

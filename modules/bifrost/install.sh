@@ -9,10 +9,10 @@
 
 set -euo pipefail
 
-REPO="gorlitzer-labs/bifrost"
+REPO="gorlitzer-labs/seldon"
 # Pin to a tag for reproducible installs. Override with: BIFROST_REF=main bash install.sh
-BIFROST_REF="${BIFROST_REF:-v1.6.0}"
-RAW_URL="https://raw.githubusercontent.com/$REPO/$BIFROST_REF"
+BIFROST_REF="${BIFROST_REF:-main}"
+RAW_URL="https://raw.githubusercontent.com/$REPO/$BIFROST_REF/modules/bifrost"
 
 # ── Colors ──
 C='\033[36m' G='\033[32m' Y='\033[33m' R='\033[31m'

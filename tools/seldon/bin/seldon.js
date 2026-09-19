@@ -1,0 +1,206 @@
+#!/usr/bin/env node
+// seldon — the Seldon stack installer. Pick your tools; install each via its
+// native method. Zero dependencies: a raw-terminal checklist, no build step.
+import { execSync, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
+import readline from "node:readline";
+import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+// The monorepo root when running from a checkout (tools/seldon/bin -> ../../..)
+const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
+const IN_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, "modules", "apiary", "package.json"));
+
+const C = {
+  dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  gold: (s) => `\x1b[33m${s}\x1b[0m`, green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`, cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+};
+
+function have(dep) {
+  const probe = DEPS[dep]?.probe;
+  if (!probe) return true;
+  try { execSync(probe, { stdio: "ignore" }); return true; } catch { return false; }
+}
+const depCache = {};
+const depOk = (d) => (depCache[d] ??= have(d));
+
+// ---- doctor -----------------------------------------------------------------
+function doctorFor(ids) {
+  const needed = new Set();
+  for (const id of ids) for (const d of byId[id].needs) needed.add(d);
+  const rows = [...needed].map((d) => ({ d, ok: depOk(d), hint: DEPS[d]?.hint }));
+  return rows;
+}
+function printDoctor(ids) {
+  const rows = doctorFor(ids);
+  if (!rows.length) { console.log(C.dim("  no external deps for this selection")); return true; }
+  let allOk = true;
+  for (const r of rows) {
+    if (r.ok) console.log(`  ${C.green("✓")} ${r.d}`);
+    else { allOk = false; console.log(`  ${C.red("✗")} ${r.d}  ${C.dim("— " + r.hint)}`); }
+  }
+  return allOk;
+}
+
+// ---- install actions --------------------------------------------------------
+function run(cmd, args, opts = {}) {
+  console.log(C.dim(`  $ ${cmd} ${args.join(" ")}`));
+  const r = spawnSync(cmd, args, { stdio: "inherit", ...opts });
+  return r.status === 0;
+}
+
+function installNpm(m, dev) {
+  if (dev && IN_CHECKOUT) {
+    const dir = path.join(REPO_ROOT, m.dir);
+    const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json")));
+    if (pj.scripts?.build) run("npm", ["--prefix", dir, "run", "build"]);
+    return run("npm", ["link"], { cwd: dir });
+  }
+  return run("npm", ["install", "-g", m.pkg]);
+}
+
+function installShell(m, dev) {
+  // bifrost: run its installer. In a checkout, run the local file; otherwise
+  // fetch it from the monorepo (the standalone repo is retired).
+  if (dev && IN_CHECKOUT) return run("bash", [path.join(REPO_ROOT, m.installer)]);
+  return run("bash", ["-c", `curl -fsSL ${RAW}/${m.installer} | bash`]);
+}
+
+function installPython(m, dev) {
+  if (!platformOk(m)) {
+    console.log(C.red(`  ${m.id} needs macOS on Apple silicon — skipping`));
+    return false;
+  }
+  const dest = dev && IN_CHECKOUT
+    ? path.join(REPO_ROOT, m.dir)
+    : path.join(process.env.HOME, ".seldon", m.id);
+  if (!(dev && IN_CHECKOUT)) {
+    console.log(C.dim(`  fetching ${m.id} into ${dest}`));
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    if (!fs.existsSync(path.join(dest, ".git"))) {
+      if (!run("git", ["clone", "--depth", "1", `https://github.com/${MONOREPO}.git`, dest + ".tmp"])) return false;
+      fs.renameSync(path.join(dest + ".tmp", m.dir), dest);
+      fs.rmSync(dest + ".tmp", { recursive: true, force: true });
+    }
+  }
+  const venv = path.join(dest, ".venv");
+  run("python3", ["-m", "venv", venv]);
+  const ok = run(path.join(venv, "bin", "pip"), ["install", "-r", path.join(dest, "requirements.txt")]);
+  if (ok) console.log(C.dim(`  run it: ${path.join(dest, m.bin)}  (venv at ${venv})`));
+  return ok;
+}
+
+function installOne(m, dev) {
+  console.log("\n" + C.bold(`▸ ${m.id}`) + C.dim(` — ${m.title}`));
+  const fn = { npm: installNpm, shell: installShell, python: installPython }[m.method];
+  const ok = fn(m, dev);
+  console.log(ok ? C.green(`  ✓ ${m.id} installed`) : C.red(`  ✗ ${m.id} failed`));
+  return ok;
+}
+
+function doInstall(ids, { dev } = {}) {
+  ids = withRequires(ids);
+  console.log(C.bold(`\nInstalling: `) + ids.join(", ") + (dev ? C.dim("  (dev: link from checkout)") : ""));
+  console.log(C.bold("\nPreflight:"));
+  const ok = printDoctor(ids);
+  if (!ok) console.log(C.gold("\n  ⚠ some deps are missing — install them above, then the tool will work."));
+  const results = ids.map((id) => [id, installOne(byId[id], dev)]);
+  const good = results.filter(([, r]) => r).map(([i]) => i);
+  const bad = results.filter(([, r]) => !r).map(([i]) => i);
+  console.log("\n" + C.bold("Done. ") + C.green(good.join(", ") || "—") + (bad.length ? "  " + C.red("failed: " + bad.join(", ")) : ""));
+}
+
+// ---- the checklist TUI ------------------------------------------------------
+function tui() {
+  return new Promise((resolve) => {
+    const rows = MODULES.map((m) => ({ m, on: platformOk(m) && ["apiary", "foundation", "factory"].includes(m.id) }));
+    let cur = 0;
+    const methodTag = (m) => ({ npm: "npm", shell: "shell", python: "python" }[m.method]);
+    const draw = () => {
+      readline.cursorTo(process.stdout, 0, 0);
+      readline.clearScreenDown(process.stdout);
+      const out = [];
+      out.push(C.bold(C.gold("  The Seldon stack")) + C.dim("   — pick your tools"));
+      out.push(C.dim("  ↑↓ move · space toggle · a all · enter install · q quit\n"));
+      rows.forEach((r, i) => {
+        const sel = r.on ? C.green("[x]") : "[ ]";
+        const cursor = i === cur ? C.gold("❯") : " ";
+        const okp = !platformOk(r.m);
+        const name = (i === cur ? C.bold(r.m.id) : r.m.id).padEnd(11);
+        const deps = r.m.needs.map((d) => (depOk(d) ? d : C.red(d))).join(" ");
+        const platNote = okp ? C.red(" (unsupported OS)") : "";
+        out.push(`  ${cursor} ${sel} ${name} ${C.dim(methodTag(r.m).padEnd(7))} ${C.dim(r.m.blurb)}${platNote}`);
+        if (i === cur) out.push(`        ${C.dim("needs: " + (deps || "nothing"))}${r.m.requires.length ? C.dim("  · pulls in: " + r.m.requires.join(", ")) : ""}`);
+      });
+      process.stdout.write(out.join("\n") + "\n");
+    };
+    readline.emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    draw();
+    const onKey = (str, key) => {
+      if (key.name === "up") cur = (cur - 1 + rows.length) % rows.length;
+      else if (key.name === "down") cur = (cur + 1) % rows.length;
+      else if (key.name === "space") { if (platformOk(rows[cur].m)) rows[cur].on = !rows[cur].on; }
+      else if (str === "a") { const all = rows.every((r) => r.on || !platformOk(r.m)); rows.forEach((r) => { if (platformOk(r.m)) r.on = !all; }); }
+      else if (key.name === "return") return finish(rows.filter((r) => r.on).map((r) => r.m.id));
+      else if (key.name === "q" || (key.ctrl && key.name === "c")) return finish(null);
+      draw();
+    };
+    const finish = (ids) => {
+      process.stdin.off("keypress", onKey);
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      readline.cursorTo(process.stdout, 0); readline.clearScreenDown(process.stdout);
+      resolve(ids);
+    };
+    process.stdin.on("keypress", onKey);
+  });
+}
+
+// ---- cli --------------------------------------------------------------------
+function list() {
+  console.log(C.bold("\nThe Seldon stack\n"));
+  for (const m of MODULES) {
+    const plat = platformOk(m) ? "" : C.red("  (unsupported here)");
+    console.log(`  ${C.bold(m.id.padEnd(11))} ${C.dim(m.method.padEnd(7))} ${m.blurb}${plat}`);
+  }
+  console.log("");
+}
+function help() {
+  console.log(`
+${C.bold("seldon")} — install the Seldon stack, pick what you use.
+
+  ${C.bold("seldon")}                 open the checklist (space to pick, enter to install)
+  ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules
+  ${C.bold("seldon doctor")} [ids…]   check external deps (tmux, sops, age, tailscale, python…)
+  ${C.bold("seldon list")}            list the modules
+  ${C.bold("seldon --dev")}           link node modules from this checkout instead of npm
+
+  modules: ${MODULES.map((m) => m.id).join(", ")}
+`);
+}
+
+const argv = process.argv.slice(2);
+const dev = argv.includes("--dev");
+const args = argv.filter((a) => !a.startsWith("--"));
+const cmd = args[0];
+const ids = args.slice(1).filter((id) => byId[id]);
+
+(async () => {
+  if (argv.includes("--help") || cmd === "help") return help();
+  if (cmd === "list") return list();
+  if (cmd === "doctor") { printDoctor(ids.length ? withRequires(ids) : MODULES.map((m) => m.id)); return; }
+  if (cmd === "install") {
+    if (ids.length) return doInstall(ids, { dev });
+    // install with no ids -> fall through to the picker
+  }
+  if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
+  // interactive
+  if (!process.stdin.isTTY) { console.log(C.red("no TTY — use: seldon install <ids…>")); process.exitCode = 1; return; }
+  const picked = await tui();
+  if (!picked) { console.log(C.dim("nothing installed.")); return; }
+  if (!picked.length) { console.log(C.dim("nothing selected.")); return; }
+  doInstall(picked, { dev });
+})();

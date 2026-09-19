@@ -1,0 +1,13 @@
+{
+  "name": "@gorlitzer-labs/seldon",
+  "version": "0.1.0",
+  "description": "Install the Seldon stack — pick your tools from a checklist; each installs via its native method.",
+  "type": "module",
+  "bin": { "seldon": "bin/seldon.js" },
+  "files": ["bin", "modules.mjs", "README.md"],
+  "engines": { "node": ">=20" },
+  "keywords": ["ai", "agents", "installer", "cli", "seldon", "apiary", "factory"],
+  "author": "Franco Berardi",
+  "license": "MIT",
+  "publishConfig": { "access": "public" }
+}
