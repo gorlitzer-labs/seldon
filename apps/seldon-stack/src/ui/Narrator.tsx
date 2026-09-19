@@ -1,54 +1,63 @@
 import { useEffect, useRef, useState } from "react";
 import { useDeck, beatAt, chapterAt, stepCount } from "../deck/deck";
 
-/** The guide. When sound is on it plays each beat's narration lines in order,
- *  shows them as captions, and walks the lecture forward on its own — the voice
- *  drives the scene, since each beat already carries its focus/view. */
+/** The guide. With sound on it plays each beat's narration lines in order, shows
+ *  them as captions, drives the scene per line (a line can fly the camera to a
+ *  module and swap the view), and walks the lecture forward on its own. Lines
+ *  without a voice clip are paced by a timer so an un-voiced walk still animates. */
 export function Narrator() {
   const index = useDeck((s) => s.index);
   const view = useDeck((s) => s.view);
   const sound = useDeck((s) => s.sound);
   const voice = useDeck((s) => s.voice);
   const next = useDeck((s) => s.next);
+  const setCue = useDeck((s) => s.setCue);
   const [caption, setCaption] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const stop = () => { const a = audioRef.current; if (a) { a.pause(); a.src = ""; audioRef.current = null; } };
-    if (!sound || view !== "reel") { stop(); setCaption(null); return; }
+    if (!sound || view !== "reel") { stop(); setCaption(null); setCue(null); return; }
 
     const beat = beatAt(index);
     const chap = chapterAt(index);
     const lines = beat.say ?? [];
-    if (!lines.length) { stop(); setCaption(null); return; }
+    if (!lines.length) { stop(); setCaption(null); setCue(null); return; }
 
     let cancelled = false;
     let i = 0;
     const timers: ReturnType<typeof setTimeout>[] = [];
     const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
-    setCaption(null); // blank while the camera flies to this module
+    setCaption(null); // blank while the camera flies in
 
     const playLine = () => {
       if (cancelled) return;
       if (i >= lines.length) {
-        setCaption(null);                                        // silence during the transition
+        setCaption(null);
         if (useDeck.getState().index < stepCount - 1) at(1100, () => { if (!cancelled) next(); });
         return;
       }
-      setCaption(lines[i].text);
+      const line = lines[i];
+      // drive the scene for this line
+      const cue: { look?: typeof line.look; view?: typeof line.view } = {};
+      if (line.look !== undefined) cue.look = line.look;
+      if (line.view) cue.view = line.view;
+      setCue(Object.keys(cue).length ? cue : null);
+      setCaption(line.text);
+
+      const advance = () => { if (!cancelled) { i++; playLine(); } };
+      const paced = Math.min(4600, Math.max(2100, line.text.length * 52));
       const a = new Audio(`vo/${voice}/${chap.id}-${beat.id}-${i}.mp3`);
-      // a touch slower and deeper, for a calmer read
       a.preservesPitch = false;
       a.playbackRate = 0.92;
       audioRef.current = a;
-      const step = () => { i++; playLine(); };
-      a.onended = step;
-      a.onerror = step;
+      a.onended = advance;
+      a.onerror = () => at(paced, advance); // no clip yet -> pace by timer so the walk still animates
       a.play().catch(() => {});
     };
-    at(700, playLine);   // lead-in: let the camera arrive before she speaks
-    return () => { cancelled = true; timers.forEach(clearTimeout); stop(); };
-  }, [index, view, sound, voice, next]);
+    at(700, playLine); // lead-in: let the camera arrive before she speaks
+    return () => { cancelled = true; timers.forEach(clearTimeout); stop(); setCue(null); };
+  }, [index, view, sound, voice, next, setCue]);
 
   if (!caption) return null;
   return (
