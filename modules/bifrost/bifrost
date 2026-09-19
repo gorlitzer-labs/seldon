@@ -1,0 +1,2002 @@
+#!/usr/bin/env bash
+# bifrost — multi-machine terminal workspace over Tailscale
+#
+# Usage: bifrost <command>  — run 'bifrost help' for details
+#
+# Roles:
+#   Heimdall  — your primary machine. Runs bifrost, manages everything.
+#   Realm     — any remote machine. Just needs tmux.
+#   Raven     — phone, iPad, laptop. Connects to existing sessions.
+#
+# Config: ~/.config/bifrost/ (created by 'bifrost setup')
+
+set -euo pipefail
+
+# ── Version ──────────────────────────────────────────────────────
+BIFROST_VERSION="1.7.0"
+BIFROST_REPO="gorlitzer-labs/bifrost"
+BIFROST_VERSION_CACHE="${HOME}/.config/bifrost/version-check.json"
+
+# Allowed realm name pattern — protects against shell/SSH injection
+# (realm names land inside both local eval-style expansions and remote ssh heredocs)
+BIFROST_REALM_NAME_RE='^[A-Za-z0-9_-]+$'
+
+# ── Agent state ──────────────────────────────────────────────────────
+#
+# Bifrost lists sessions; it did not know whether an agent in one was working,
+# waiting on you, or idle. That is the one thing herdr has that a plain tmux
+# workspace lacks, and it is exactly what you want to see from a phone: which
+# realm needs you.
+#
+# apiary already computes this in its bridges, but exposes it nowhere a shell can
+# read (no --json, `ps` just prints text), and shelling into node from bifrost
+# would break the zero-dependency rule that lets bifrost run on any realm. So the
+# signals are mirrored here, minimally, from apiary's own detectors:
+#   working  — a spinner braille char, or "Working (12s", or "esc to interrupt"
+#   blocked  — an approval / permission / trust prompt waiting on a human
+#   idle     — a composer with none of the above
+# The order matters: a prompt that needs YOU outranks "also working", because
+# only one of those you can clear.
+
+# classify_agent_state <screen-text>  → prints working|blocked|idle
+# Pure: takes text, touches nothing. This is the testable core.
+classify_agent_state() {
+  local text="${1:-}"
+  # blocked: a human-gating prompt. Checked first — see note above.
+  if grep -qiE 'needs your approval|do you want to (approve|proceed)|allow .*(to run|for this session)|press enter to (confirm|continue)|do you trust|sign in (with|to)|finish signing in|esc to (cancel|close)' <<<"$text"; then
+    echo blocked; return
+  fi
+  # working: spinner braille, a Working/Thinking timer, or the interrupt hint.
+  if grep -qE '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|Working \(|Thinking|esc to interrupt' <<<"$text"; then
+    echo working; return
+  fi
+  echo idle
+}
+
+# detect_agent_state <session>  → working|blocked|idle|gone
+# The tmux wrapper around the pure classifier.
+detect_agent_state() {
+  local session="$1"
+  tmux has-session -t "$session" 2>/dev/null || { echo gone; return; }
+  local screen
+  screen="$(tmux capture-pane -p -t "$session" 2>/dev/null | grep -vE '^[[:space:]]*$' | tail -25)"
+  classify_agent_state "$screen"
+}
+
+# One glyph per state, for the session list and the phone.
+agent_state_glyph() {
+  case "$1" in
+    working) printf '\033[33m◐\033[0m' ;;   # amber — busy
+    blocked) printf '\033[31m■\033[0m' ;;   # red   — needs you
+    idle)    printf '\033[32m●\033[0m' ;;   # green — ready
+    *)       printf '\033[2m·\033[0m' ;;    # dim   — gone/unknown
+  esac
+}
+
+# Names of agent sessions on this host: apiary_<name>, and anything with a
+# recognised agent CLI in its pane. tmux list-sessions, not fixed names, so it
+# sees agents bifrost did not launch.
+list_agent_sessions() {
+  tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -E '^apiary_' || true
+}
+
+validate_realm_name() {
+  local name="${1:-}"
+  if [[ -z "$name" || ! "$name" =~ $BIFROST_REALM_NAME_RE ]]; then
+    echo "Error: realm name must match $BIFROST_REALM_NAME_RE (got: '$name')" >&2
+    return 1
+  fi
+  return 0
+}
+
+# ── Platform detection ───────────────────────────────────────────
+# macOS + iTerm2: full workspace/split support via AppleScript
+# Termux/Linux:   tmux-native workspace, attach, status, run, kill
+if [[ -d "/data/data/com.termux" ]]; then
+  BIFROST_PLATFORM="termux"
+elif [[ "$(uname)" == "Darwin" ]]; then
+  BIFROST_PLATFORM="macos"
+else
+  BIFROST_PLATFORM="linux"
+fi
+
+# ── Config ────────────────────────────────────────────────────────
+BIFROST_CONFIG_DIR="${HOME}/.config/bifrost"
+BIFROST_CONFIG="${BIFROST_CONFIG_DIR}/config"
+BIFROST_TMUX_CONF="${BIFROST_CONFIG_DIR}/tmux.conf"
+
+# ── Remote PATH ───────────────────────────────────────────────────
+# A realm reached via `ssh host "tmux ..."` runs a NON-interactive shell that
+# doesn't read ~/.zshrc / ~/.profile. Homebrew (/opt/homebrew on Apple Silicon,
+# /usr/local on Intel) is then off-PATH and `tmux` isn't found — even though it's
+# installed. Prepend the usual locations so remote tmux is always found,
+# regardless of the realm's dotfiles. $HOME/$PATH expand on the REMOTE side.
+# NOTE: kept in sync with the literal `export PATH=...` lines in the remote
+# `bash -s` heredocs below (quoted heredocs can't interpolate this variable).
+# NO double quotes: this string is embedded inside double-quoted AppleScript
+# `write text "..."` (via ssh_reconnect_cmd), where a `"` would close the string
+# early and break `summon`/`mobile`/`direct` on iTerm. The path has no spaces,
+# so quotes aren't needed anyway. $HOME/$PATH expand on the REMOTE side.
+BIFROST_REMOTE_PATH='export PATH=/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH'
+
+# ── SSH options ───────────────────────────────────────────────────
+# ControlMaster reuses a single TCP connection across calls — huge win
+# over flaky LTE, where each fresh handshake adds ~1–3s of latency.
+# A typical `bifrost status` / `sessions` fans out 3–4 SSHs per realm.
+BIFROST_SSH_CTLDIR="${BIFROST_CONFIG_DIR}/ssh-cm"
+mkdir -p "$BIFROST_SSH_CTLDIR" 2>/dev/null || true
+
+# Probes (silent, programmatic — must never prompt for a password).
+SSH_OPTS_BATCH=(
+  -o BatchMode=yes
+  -o ConnectTimeout=5
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=3
+  -o ControlMaster=auto
+  -o "ControlPath=$BIFROST_SSH_CTLDIR/cm-%r@%h:%p"
+  -o ControlPersist=60s
+)
+
+# Interactive attach (Raven-friendly — keeps tunnels alive on mobile).
+SSH_OPTS_ATTACH=(
+  -o ConnectTimeout=10
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=3
+  -o ControlMaster=auto
+  -o "ControlPath=$BIFROST_SSH_CTLDIR/cm-%r@%h:%p"
+  -o ControlPersist=60s
+)
+
+load_config() {
+  if [[ -f "$BIFROST_CONFIG" ]]; then
+    # shellcheck source=/dev/null
+    source "$BIFROST_CONFIG"
+  fi
+}
+
+save_config() {
+  mkdir -p "$BIFROST_CONFIG_DIR"
+  cat > "$BIFROST_CONFIG" <<CFG
+# Bifrost configuration — generated by 'bifrost setup'
+BIFROST_REMOTE_HOST="$REMOTE_HOST"
+BIFROST_REMOTE_USER="$REMOTE_USER"
+CFG
+  echo "Config saved to $BIFROST_CONFIG"
+}
+
+mode_setup() {
+  echo "Bifrost setup"
+  echo ""
+
+  # Remote hostname
+  local default_host="${REMOTE_HOST:-}"
+  if [[ -n "$default_host" ]]; then
+    read -rp "Remote hostname (Tailscale) [$default_host]: " input_host
+    REMOTE_HOST="${input_host:-$default_host}"
+  else
+    read -rp "Remote hostname (Tailscale): " REMOTE_HOST
+    if [[ -z "$REMOTE_HOST" ]]; then
+      echo "Error: hostname is required."
+      exit 1
+    fi
+  fi
+
+  # Remote user
+  local default_user="${REMOTE_USER:-$(whoami)}"
+  read -rp "SSH user on remote [$default_user]: " input_user
+  REMOTE_USER="${input_user:-$default_user}"
+
+  # Test connection
+  echo ""
+  echo "Testing SSH to $REMOTE_USER@$REMOTE_HOST..."
+  if ssh "${SSH_OPTS_BATCH[@]}" "$REMOTE_USER@$REMOTE_HOST" "echo 'Connected to $(hostname)'" 2>/dev/null; then
+    echo "Connection OK."
+  else
+    echo "Warning: could not reach $REMOTE_HOST — config saved anyway."
+  fi
+
+  save_config
+
+  # Generate tmux.conf for Heimdall
+  generate_tmux_conf
+  echo "Generated tmux.conf at $BIFROST_TMUX_CONF"
+}
+
+# Load saved config, then allow env var overrides
+load_config
+REMOTE_HOST="${WORKBENCH_REMOTE:-${BIFROST_REMOTE_HOST:-}}"
+REMOTE_USER="${WORKBENCH_USER:-${BIFROST_REMOTE_USER:-$(whoami)}}"
+LOCAL_SESSION="${WORKBENCH_LOCAL_SESSION:-local}"
+REMOTE_SESSION="${WORKBENCH_REMOTE_SESSION:-remote}"
+
+# ── tmux.conf generation ─────────────────────────────────────────
+
+generate_tmux_conf() {
+  mkdir -p "$BIFROST_CONFIG_DIR"
+
+  # Detect platform for the machine we're generating for
+  local platform="${1:-$BIFROST_PLATFORM}"
+  local mouse="on"
+  if [[ "$platform" == "termux" ]]; then
+    mouse="off"
+  fi
+
+  cat > "$BIFROST_TMUX_CONF" <<TMUXCONF
+# Bifrost tmux.conf — generated by 'bifrost setup'
+# Platform: $platform
+# Regenerate: bifrost setup
+
+# ── Status bar ──
+set -g status on
+set -g status-position top
+set -g status-style "bg=default,fg=white"
+set -g status-left-length 30
+
+# ── Pane borders ──
+set -g pane-border-status top
+set -g pane-border-format " #{pane_title} "
+
+# ── Mouse ──
+# ON for macOS/Linux (scroll support)
+# OFF for Termux (soft keyboard compatibility)
+set -g mouse $mouse
+
+# ── Copy mode ──
+setw -g mode-keys vi
+
+# ── Colors ──
+set -g default-terminal "screen-256color"
+
+# ── Titles ──
+set -g set-titles on
+set -g set-titles-string "#S"
+TMUXCONF
+}
+
+# Generate tmux.conf for a remote realm (detects its platform via SSH)
+generate_remote_tmux_conf() {
+  local user="$1" host="$2"
+  local remote_platform
+  remote_platform=$(ssh "${SSH_OPTS_BATCH[@]}" "$user@$host" \
+    'if [[ -d "/data/data/com.termux" ]]; then echo termux; elif [[ "$(uname)" == "Darwin" ]]; then echo macos; else echo linux; fi' 2>/dev/null || echo "linux")
+
+  local mouse="on"
+  if [[ "$remote_platform" == "termux" ]]; then
+    mouse="off"
+  fi
+
+  cat <<TMUXCONF
+# Bifrost tmux.conf — generated by 'bifrost sync'
+# Platform: $remote_platform
+# Regenerate: bifrost sync
+
+set -g status on
+set -g status-position top
+set -g status-style "bg=default,fg=white"
+set -g status-left-length 30
+set -g pane-border-status top
+set -g pane-border-format " #{pane_title} "
+set -g mouse $mouse
+setw -g mode-keys vi
+set -g default-terminal "screen-256color"
+set -g set-titles on
+set -g set-titles-string "#S"
+TMUXCONF
+}
+
+# ── Version check & upgrade ───────────────────────────────────────
+
+# Background version check — non-blocking, fire-and-forget
+# Caches result for 1 hour to avoid hammering GitHub
+check_version_bg() {
+  (
+    # Only check if gh is available and cache is stale (>1 hour)
+    if ! command -v gh &>/dev/null; then
+      return
+    fi
+
+    local cache_dir
+    cache_dir="$(dirname "$BIFROST_VERSION_CACHE")"
+    mkdir -p "$cache_dir"
+
+    # Check cache age
+    if [[ -f "$BIFROST_VERSION_CACHE" ]]; then
+      local cache_age
+      if [[ "$(uname)" == "Darwin" ]]; then
+        cache_age=$(( $(date +%s) - $(stat -f %m "$BIFROST_VERSION_CACHE") ))
+      else
+        cache_age=$(( $(date +%s) - $(stat -c %Y "$BIFROST_VERSION_CACHE") ))
+      fi
+      # Skip if checked within the last hour
+      [[ $cache_age -lt 3600 ]] && return
+    fi
+
+    # Fetch latest version from repo
+    local latest
+    latest=$(gh api "repos/$BIFROST_REPO/contents/bifrost" --jq '.content' 2>/dev/null \
+      | base64 -d 2>/dev/null \
+      | grep -m1 '^BIFROST_VERSION=' \
+      | cut -d'"' -f2 || echo "")
+
+    if [[ -n "$latest" ]]; then
+      # Write atomically so a concurrent reader never sees a half-written file.
+      local tmp_cache="${BIFROST_VERSION_CACHE}.tmp.$$"
+      cat > "$tmp_cache" <<JSON
+{"local":"$BIFROST_VERSION","remote":"$latest","checked":$(date +%s)}
+JSON
+      mv -f "$tmp_cache" "$BIFROST_VERSION_CACHE"
+    fi
+  ) &>/dev/null &
+  disown 2>/dev/null || true
+}
+
+# Print update notice if a newer version is available
+print_update_notice() {
+  if [[ ! -f "$BIFROST_VERSION_CACHE" ]]; then
+    return
+  fi
+
+  # grep + pipefail would exit the whole script on a stale/empty cache; tolerate failure.
+  local remote_version=""
+  remote_version=$(grep -o '"remote":"[^"]*"' "$BIFROST_VERSION_CACHE" 2>/dev/null | cut -d'"' -f4 || true)
+
+  if [[ -n "$remote_version" && "$remote_version" != "$BIFROST_VERSION" ]]; then
+    local Y='\033[33m' D='\033[2m' B='\033[1m' N='\033[0m'
+    echo -e ""
+    echo -e "  ${Y}${B}Update available!${N} ${D}${BIFROST_VERSION} → ${remote_version}${N}"
+    echo -e "  ${D}Run:${N} ${Y}bifrost upgrade${N}"
+    echo ""
+  fi
+}
+
+# Self-upgrade from GitHub
+mode_upgrade() {
+  if ! command -v gh &>/dev/null; then
+    echo "Error: gh (GitHub CLI) required for upgrades."
+    echo "  → brew install gh"
+    exit 1
+  fi
+
+  echo "Checking for updates..."
+
+  local latest
+  latest=$(gh api "repos/$BIFROST_REPO/contents/bifrost" --jq '.content' 2>/dev/null \
+    | base64 -d 2>/dev/null \
+    | grep -m1 '^BIFROST_VERSION=' \
+    | cut -d'"' -f2 || echo "")
+
+  if [[ -z "$latest" ]]; then
+    echo "Error: could not fetch latest version from GitHub."
+    exit 1
+  fi
+
+  if [[ "$latest" == "$BIFROST_VERSION" ]]; then
+    echo "Already on latest version ($BIFROST_VERSION)."
+    exit 0
+  fi
+
+  echo "Upgrading: $BIFROST_VERSION → $latest"
+  echo ""
+
+  # Download the new script
+  local tmpfile
+  tmpfile=$(mktemp)
+  gh api "repos/$BIFROST_REPO/contents/bifrost" --jq '.content' 2>/dev/null \
+    | base64 -d > "$tmpfile"
+
+  if [[ ! -s "$tmpfile" ]]; then
+    echo "Error: download failed."
+    rm -f "$tmpfile"
+    exit 1
+  fi
+
+  # Sanity-check the download: GitHub rate-limit errors return JSON that
+  # base64 happily decodes to garbage; refuse to install anything without a
+  # bash shebang.
+  if ! head -1 "$tmpfile" | grep -qE '^#!.*\b(bash|sh)\b'; then
+    echo "Error: downloaded file is not a shell script — aborting."
+    echo "  First line: $(head -1 "$tmpfile")"
+    rm -f "$tmpfile"
+    exit 1
+  fi
+
+  # Find where bifrost is installed
+  local install_path
+  install_path=$(command -v bifrost 2>/dev/null || echo "$HOME/bin/bifrost")
+  mkdir -p "$(dirname "$install_path")"
+
+  # Replace
+  chmod +x "$tmpfile"
+  mv "$tmpfile" "$install_path"
+
+  # Clear version cache
+  rm -f "$BIFROST_VERSION_CACHE"
+
+  echo "Upgraded to $latest."
+  echo "Installed at: $install_path"
+}
+
+mode_version() {
+  echo "bifrost $BIFROST_VERSION"
+}
+
+# Fire background version check on every run
+check_version_bg
+
+# Require REMOTE_HOST for modes that need it
+require_remote() {
+  if [[ -z "$REMOTE_HOST" ]]; then
+    echo "No remote host configured. Run 'bifrost setup' first."
+    exit 1
+  fi
+}
+
+require_iterm() {
+  if [[ "$BIFROST_PLATFORM" != "macos" || ! -d "/Applications/iTerm.app" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+# ── Doctor (prereq check) ───────────────────────────────────────
+
+mode_doctor() {
+  echo "Bifrost doctor"
+  echo ""
+  local ok=true
+
+  # ── Heimdall checks ──
+  echo "  HEIMDALL — $(hostname) ($BIFROST_PLATFORM):"
+
+  # tmux
+  if command -v tmux &>/dev/null; then
+    echo "    ✓ tmux $(tmux -V 2>/dev/null | awk '{print $2}')"
+  else
+    echo "    ✗ tmux — not installed"
+    case "$BIFROST_PLATFORM" in
+      macos)  echo "      → brew install tmux" ;;
+      termux) echo "      → pkg install tmux" ;;
+      linux)  echo "      → sudo apt install tmux  (or your package manager)" ;;
+    esac
+    ok=false
+  fi
+
+  # SSH
+  if command -v ssh &>/dev/null; then
+    echo "    ✓ ssh"
+  else
+    echo "    ✗ ssh — not installed"
+    case "$BIFROST_PLATFORM" in
+      termux) echo "      → pkg install openssh" ;;
+      *)      echo "      → should be pre-installed — check your system" ;;
+    esac
+    ok=false
+  fi
+
+  # iTerm2 (macOS only — optional on other platforms)
+  if [[ "$BIFROST_PLATFORM" == "macos" ]]; then
+    if [[ -d "/Applications/iTerm.app" ]]; then
+      echo "    ✓ iTerm2"
+    else
+      echo "    ⚠ iTerm2 — not installed (workspace will use tmux-native mode)"
+      echo "      → brew install --cask iterm2  (optional)"
+    fi
+  fi
+
+  # Tailscale
+  if command -v tailscale &>/dev/null; then
+    if tailscale status &>/dev/null; then
+      echo "    ✓ Tailscale (running)"
+    else
+      echo "    ⚠ Tailscale (installed but not connected)"
+      echo "      → tailscale up"
+      ok=false
+    fi
+  elif [[ "$BIFROST_PLATFORM" == "macos" && -d "/Applications/Tailscale.app" ]]; then
+    echo "    ⚠ Tailscale (app installed, CLI not in PATH)"
+    echo "      → open Tailscale from Applications"
+  else
+    echo "    ✗ Tailscale — not installed"
+    case "$BIFROST_PLATFORM" in
+      macos)  echo "      → brew install --cask tailscale" ;;
+      termux) echo "      → see https://tailscale.com/kb/1169/android" ;;
+      linux)  echo "      → curl -fsSL https://tailscale.com/install.sh | sh" ;;
+    esac
+    ok=false
+  fi
+
+  # Config
+  if [[ -f "$BIFROST_CONFIG" ]]; then
+    echo "    ✓ Config ($BIFROST_CONFIG)"
+  else
+    echo "    ⚠ No config — run 'bifrost setup'"
+  fi
+
+  # Bifrost tmux.conf
+  if [[ -f "$BIFROST_TMUX_CONF" ]]; then
+    echo "    ✓ tmux.conf ($BIFROST_TMUX_CONF)"
+  else
+    echo "    ⚠ No tmux.conf — run 'bifrost setup' to generate"
+  fi
+
+  echo ""
+
+  # ── Realm checks ──
+  local realms
+  realms=$(list_realms)
+
+  if [[ -n "$realms" ]]; then
+    for realm_name in $realms; do
+      load_realm "$realm_name"
+      echo "  REALM — $realm_name ($REALM_HOST):"
+
+      if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "echo ok" &>/dev/null; then
+        echo "    ✓ SSH connection"
+
+        # Check remote tmux
+        local remote_tmux
+        remote_tmux=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "$BIFROST_REMOTE_PATH; tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
+        if [[ "$remote_tmux" == "missing" ]]; then
+          echo "    ✗ tmux — not installed on realm"
+          echo "      → ssh $REALM_USER@$REALM_HOST 'brew install tmux'"
+          ok=false
+        else
+          echo "    ✓ $remote_tmux"
+        fi
+
+        # Check bifrost tmux.conf on realm
+        if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "test -f ~/.config/bifrost/tmux.conf" 2>/dev/null; then
+          echo "    ✓ tmux.conf synced"
+        else
+          echo "    ⚠ tmux.conf not synced — run 'bifrost sync'"
+        fi
+      else
+        echo "    ✗ SSH connection failed"
+        echo "      → check Tailscale is running on both machines"
+        echo "      → verify: ssh $REALM_USER@$REALM_HOST"
+        ok=false
+      fi
+      echo ""
+    done
+  elif [[ -n "$REMOTE_HOST" ]]; then
+    echo "  REALM — $REMOTE_HOST:"
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REMOTE_USER@$REMOTE_HOST" "echo ok" &>/dev/null; then
+      echo "    ✓ SSH connection"
+      local remote_tmux
+      remote_tmux=$(ssh "${SSH_OPTS_BATCH[@]}" "$REMOTE_USER@$REMOTE_HOST" "$BIFROST_REMOTE_PATH; tmux -V 2>/dev/null || echo 'missing'" 2>/dev/null)
+      if [[ "$remote_tmux" == "missing" ]]; then
+        echo "    ✗ tmux — not installed on realm"
+        ok=false
+      else
+        echo "    ✓ $remote_tmux"
+      fi
+    else
+      echo "    ✗ SSH connection failed"
+      ok=false
+    fi
+    echo ""
+  else
+    echo "  No realms configured — run 'bifrost realm add <name>'"
+    echo ""
+  fi
+
+  if [[ "$ok" == true ]]; then
+    echo "  All good. Ready to bifrost."
+  else
+    echo "  Some issues found. Fix them and run 'bifrost doctor' again."
+  fi
+}
+
+# ── Realm management ─────────────────────────────────────────────
+BIFROST_REALMS_DIR="${BIFROST_CONFIG_DIR}/realms"
+
+# Backwards compat: migrate devices/ → realms/
+migrate_devices_to_realms() {
+  local old_dir="${BIFROST_CONFIG_DIR}/devices"
+  if [[ -d "$old_dir" && ! -d "$BIFROST_REALMS_DIR" ]]; then
+    mv "$old_dir" "$BIFROST_REALMS_DIR"
+    echo "Migrated devices/ → realms/"
+  fi
+}
+migrate_devices_to_realms
+
+# Background tint colors per realm (r/g/b hex for iTerm)
+REALM_COLORS=(
+  "28/0a/0a"   # dark red
+  "0a/0a/28"   # dark blue
+  "0a/28/0a"   # dark green
+  "28/1e/0a"   # dark amber
+  "1e/0a/28"   # dark purple
+  "0a/28/28"   # dark teal
+)
+
+get_realm_color() {
+  local idx=$1
+  echo "${REALM_COLORS[$((idx % ${#REALM_COLORS[@]}))]}"
+}
+
+list_realms() {
+  [[ -d "$BIFROST_REALMS_DIR" ]] || return 0
+  local path name
+  # Glob, not $(ls …): `for x in $(ls)` word-splits on spaces, so a file named
+  # "bad name" would be seen as two entries "bad" and "name", each of which
+  # passes the regex on its own — smuggling an invalid realm past the filter.
+  for path in "$BIFROST_REALMS_DIR"/*; do
+    [[ -e "$path" ]] || continue          # empty dir: the literal glob
+    name="${path##*/}"
+    [[ "$name" =~ $BIFROST_REALM_NAME_RE ]] && echo "$name"
+  done
+}
+
+load_realm() {
+  local name="$1"
+  if ! validate_realm_name "$name"; then
+    exit 1
+  fi
+  local file="$BIFROST_REALMS_DIR/$name"
+  if [[ ! -f "$file" ]]; then
+    echo "Error: realm '$name' not found. Run 'bifrost realm list'."
+    exit 1
+  fi
+  # shellcheck source=/dev/null
+  source "$file"
+  # Backwards compat: read old DEVICE_* vars if REALM_* not set
+  REALM_HOST="${REALM_HOST:-${DEVICE_HOST:-}}"
+  REALM_USER="${REALM_USER:-${DEVICE_USER:-}}"
+}
+
+mode_realm() {
+  local subcmd="${1:-}"
+  case "$subcmd" in
+    add)
+      shift
+      realm_add "$@"
+      ;;
+    remove|rm)
+      shift
+      realm_remove "$@"
+      ;;
+    list|ls)
+      realm_list
+      ;;
+    scan)
+      realm_scan
+      ;;
+    *)
+      echo "Usage: bifrost realm <add|remove|list|scan>"
+      echo ""
+      echo "  add <name>     — add a realm (interactive or from Tailscale)"
+      echo "  remove <name>  — remove a realm"
+      echo "  list           — show configured realms"
+      echo "  scan           — discover realms on your Tailscale network"
+      exit 1
+      ;;
+  esac
+}
+
+realm_scan() {
+  echo "Scanning Tailscale network for realms..."
+  echo ""
+
+  if ! command -v tailscale &>/dev/null; then
+    echo "Error: tailscale CLI not found."
+    exit 1
+  fi
+
+  local this_host
+  this_host=$(hostname -s 2>/dev/null || hostname)
+
+  local existing
+  existing=$(list_realms)
+
+  echo "  Machines on your tailnet:"
+  echo ""
+
+  tailscale status 2>/dev/null | while read -r line; do
+    # Skip header and empty lines
+    [[ "$line" == *"#"* ]] && continue
+    [[ -z "$line" ]] && continue
+
+    local ip host user os
+    ip=$(echo "$line" | awk '{print $1}')
+    host=$(echo "$line" | awk '{print $2}')
+    os=$(echo "$line" | awk '{print $NF}')
+
+    # Skip this machine (Heimdall)
+    if [[ "$host" == "$this_host" ]]; then
+      echo "    $host ($os) ← Heimdall (this machine)"
+      continue
+    fi
+
+    # Check if already added
+    if echo "$existing" | grep -qx "$host" 2>/dev/null; then
+      echo "    ✓ $host ($os) — realm already added"
+    else
+      echo "    ○ $host ($os) — not added (bifrost realm add $host)"
+    fi
+  done
+}
+
+realm_add() {
+  local name="${1:-}"
+  mkdir -p "$BIFROST_REALMS_DIR"
+
+  if [[ -z "$name" ]]; then
+    echo "Usage: bifrost realm add <name>"
+    echo ""
+    echo "Tip: run 'bifrost realm scan' to see available Tailscale machines."
+    exit 1
+  fi
+
+  if ! validate_realm_name "$name"; then
+    exit 1
+  fi
+
+  # Check if already exists
+  if [[ -f "$BIFROST_REALMS_DIR/$name" ]]; then
+    echo "Realm '$name' already configured. Remove first: bifrost realm remove $name"
+    exit 1
+  fi
+
+  # Try to detect from Tailscale
+  local ts_host=""
+  if command -v tailscale &>/dev/null; then
+    ts_host=$(tailscale status 2>/dev/null | awk -v h="$name" '$2 == h {print $2}')
+  fi
+
+  local host user
+  if [[ -n "$ts_host" ]]; then
+    echo "Found '$name' on Tailscale."
+    host="$name"
+  else
+    read -rp "Hostname or IP for '$name': " host
+    if [[ -z "$host" ]]; then
+      echo "Error: hostname is required."
+      exit 1
+    fi
+  fi
+
+  local default_user
+  default_user=$(whoami)
+  read -rp "SSH user [$default_user]: " user
+  user="${user:-$default_user}"
+
+  # Test connection
+  echo ""
+  echo "Testing SSH to $user@$host..."
+  if ssh -o ConnectTimeout=5 "$user@$host" "echo \"OK — \$(uname -m)\"" 2>/dev/null; then
+    echo "Connected."
+
+    # Check if key-based auth works
+    if ! ssh "${SSH_OPTS_BATCH[@]}" "$user@$host" "true" 2>/dev/null; then
+      echo ""
+      echo "⚠ Password auth works, but key-based auth is not set up."
+      echo "  Bifrost needs key auth for non-interactive commands."
+      echo ""
+      read -rp "Copy SSH key to $host now? [Y/n]: " copy_key
+      if [[ "${copy_key:-Y}" =~ ^[Yy]$ ]]; then
+        if [[ ! -f "$HOME/.ssh/id_ed25519.pub" && ! -f "$HOME/.ssh/id_rsa.pub" ]]; then
+          echo "  No SSH key found. Generating one..."
+          ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -q
+          echo "  Key generated: ~/.ssh/id_ed25519"
+        fi
+        ssh-copy-id "$user@$host" 2>/dev/null
+        echo "  Key copied. Testing..."
+        if ssh "${SSH_OPTS_BATCH[@]}" "$user@$host" "true" 2>/dev/null; then
+          echo "  ✓ Key auth working."
+        else
+          echo "  ✗ Key auth still failing — check ~/.ssh/authorized_keys on $host"
+        fi
+      fi
+    else
+      echo "  ✓ Key auth working."
+    fi
+
+    # Sync tmux.conf to the new realm
+    echo ""
+    echo "Syncing tmux.conf to $name..."
+    sync_realm "$user" "$host" "$name"
+  else
+    echo "Warning: could not connect — saved anyway."
+    echo "  Make sure the realm is online and SSH is enabled."
+  fi
+
+  cat > "$BIFROST_REALMS_DIR/$name" <<CFG
+REALM_HOST="$host"
+REALM_USER="$user"
+CFG
+
+  echo ""
+  echo "Realm '$name' added."
+  echo ""
+  realm_list
+}
+
+realm_remove() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    echo "Usage: bifrost realm remove <name>"
+    exit 1
+  fi
+  if [[ -f "$BIFROST_REALMS_DIR/$name" ]]; then
+    rm "$BIFROST_REALMS_DIR/$name"
+    echo "Realm '$name' removed."
+  else
+    echo "Realm '$name' not found."
+  fi
+}
+
+realm_list() {
+  echo "Configured realms:"
+  echo ""
+  local realms
+  realms=$(list_realms)
+  if [[ -z "$realms" ]]; then
+    echo "  (none) — run 'bifrost realm add <name>' or 'bifrost realm scan'"
+    return
+  fi
+  local idx=0
+  for name in $realms; do
+    load_realm "$name"
+    local color
+    color=$(get_realm_color $idx)
+    # Single batch-mode probe — a fallback non-batch probe would
+    # silently prompt for a password and hang the whole `realm list`.
+    local status="?"
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
+      status="✓ online"
+    else
+      status="✗ offline or key auth missing"
+    fi
+    echo "  $status $name → $REALM_USER@$REALM_HOST (bg: $color)"
+    idx=$((idx + 1))
+  done
+}
+
+# Migrate old single-remote config to realm if needed
+migrate_legacy_config() {
+  if [[ -f "$BIFROST_CONFIG" && ! -d "$BIFROST_REALMS_DIR" ]]; then
+    source "$BIFROST_CONFIG"
+    if [[ -n "${BIFROST_REMOTE_HOST:-}" ]]; then
+      mkdir -p "$BIFROST_REALMS_DIR"
+      cat > "$BIFROST_REALMS_DIR/$BIFROST_REMOTE_HOST" <<CFG
+REALM_HOST="$BIFROST_REMOTE_HOST"
+REALM_USER="${BIFROST_REMOTE_USER:-$(whoami)}"
+CFG
+      echo "Migrated legacy config → realm '$BIFROST_REMOTE_HOST'"
+    fi
+  fi
+}
+migrate_legacy_config
+
+# ── Sync (push tmux.conf to realms) ──────────────────────────────
+
+sync_realm() {
+  local user="$1" host="$2" name="$3"
+
+  # Generate platform-aware config for this realm
+  local tmpfile
+  tmpfile=$(mktemp)
+  generate_remote_tmux_conf "$user" "$host" > "$tmpfile"
+
+  # Push it (BatchMode for both — never prompt during sync).
+  ssh "${SSH_OPTS_BATCH[@]}" "$user@$host" "mkdir -p ~/.config/bifrost" 2>/dev/null
+  scp -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=15 \
+    -o ControlMaster=auto -o "ControlPath=$BIFROST_SSH_CTLDIR/cm-%r@%h:%p" -o ControlPersist=60s \
+    -q "$tmpfile" "$user@$host:~/.config/bifrost/tmux.conf" 2>/dev/null
+  local result=$?
+  rm -f "$tmpfile"
+
+  if [[ $result -eq 0 ]]; then
+    echo "  ✓ $name — config synced"
+  else
+    echo "  ✗ $name — sync failed"
+  fi
+  return $result
+}
+
+mode_sync() {
+  local target="${1:-}"
+
+  # Ensure local tmux.conf exists
+  if [[ ! -f "$BIFROST_TMUX_CONF" ]]; then
+    generate_tmux_conf
+    echo "Generated local tmux.conf"
+  fi
+
+  if [[ -n "$target" ]]; then
+    # Sync to specific realm
+    load_realm "$target"
+    echo "Syncing to $target..."
+    sync_realm "$REALM_USER" "$REALM_HOST" "$target"
+    return
+  fi
+
+  # Sync to all realms
+  echo "Syncing bifrost config to all realms..."
+  echo ""
+
+  local realms
+  realms=$(list_realms)
+  if [[ -z "$realms" ]]; then
+    echo "  No realms configured. Run 'bifrost realm add <name>'."
+    return
+  fi
+
+  for realm_name in $realms; do
+    load_realm "$realm_name"
+    sync_realm "$REALM_USER" "$REALM_HOST" "$realm_name"
+  done
+}
+
+# Colors — ANSI 24-bit escape sequences for iTerm2
+# Heimdall: dark background (default)
+# Realms:   tinted backgrounds so you never forget where you are
+LOCAL_BG="0;0;0"          # black
+REMOTE_BG="40;10;10"      # dark red tint
+
+# ── Helpers ───────────────────────────────────────────────────────
+
+set_iterm_bg() {
+  local r=$1 g=$2 b=$3
+  printf "\033]1337;SetColors=bg=%02x/%02x/%02x\007" "$r" "$g" "$b"
+}
+
+iterm_set_tab_title() {
+  printf "\033]1;%s\007" "$1"
+}
+
+ensure_tmux_session() {
+  local host="$1" session="$2"
+  local tmux_cmd="tmux"
+  [[ -f "$BIFROST_TMUX_CONF" ]] && tmux_cmd="tmux -f $BIFROST_TMUX_CONF"
+
+  if [[ "$host" == "local" ]]; then
+    tmux has-session -t "$session" 2>/dev/null || $tmux_cmd new-session -d -s "$session"
+  else
+    ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$host" \
+      env BIFROST_SESSION="$session" bash -s <<'REMOTE'
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
+session="$BIFROST_SESSION"
+tmux has-session -t "$session" 2>/dev/null || \
+  tmux -f ~/.config/bifrost/tmux.conf new-session -d -s "$session" 2>/dev/null || \
+  tmux new-session -d -s "$session"
+REMOTE
+  fi
+}
+
+# SSH command with auto-reconnect loop for remote panes.
+# Session names come from validated realm names; safe to interpolate.
+ssh_reconnect_cmd() {
+  local user="$1" host="$2" session="$3"
+  local opts="-t -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ControlMaster=auto -o ControlPath='$BIFROST_SSH_CTLDIR/cm-%r@%h:%p' -o ControlPersist=60s"
+  echo "while true; do echo '🌈 Connecting to $host ($session)...'; ssh $opts $user@$host '$BIFROST_REMOTE_PATH; tmux attach -t $session || tmux new-session -s $session'; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done"
+}
+
+# ── Mode: mobile (tmux) ──────────────────────────────────────────
+
+mode_mobile() {
+  if require_iterm; then
+    mode_mobile_iterm
+  else
+    mode_mobile_tmux
+  fi
+}
+
+mode_mobile_iterm() {
+  echo "Setting up mobile-ready tmux bifrost..."
+
+  ensure_tmux_session "local" "$LOCAL_SESSION"
+
+  if [[ -n "$REMOTE_HOST" ]]; then
+    ensure_tmux_session "$REMOTE_HOST" "$REMOTE_SESSION"
+
+    osascript <<APPLESCRIPT
+tell application "iTerm2"
+  activate
+  set newWindow to (create window with default profile)
+  tell current session of current tab of newWindow
+    set name to "HEIMDALL [$LOCAL_SESSION]"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t $LOCAL_SESSION"
+  end tell
+  tell newWindow
+    set remoteTab to (create tab with default profile)
+    tell current session of remoteTab
+      set name to "REALM [$REMOTE_SESSION] @ $REMOTE_HOST"
+      write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; $(ssh_reconnect_cmd "$REMOTE_USER" "$REMOTE_HOST" "$REMOTE_SESSION")"
+    end tell
+  end tell
+end tell
+APPLESCRIPT
+
+    echo ""
+    echo "Bifrost ready (mobile mode)"
+    echo "  Tab 1: HEIMDALL → tmux session '$LOCAL_SESSION'"
+    echo "  Tab 2: REALM    → tmux session '$REMOTE_SESSION' @ $REMOTE_HOST"
+  else
+    osascript <<APPLESCRIPT
+tell application "iTerm2"
+  activate
+  set newWindow to (create window with default profile)
+  tell current session of current tab of newWindow
+    set name to "HEIMDALL [$LOCAL_SESSION]"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; tmux attach -t $LOCAL_SESSION"
+  end tell
+end tell
+APPLESCRIPT
+
+    echo ""
+    echo "Bifrost ready (mobile mode — Heimdall only)"
+    echo "  Tab 1: HEIMDALL → tmux session '$LOCAL_SESSION'"
+    echo ""
+    echo "Add a realm: bifrost setup"
+  fi
+}
+
+mode_mobile_tmux() {
+  echo "Setting up mobile-ready tmux bifrost..."
+
+  ensure_tmux_session "local" "$LOCAL_SESSION"
+
+  local bsession="bifrost-mobile"
+  tmux kill-session -t "$bsession" 2>/dev/null || true
+
+  local tmux_cmd="tmux"
+  [[ -f "$BIFROST_TMUX_CONF" ]] && tmux_cmd="tmux -f $BIFROST_TMUX_CONF"
+
+  $tmux_cmd new-session -d -s "$bsession"
+  tmux rename-window -t "$bsession:0" "🏠 Heimdall"
+  tmux send-keys -t "$bsession:0" "tmux attach -t $LOCAL_SESSION" Enter
+
+  if [[ -n "$REMOTE_HOST" ]]; then
+    ensure_tmux_session "$REMOTE_HOST" "$REMOTE_SESSION"
+    tmux new-window -t "$bsession" -n "🌍 $REMOTE_HOST"
+    tmux send-keys -t "$bsession:1" "$(ssh_reconnect_cmd "$REMOTE_USER" "$REMOTE_HOST" "$REMOTE_SESSION")" Enter
+  fi
+
+  echo ""
+  echo "Bifrost ready (mobile mode — tmux-native)"
+  echo "  Window 1: 🏠 Heimdall → $LOCAL_SESSION"
+  [[ -n "$REMOTE_HOST" ]] && echo "  Window 2: 🌍 $REMOTE_HOST → $REMOTE_SESSION"
+  echo ""
+
+  tmux attach -t "$bsession"
+}
+
+# ── Mode: direct (split panes) ───────────────────────────────────
+
+mode_direct() {
+  require_remote
+  if require_iterm; then
+    mode_direct_iterm
+  else
+    mode_direct_tmux
+  fi
+}
+
+mode_direct_iterm() {
+  echo "Setting up direct Heimdall-to-Realm bifrost..."
+
+  osascript <<APPLESCRIPT
+tell application "iTerm2"
+  activate
+
+  set newWindow to (create window with default profile)
+
+  tell current session of current tab of newWindow
+    -- Left pane: Heimdall (default dark bg)
+    set name to "HEIMDALL"
+    write text "printf '\\\\033]1337;SetColors=bg=00/00/00\\\\007'; clear"
+    write text "echo '── HEIMDALL ($(hostname)) ──'"
+
+    -- Split right for realm
+    set remoteSession to (split horizontally with default profile)
+  end tell
+
+  tell remoteSession
+    set name to "REALM @ $REMOTE_HOST"
+    write text "printf '\\\\033]1337;SetColors=bg=28/0a/0a\\\\007'; while true; do echo '🌈 Connecting to $REMOTE_HOST...'; ssh -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ControlMaster=auto -o ControlPath='$BIFROST_SSH_CTLDIR/cm-%r@%h:%p' -o ControlPersist=60s $REMOTE_USER@$REMOTE_HOST; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done"
+  end tell
+end tell
+APPLESCRIPT
+
+  echo ""
+  echo "Bifrost ready (direct mode)"
+  echo "  Left:  HEIMDALL (default bg)"
+  echo "  Right: REALM @ $REMOTE_HOST (red tint bg)"
+}
+
+mode_direct_tmux() {
+  echo "Setting up direct Heimdall-to-Realm bifrost..."
+
+  local bsession="bifrost-direct"
+  tmux kill-session -t "$bsession" 2>/dev/null || true
+
+  local tmux_cmd="tmux"
+  [[ -f "$BIFROST_TMUX_CONF" ]] && tmux_cmd="tmux -f $BIFROST_TMUX_CONF"
+
+  $tmux_cmd new-session -d -s "$bsession"
+  tmux rename-window -t "$bsession:0" "🏠 Heimdall │ 🌍 $REMOTE_HOST"
+
+  # Left pane: local shell
+  tmux send-keys -t "$bsession:0" "echo '── HEIMDALL ($(hostname)) ──'" Enter
+
+  # Right pane: SSH to realm
+  tmux split-window -h -t "$bsession:0"
+  tmux send-keys -t "$bsession:0.1" "while true; do echo '🌈 Connecting to $REMOTE_HOST...'; ssh -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ControlMaster=auto -o ControlPath='$BIFROST_SSH_CTLDIR/cm-%r@%h:%p' -o ControlPersist=60s $REMOTE_USER@$REMOTE_HOST; echo '🔌 Connection lost. Reconnecting in 5s...'; sleep 5; done" Enter
+
+  echo ""
+  echo "Bifrost ready (direct mode — tmux-native)"
+  echo "  Left:  HEIMDALL ($(hostname))"
+  echo "  Right: REALM @ $REMOTE_HOST"
+  echo ""
+
+  tmux attach -t "$bsession"
+}
+
+# ── Emoji pool ───────────────────────────────────────────────────
+
+EMOJIS=(
+  "🐝" "🐛" "🦋" "🐞" "🪲" "🐜" "🦗" "🐌" "🐙" "🦑"
+  "🦀" "🪱" "🦠" "🔬" "⚡" "🔥" "🌀" "💎" "🎯" "🚀"
+  "🌊" "🍄" "🌵" "🎲" "🧊" "🪐" "🌙" "☄️" "🗡️" "🛡️"
+)
+
+pick_emoji() {
+  echo "${EMOJIS[$((RANDOM % ${#EMOJIS[@]}))]}"
+}
+
+# ── Mode: workspace ──────────────────────────────────────────────
+
+create_pane_session() {
+  local host="$1" session="$2" emoji="$3"
+
+  if [[ "$host" == "local" ]]; then
+    # Non-destructive: keep existing session if present (preserves prior work).
+    if ! tmux has-session -t "$session" 2>/dev/null; then
+      if [[ -f "$BIFROST_TMUX_CONF" ]]; then
+        tmux -f "$BIFROST_TMUX_CONF" new-session -d -s "$session"
+      else
+        tmux new-session -d -s "$session"
+      fi
+    fi
+    tmux set-option -t "$session" set-titles on >/dev/null
+    tmux set-option -t "$session" pane-border-format " $emoji $session " >/dev/null
+    tmux set-option -t "$session" status-left " $emoji $session  " >/dev/null
+  else
+    # Remote: session name is validated upstream (realm name + suffix).
+    # Pass emoji via env so it never enters the command string.
+    ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$host" \
+      env BIFROST_EMOJI="$emoji" BIFROST_SESSION="$session" bash -s <<'REMOTE'
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
+session="$BIFROST_SESSION"
+emoji="$BIFROST_EMOJI"
+if ! tmux has-session -t "$session" 2>/dev/null; then
+  tmux -f ~/.config/bifrost/tmux.conf new-session -d -s "$session" 2>/dev/null \
+    || tmux new-session -d -s "$session"
+fi
+tmux set-option -t "$session" set-titles on >/dev/null
+tmux set-option -t "$session" pane-border-format " $emoji $session " >/dev/null
+tmux set-option -t "$session" status-left " $emoji $session  " >/dev/null
+REMOTE
+  fi
+}
+
+build_grid_applescript() {
+  local bg="$1" e1="$2" e2="$3" e3="$4" e4="$5"
+  local cmd1="$6" cmd2="$7" cmd3="$8" cmd4="$9"
+  local l1="${10}" l2="${11}" l3="${12}" l4="${13}"
+
+  cat <<APPLESCRIPT_GRID
+
+  set gridWindow to (create window with default profile)
+
+  tell current session of current tab of gridWindow
+    set name to "$e1 $l1"
+    write text "printf '\\\\033]1337;SetColors=bg=$bg\\\\007'; $cmd1"
+    set p2 to (split horizontally with default profile)
+  end tell
+
+  tell p2
+    set name to "$e2 $l2"
+    write text "printf '\\\\033]1337;SetColors=bg=$bg\\\\007'; $cmd2"
+  end tell
+
+  tell current session of current tab of gridWindow
+    set p3 to (split vertically with default profile)
+  end tell
+
+  tell p3
+    set name to "$e3 $l3"
+    write text "printf '\\\\033]1337;SetColors=bg=$bg\\\\007'; $cmd3"
+  end tell
+
+  tell p2
+    set p4 to (split vertically with default profile)
+  end tell
+
+  tell p4
+    set name to "$e4 $l4"
+    write text "printf '\\\\033]1337;SetColors=bg=$bg\\\\007'; $cmd4"
+  end tell
+APPLESCRIPT_GRID
+}
+
+mode_workspace() {
+  if require_iterm; then
+    mode_workspace_iterm
+  else
+    mode_workspace_tmux
+  fi
+}
+
+mode_workspace_iterm() {
+  local realms
+  realms=$(list_realms)
+
+  echo "Summoning realms..."
+
+  # Pick emojis for Heimdall
+  local e1 e2 e3 e4
+  e1=$(pick_emoji) e2=$(pick_emoji) e3=$(pick_emoji) e4=$(pick_emoji)
+
+  # Create local tmux sessions
+  echo "  Creating Heimdall sessions..."
+  create_pane_session "local" "${LOCAL_SESSION}-1" "$e1"
+  create_pane_session "local" "${LOCAL_SESSION}-2" "$e2"
+  create_pane_session "local" "${LOCAL_SESSION}-3" "$e3"
+  create_pane_session "local" "${LOCAL_SESSION}-4" "$e4"
+
+  # Start building AppleScript
+  local applescript='tell application "iTerm2"
+  activate
+'
+  # Heimdall window
+  applescript+=$(build_grid_applescript "00/00/00" \
+    "$e1" "$e2" "$e3" "$e4" \
+    "tmux attach -t ${LOCAL_SESSION}-1" \
+    "tmux attach -t ${LOCAL_SESSION}-2" \
+    "tmux attach -t ${LOCAL_SESSION}-3" \
+    "tmux attach -t ${LOCAL_SESSION}-4" \
+    "${LOCAL_SESSION}-1" "${LOCAL_SESSION}-2" "${LOCAL_SESSION}-3" "${LOCAL_SESSION}-4")
+
+  echo ""
+  echo "  HEIMDALL:"
+  echo "    $e1 ${LOCAL_SESSION}-1    $e2 ${LOCAL_SESSION}-2"
+  echo "    $e3 ${LOCAL_SESSION}-3    $e4 ${LOCAL_SESSION}-4"
+
+  # One window per realm
+  local realm_idx=0
+  for realm_name in $realms; do
+    load_realm "$realm_name"
+    local bg
+    bg=$(get_realm_color $realm_idx)
+
+    local de1 de2 de3 de4
+    de1=$(pick_emoji) de2=$(pick_emoji) de3=$(pick_emoji) de4=$(pick_emoji)
+
+    echo ""
+    echo "  Creating sessions on realm $realm_name..."
+    create_pane_session "$REALM_HOST" "${realm_name}-1" "$de1"
+    create_pane_session "$REALM_HOST" "${realm_name}-2" "$de2"
+    create_pane_session "$REALM_HOST" "${realm_name}-3" "$de3"
+    create_pane_session "$REALM_HOST" "${realm_name}-4" "$de4"
+
+    local rc1 rc2 rc3 rc4
+    rc1=$(ssh_reconnect_cmd "$REALM_USER" "$REALM_HOST" "${realm_name}-1")
+    rc2=$(ssh_reconnect_cmd "$REALM_USER" "$REALM_HOST" "${realm_name}-2")
+    rc3=$(ssh_reconnect_cmd "$REALM_USER" "$REALM_HOST" "${realm_name}-3")
+    rc4=$(ssh_reconnect_cmd "$REALM_USER" "$REALM_HOST" "${realm_name}-4")
+
+    applescript+=$(build_grid_applescript "$bg" \
+      "$de1" "$de2" "$de3" "$de4" \
+      "$rc1" "$rc2" "$rc3" "$rc4" \
+      "${realm_name}-1 @ $REALM_HOST" "${realm_name}-2 @ $REALM_HOST" \
+      "${realm_name}-3 @ $REALM_HOST" "${realm_name}-4 @ $REALM_HOST")
+
+    echo "  $realm_name @ $REALM_HOST (bg: $bg):"
+    echo "    $de1 ${realm_name}-1    $de2 ${realm_name}-2"
+    echo "    $de3 ${realm_name}-3    $de4 ${realm_name}-4"
+
+    realm_idx=$((realm_idx + 1))
+  done
+
+  applescript+='
+end tell'
+
+  osascript -e "$applescript"
+
+  echo ""
+  if [[ -z "$realms" ]]; then
+    echo "  Heimdall only. Add realms: bifrost realm add <name>"
+  fi
+  echo "Summoned. All realms bridged."
+}
+
+mode_workspace_tmux() {
+  echo "Summoning realms (tmux-native)..."
+  echo ""
+
+  local bsession="bifrost"
+  tmux kill-session -t "$bsession" 2>/dev/null || true
+
+  local tmux_cmd="tmux"
+  [[ -f "$BIFROST_TMUX_CONF" ]] && tmux_cmd="tmux -f $BIFROST_TMUX_CONF"
+
+  $tmux_cmd new-session -d -s "$bsession"
+
+  local win_idx=0
+
+  # ── Heimdall sessions ──
+  for i in 1 2 3 4; do
+    local session="${LOCAL_SESSION}-$i"
+    if tmux has-session -t "$session" 2>/dev/null; then
+      local emoji
+      emoji=$(pick_emoji)
+      if [[ $win_idx -eq 0 ]]; then
+        tmux rename-window -t "$bsession:0" "$emoji $session (Heimdall)"
+        tmux send-keys -t "$bsession:0" "tmux attach -t $session" Enter
+      else
+        tmux new-window -t "$bsession" -n "$emoji $session (Heimdall)"
+        tmux send-keys -t "$bsession:$win_idx" "tmux attach -t $session" Enter
+      fi
+      echo "  $emoji $session — Heimdall"
+      win_idx=$((win_idx + 1))
+    fi
+  done
+
+  # ── Realm sessions ──
+  local realms
+  realms=$(list_realms)
+
+  for realm_name in $realms; do
+    load_realm "$realm_name"
+
+    if ! ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
+      echo "  ✗ $realm_name — unreachable, skipping"
+      continue
+    fi
+
+    # Discover active sessions on this realm.
+    # Pass realm name via env so it's never expanded into the remote command.
+    local remote_sessions
+    remote_sessions=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+      env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux has-session -t "$s" 2>/dev/null; then
+    echo "$s"
+  fi
+done
+REMOTE
+)
+
+    if [[ -n "$remote_sessions" ]]; then
+      while IFS= read -r rsession; do
+        local emoji
+        emoji=$(pick_emoji)
+        if [[ $win_idx -eq 0 ]]; then
+          tmux rename-window -t "$bsession:0" "$emoji $rsession @ $realm_name"
+          tmux send-keys -t "$bsession:0" "$(ssh_reconnect_cmd "$REALM_USER" "$REALM_HOST" "$rsession")" Enter
+        else
+          tmux new-window -t "$bsession" -n "$emoji $rsession @ $realm_name"
+          tmux send-keys -t "$bsession:$win_idx" "$(ssh_reconnect_cmd "$REALM_USER" "$REALM_HOST" "$rsession")" Enter
+        fi
+        echo "  $emoji $rsession — $realm_name ($REALM_HOST)"
+        win_idx=$((win_idx + 1))
+      done <<< "$remote_sessions"
+    fi
+  done
+
+  if [[ $win_idx -eq 0 ]]; then
+    echo "  No active sessions found."
+    echo ""
+    echo "  Launch sessions first:"
+    echo "    bifrost summon   (on your Heimdall/Mac)"
+    echo "  Then connect from here:"
+    echo "    bifrost summon   (discovers and attaches)"
+    tmux kill-session -t "$bsession" 2>/dev/null || true
+    return
+  fi
+
+  echo ""
+  echo "Summoned — $win_idx session(s) attached."
+  echo "  Switch windows: Ctrl-b n/p (next/prev)"
+  echo "  List windows:   Ctrl-b w"
+  echo ""
+
+  tmux attach -t "$bsession"
+}
+
+# ── Mode: kill ────────────────────────────────────────────────────
+
+mode_kill() {
+  echo "Killing tmux sessions..."
+
+  # Kill local sessions
+  tmux kill-session -t "$LOCAL_SESSION" 2>/dev/null && echo "  Killed '$LOCAL_SESSION'" || true
+  for i in 1 2 3 4; do
+    tmux kill-session -t "${LOCAL_SESSION}-$i" 2>/dev/null && echo "  Killed '${LOCAL_SESSION}-$i'" || true
+  done
+
+  # Kill bifrost meta-sessions
+  tmux kill-session -t "bifrost" 2>/dev/null && echo "  Killed 'bifrost'" || true
+  tmux kill-session -t "bifrost-mobile" 2>/dev/null && echo "  Killed 'bifrost-mobile'" || true
+  tmux kill-session -t "bifrost-direct" 2>/dev/null && echo "  Killed 'bifrost-direct'" || true
+
+  # Kill sessions on all configured realms
+  local realms
+  realms=$(list_realms)
+  for realm_name in $realms; do
+    load_realm "$realm_name"
+    ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+      env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null \
+      || echo "  Could not reach $realm_name ($REALM_HOST)"
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux kill-session -t "$s" 2>/dev/null; then
+    echo "  Killed $s"
+  fi
+done
+REMOTE
+  done
+
+  echo "Done."
+}
+
+# ── Mode: status ─────────────────────────────────────────────────
+
+mode_status() {
+  echo "Bifrost status"
+  echo ""
+
+  # Heimdall sessions
+  echo "  HEIMDALL ($(hostname)):"
+  local local_count=0
+  local local_list=""
+  for session in "$LOCAL_SESSION" "${LOCAL_SESSION}-1" "${LOCAL_SESSION}-2" "${LOCAL_SESSION}-3" "${LOCAL_SESSION}-4"; do
+    if tmux has-session -t "$session" 2>/dev/null; then
+      local_count=$((local_count + 1))
+      local_list+="    ✓ $session"
+      local cmd
+      cmd=$(tmux list-panes -t "$session" -F '#{pane_current_command}' 2>/dev/null | head -1)
+      [[ -n "$cmd" ]] && local_list+=" ($cmd)"
+      local_list+=$'\n'
+    fi
+  done
+  if [[ $local_count -gt 0 ]]; then
+    echo "    $local_count session(s) active"
+    printf "%s" "$local_list"
+  else
+    echo "    No active sessions"
+  fi
+
+  # Realm sessions
+  local realms
+  realms=$(list_realms)
+  for realm_name in $realms; do
+    echo ""
+    load_realm "$realm_name"
+    echo "  REALM — $realm_name ($REALM_HOST):"
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "echo ok" &>/dev/null; then
+      echo "    ✓ Reachable"
+      local remote_info
+      remote_info=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+        env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux has-session -t "$s" 2>/dev/null; then
+    cmd=$(tmux list-panes -t "$s" -F '#{pane_current_command}' 2>/dev/null | head -1)
+    echo "    ✓ $s ($cmd)"
+  fi
+done
+REMOTE
+)
+      if [[ -n "$remote_info" ]]; then
+        echo "$remote_info"
+      else
+        echo "    No active sessions"
+      fi
+    else
+      echo "    ✗ Unreachable"
+    fi
+  done
+
+  if [[ -z "$realms" ]]; then
+    echo ""
+    echo "  No realms configured. Run 'bifrost realm add <name>'."
+  fi
+}
+
+# ── Mode: attach ─────────────────────────────────────────────────
+
+mode_attach() {
+  local session="${1:-}"
+  if [[ -z "$session" ]]; then
+    echo "Usage: bifrost attach <session-name>"
+    echo ""
+    echo "Examples:"
+    echo "  bifrost attach local-1"
+    echo "  bifrost attach asgard-2"
+    echo ""
+    echo "Heimdall sessions:"
+    tmux list-sessions -F "  #{session_name}" 2>/dev/null || echo "  (none)"
+    local realms
+    realms=$(list_realms)
+    for realm_name in $realms; do
+      load_realm "$realm_name"
+      echo ""
+      echo "Realm $realm_name ($REALM_HOST):"
+      ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+        "tmux list-sessions -F '  #{session_name}' 2>/dev/null || echo '  (none)'" 2>/dev/null \
+        || echo "  (unreachable)"
+    done
+    exit 1
+  fi
+
+  # Extract realm name from session (e.g. "asgard-2" → "asgard")
+  local realm_name="${session%-[0-9]*}"
+
+  # Check if it's a Heimdall (local) session
+  if [[ "$realm_name" == "$LOCAL_SESSION" || "$realm_name" == "$session" ]]; then
+    echo "Attaching to $session..."
+    tmux attach -t "$session" || echo "Session $session not found"
+    return
+  fi
+
+  # Check if it matches a realm
+  if [[ -f "$BIFROST_REALMS_DIR/$realm_name" ]]; then
+    load_realm "$realm_name"
+    echo "Attaching to $session @ $REALM_HOST..."
+    # Session name comes from validated realm prefix + -N; safe to single-quote-embed.
+    ssh -t "${SSH_OPTS_ATTACH[@]}" "$REALM_USER@$REALM_HOST" \
+      "$BIFROST_REMOTE_PATH; tmux attach -t '$session' || echo 'Session $session not found'"
+  else
+    # Try local first, then fail
+    echo "Attaching to $session..."
+    tmux attach -t "$session" || echo "Session '$session' not found. Run 'bifrost realm list' to see realms."
+  fi
+}
+
+# ── Mode: run ────────────────────────────────────────────────────
+
+mode_run() {
+  if [[ $# -lt 1 ]]; then
+    echo "Usage: bifrost run <realm> <command>"
+    echo ""
+    echo "Runs a command on a realm via SSH."
+    echo ""
+    echo "Examples:"
+    echo "  bifrost run asgard uptime"
+    echo "  bifrost run asgard df -h"
+    echo "  bifrost run asgard docker ps"
+    exit 1
+  fi
+
+  local realm_name="$1"
+  shift
+
+  if [[ $# -lt 1 ]]; then
+    echo "Usage: bifrost run $realm_name <command>"
+    exit 1
+  fi
+
+  if [[ ! -f "$BIFROST_REALMS_DIR/$realm_name" ]]; then
+    echo "Realm '$realm_name' not found. Run 'bifrost realm list'."
+    exit 1
+  fi
+
+  load_realm "$realm_name"
+  ssh "${SSH_OPTS_ATTACH[@]}" "$REALM_USER@$REALM_HOST" "$BIFROST_REMOTE_PATH; $*"
+}
+
+# ── Mode: sessions (visual map) ──────────────────────────────────
+
+mode_sessions() {
+  local C='\033[36m' R='\033[31m' G='\033[32m' Y='\033[33m'
+  local M='\033[35m' D='\033[2m' B='\033[1m' N='\033[0m'
+
+  echo -e "${B}Bifrost sessions${N}"
+  echo ""
+
+  # Heimdall
+  echo -e "  ${B}${C}HEIMDALL${N} ${D}($(hostname))${N}"
+
+  local has_local=false
+  for i in 1 2 3 4; do
+    local session="${LOCAL_SESSION}-$i"
+    if tmux has-session -t "$session" 2>/dev/null; then
+      local cmd
+      cmd=$(tmux list-panes -t "$session" -F '#{pane_current_command}' 2>/dev/null | head -1)
+      local cwd
+      cwd=$(tmux list-panes -t "$session" -F '#{pane_current_path}' 2>/dev/null | head -1)
+      cwd="${cwd##*/}"
+      echo -e "    ${G}●${N} ${B}$session${N}  ${D}$cwd${N}  ($cmd)"
+      has_local=true
+    fi
+  done
+  if tmux has-session -t "$LOCAL_SESSION" 2>/dev/null; then
+    echo -e "    ${G}●${N} ${B}$LOCAL_SESSION${N}  (mobile)"
+    has_local=true
+  fi
+  if [[ "$has_local" == false ]]; then
+    echo -e "    ${D}(no sessions)${N}"
+  fi
+
+  # Agents on Heimdall — apiary_* sessions bifrost did not launch itself. Show
+  # what each is doing, because "which agent needs me" is the whole reason to
+  # look at this from a phone.
+  local agent_sessions
+  agent_sessions="$(list_agent_sessions)"
+  if [[ -n "$agent_sessions" ]]; then
+    echo ""
+    echo -e "  ${B}${M}AGENTS${N}"
+    local as st
+    while IFS= read -r as; do
+      [[ -z "$as" ]] && continue
+      st="$(detect_agent_state "$as")"
+      echo -e "    $(agent_state_glyph "$st") ${B}${as#apiary_}${N}  ${D}${st}${N}"
+    done <<<"$agent_sessions"
+  fi
+
+  # Realms
+  local realms
+  realms=$(list_realms)
+  local realm_idx=0
+
+  for realm_name in $realms; do
+    echo ""
+    load_realm "$realm_name"
+
+    local color
+    case $((realm_idx % 6)) in
+      0) color="$R" ;;
+      1) color="$C" ;;
+      2) color="$G" ;;
+      3) color="$Y" ;;
+      4) color="$M" ;;
+      5) color='\033[34m' ;;
+    esac
+
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
+      echo -e "  ${B}${color}REALM — $realm_name${N} ${D}($REALM_HOST)${N}  ${G}online${N}"
+
+      local remote_sessions
+      remote_sessions=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+        env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux has-session -t "$s" 2>/dev/null; then
+    cmd=$(tmux list-panes -t "$s" -F '#{pane_current_command}' 2>/dev/null | head -1)
+    cwd=$(tmux list-panes -t "$s" -F '#{pane_current_path}' 2>/dev/null | head -1)
+    cwd=${cwd##*/}
+    echo "$s|$cwd|$cmd"
+  fi
+done
+REMOTE
+)
+
+      if [[ -n "$remote_sessions" ]]; then
+        while IFS='|' read -r sname scwd scmd; do
+          echo -e "    ${G}●${N} ${B}$sname${N}  ${D}$scwd${N}  ($scmd)"
+          echo -e "      ${D}→ bifrost attach $sname${N}"
+        done <<< "$remote_sessions"
+      else
+        echo -e "    ${D}(no sessions)${N}"
+      fi
+    else
+      echo -e "  ${B}${color}REALM — $realm_name${N} ${D}($REALM_HOST)${N}  ${R}offline${N}"
+    fi
+
+    realm_idx=$((realm_idx + 1))
+  done
+
+  if [[ -z "$realms" ]]; then
+    echo ""
+    echo -e "  ${D}No realms. Run: bifrost realm scan${N}"
+  fi
+
+  echo ""
+}
+
+# ── Mode: gateway (interactive session picker for Ravens) ────────
+#
+# SSH into Heimdall, run `bifrost gateway` — get a menu of
+# all sessions, pick one, and bifrost hops you there.
+
+mode_gateway() {
+  local C='\033[36m' G='\033[32m' B='\033[1m' D='\033[2m' N='\033[0m'
+
+  echo -e "${B}Bifrost gateway${N}"
+  echo -e "${D}Pick a session to attach to:${N}"
+  echo ""
+
+  local -a session_names=()
+  local -a session_types=()
+  local -a session_hosts=()
+  local -a session_users=()
+  local -a session_infos=()
+
+  # Heimdall sessions
+  for i in 1 2 3 4; do
+    local session="${LOCAL_SESSION}-$i"
+    if tmux has-session -t "$session" 2>/dev/null; then
+      session_names+=("$session")
+      session_types+=("local")
+      session_hosts+=("")
+      session_users+=("")
+      local cmd cwd
+      cmd=$(tmux list-panes -t "$session" -F '#{pane_current_command}' 2>/dev/null | head -1)
+      cwd=$(tmux list-panes -t "$session" -F '#{pane_current_path}' 2>/dev/null | head -1)
+      session_infos+=("${cwd##*/} ($cmd)")
+    fi
+  done
+
+  # Realm sessions
+  local realms
+  realms=$(list_realms)
+  for realm_name in $realms; do
+    load_realm "$realm_name"
+    if ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" "true" &>/dev/null; then
+      local remote_sessions
+      remote_sessions=$(ssh "${SSH_OPTS_BATCH[@]}" "$REALM_USER@$REALM_HOST" \
+        env BIFROST_REALM="$realm_name" bash -s <<'REMOTE' 2>/dev/null
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$HOME/.local/bin:$HOME/bin:$PATH"
+for i in 1 2 3 4; do
+  s="${BIFROST_REALM}-$i"
+  if tmux has-session -t "$s" 2>/dev/null; then
+    cmd=$(tmux list-panes -t "$s" -F '#{pane_current_command}' 2>/dev/null | head -1)
+    cwd=$(tmux list-panes -t "$s" -F '#{pane_current_path}' 2>/dev/null | head -1)
+    echo "$s|${cwd##*/}|$cmd"
+  fi
+done
+REMOTE
+)
+
+      if [[ -n "$remote_sessions" ]]; then
+        while IFS='|' read -r sname scwd scmd; do
+          session_names+=("$sname")
+          session_types+=("$realm_name")
+          session_hosts+=("$REALM_HOST")
+          session_users+=("$REALM_USER")
+          session_infos+=("$scwd ($scmd)")
+        done <<< "$remote_sessions"
+      fi
+    fi
+  done
+
+  if [[ ${#session_names[@]} -eq 0 ]]; then
+    echo "  No active sessions. Run 'bifrost summon' first."
+    exit 1
+  fi
+
+  # Display numbered list
+  local i
+  for i in "${!session_names[@]}"; do
+    local num=$((i + 1))
+    local loc="${session_types[$i]}"
+    [[ "$loc" == "local" ]] && loc="heimdall"
+    printf "  ${G}%2d${N}  ${B}%-16s${N}  ${D}%-10s${N}  %s\n" "$num" "${session_names[$i]}" "$loc" "${session_infos[$i]}"
+  done
+
+  echo ""
+  read -rp "  Select [1-${#session_names[@]}]: " choice
+
+  if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#session_names[@]} ]]; then
+    echo "Invalid selection."
+    exit 1
+  fi
+
+  local idx=$((choice - 1))
+  local selected="${session_names[$idx]}"
+  local stype="${session_types[$idx]}"
+
+  echo ""
+  if [[ "$stype" == "local" ]]; then
+    echo "Attaching to $selected..."
+    tmux attach -t "$selected"
+  else
+    local shost="${session_hosts[$idx]}"
+    local suser="${session_users[$idx]}"
+    echo "Attaching to $selected @ $shost..."
+    # Session name is realm-prefix + -N; realm prefix is validated by load_realm.
+    ssh -t "${SSH_OPTS_ATTACH[@]}" "$suser@$shost" "$BIFROST_REMOTE_PATH; tmux attach -t '$selected'"
+  fi
+}
+
+# ── Help ─────────────────────────────────────────────────────────
+
+mode_help() {
+  local C='\033[36m' G='\033[32m' Y='\033[33m' R='\033[31m'
+  local M='\033[35m' D='\033[2m' B='\033[1m' N='\033[0m'
+
+  echo -e "
+${C}  ╔╗ ╦╔═╗╦═╗╔═╗╔═╗╔╦╗${N}  ${D}v${BIFROST_VERSION}${N}
+${C}  ╠╩╗║╠═ ╠╦╝║ ║╚═╗ ║${N}
+${C}  ╚═╝╩╚  ╩╚═╚═╝╚═╝ ╩${N}
+
+  ${D}Heimdall = this machine  │  Realm = remote  │  Raven = phone/tablet${N}
+
+  ${G}realm scan${N}            find Tailscale realms     ${Y}← start here${N}
+  ${G}realm add${N} <name>      add a realm
+  ${G}realm list${N}            show realms
+
+  ${C}${B}summon${N}                 launch 2x2 grids          ${Y}← try it${N}
+  ${C}mobile${N}                 tmux tabs
+  ${C}direct${N}                 split panes
+
+  ${M}${B}sessions${N}               map all sessions           ${Y}← see what's running${N}
+  ${M}${B}gateway${N}                interactive picker ${D}(raven)${N}
+  ${M}attach${N} <session>       jump to session
+  ${M}run${N} <realm> <cmd>     remote command
+  ${M}status${N}                 connectivity overview
+
+  ${D}sync${N}                   push tmux.conf to all realms
+  ${D}doctor${N}                 check prerequisites
+  ${D}upgrade${N}                update to latest
+  ${R}kill${N}                   tear down everything
+  ${G}${B}quickstart${N}             first-time setup guide     ${Y}← new here?${N}
+"
+  print_update_notice
+}
+
+mode_quickstart() {
+  local C='\033[36m' G='\033[32m' Y='\033[33m' R='\033[31m'
+  local D='\033[2m' B='\033[1m' N='\033[0m' U='\033[4m'
+
+  echo -e "
+${C}  ╔╗ ╦╔═╗╦═╗╔═╗╔═╗╔╦╗${N}  ${D}quickstart guide${N}
+${C}  ╠╩╗║╠═ ╠╦╝║ ║╚═╗ ║${N}
+${C}  ╚═╝╩╚  ╩╚═╚═╝╚═╝ ╩${N}
+
+${B}WHAT IS BIFROST?${N}
+
+  A terminal workspace that spans multiple machines over Tailscale.
+  You launch it from one machine (${C}Heimdall${N}), and it creates
+  tmux sessions on your other machines (${R}Realms${N}) over SSH.
+  Then you can attach to any session from anywhere — even your ${Y}phone${N} (${Y}Raven${N}).
+
+${B}THREE ROLES${N}
+
+  ${C}Heimdall${N}   ${D}─${N}  The guardian. Your primary machine.
+                Runs bifrost, manages everything.
+                Mac, Linux, or Android (Termux).
+
+  ${R}Realm${N}      ${D}─${N}  A connected world. Any remote machine.
+                Just needs tmux. Nothing to install.
+
+  ${Y}Raven${N}      ${D}─${N}  A scout. Phone, iPad, laptop.
+                Flies between realms. Just needs SSH.
+
+  ${D}┌──────────────────────────────────────────┐${N}
+  ${D}│${N}
+  ${D}│${N}   ${C}HEIMDALL${N} ${D}(your machine)${N}
+  ${D}│${N}       │
+  ${D}│${N}       ├── local-1..4  ${D}(Heimdall sessions)${N}
+  ${D}│${N}       │
+  ${D}│${N}       ├── SSH ──→ ${R}asgard${N}-1..4  ${D}(Realm)${N}
+  ${D}│${N}       └── SSH ──→ ${R}tatooine${N}-1..4  ${D}(Realm)${N}
+  ${D}│${N}                       ▲
+  ${D}│${N}                       │
+  ${D}│${N}                    ${Y}📱 Raven${N}
+  ${D}│${N}                    ssh → bifrost gateway
+  ${D}│${N}
+  ${D}└──────────────────────────────────────────┘${N}
+
+${B}STEP 1 — CHECK PREREQUISITES${N}
+
+  ${Y}\$${N} ${G}bifrost doctor${N}
+
+  Checks: tmux, SSH, Tailscale (and iTerm2 on macOS).
+  Tells you exactly what's missing and how to install it.
+
+${B}STEP 2 — DISCOVER YOUR MACHINES${N}
+
+  ${Y}\$${N} ${G}bifrost realm scan${N}
+
+  Lists every machine on your Tailscale network.
+  Shows which are already added as realms.
+
+${B}STEP 3 — ADD REALMS${N}
+
+  ${Y}\$${N} ${G}bifrost realm add asgard${N}
+
+  Auto-detects the Tailscale hostname, tests SSH,
+  copies your SSH key if needed, and syncs tmux.conf.
+  The name you give it becomes the session prefix:
+    asgard → ${D}asgard-1, asgard-2, asgard-3, asgard-4${N}
+
+${B}STEP 4 — LAUNCH${N}
+
+  ${Y}\$${N} ${G}bifrost summon${N}
+
+  ${D}On macOS + iTerm2:${N}
+    Opens one iTerm window per realm, each with a 2x2 grid.
+    Heimdall = black bg. Each realm = a different color.
+
+  ${D}On Termux / Linux:${N}
+    Creates tmux windows — one per active session.
+    Each window labeled with emoji + session name + realm.
+    Switch with Ctrl-b n/p. List with Ctrl-b w.
+
+  Every pane has a random emoji for quick identification.
+  Remote panes auto-reconnect on reboot or network drops.
+
+${B}STEP 5 — CONNECT FROM PHONE (RAVEN)${N}
+
+  ${U}Option A — Gateway (recommended)${N}
+
+  ${Y}\$${N} ssh my-mac            ${D}# SSH into Heimdall${N}
+  ${Y}\$${N} ${G}bifrost gateway${N}       ${D}# interactive session picker${N}
+
+  ${D}  1  local-1      heimdall    ~ (zsh)${N}
+  ${D}  2  asgard-1    asgard      api (nvim)${N}
+  ${D}  3  asgard-2    asgard      ~ (claude)${N}
+  ${D}  4  tatooine-1  tatooine    ~ (zsh)${N}
+  ${D}  Select [1-4]: 3${N}
+  ${D}  Attaching to asgard-2 @ asgard...${N}
+
+  Bifrost handles the SSH hop. You only need Heimdall's address.
+
+  ${U}Option B — Direct${N}
+
+  ${Y}\$${N} ssh asgard
+  ${Y}\$${N} tmux attach -t asgard-2
+
+  ${D}No bifrost needed on the Raven — just SSH + tmux.${N}
+
+${B}TERMUX TIPS${N}
+
+  If using Termux as Heimdall:
+    pkg install tmux openssh
+    ${D}# Bifrost disables mouse mode on Termux to keep the soft keyboard working.${N}
+    ${D}# Scroll with Ctrl-b [ (enter copy mode), then arrow keys or Page Up/Down.${N}
+
+${B}USEFUL COMMANDS${N}
+
+  ${G}bifrost sessions${N}     ${D}visual map of all sessions + what's running${N}
+  ${G}bifrost status${N}       ${D}connectivity overview across all realms${N}
+  ${G}bifrost attach${N} asgard-2 ${D}jump directly to a session${N}
+  ${G}bifrost run${N} asgard df   ${D}run a quick command on a realm${N}
+  ${G}bifrost sync${N}         ${D}push tmux.conf to all realms${N}
+  ${G}bifrost kill${N}         ${D}tear down everything${N}
+  ${G}bifrost upgrade${N}      ${D}update to latest version${N}
+"
+}
+
+# ── Main ──────────────────────────────────────────────────────────
+
+# Let the test suite (and any other tool) source this file to call its
+# functions without firing the dispatcher. A script run normally has
+# BASH_SOURCE[0] == $0; a sourced one does not. No effect on normal use.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+  return 0 2>/dev/null || true
+fi
+
+case "${1:-}" in
+  setup)             mode_setup ;;
+  doctor)            mode_doctor ;;
+  realm)             shift; mode_realm "$@" ;;
+  device)            shift; mode_realm "$@" ;;  # backwards compat alias
+  sync)              shift; mode_sync "$@" ;;
+  sessions)          mode_sessions ;;
+  gateway)           mode_gateway ;;
+  status)            mode_status ;;
+  attach)            shift; mode_attach "$@" ;;
+  run)               shift; mode_run "$@" ;;
+  mobile)            mode_mobile ;;
+  direct)            mode_direct ;;
+  summon)            mode_workspace ;;
+  workspace)         mode_workspace ;;  # backwards compat alias
+  kill)              mode_kill ;;
+  upgrade|update)    mode_upgrade ;;
+  version|--version) mode_version ;;
+  quickstart)        mode_quickstart ;;
+  help|--help)       mode_help ;;
+  *)
+    mode_help
+    exit 1
+    ;;
+esac
