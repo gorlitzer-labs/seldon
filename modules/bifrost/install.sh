@@ -2,10 +2,10 @@
 # Bifrost installer — works on macOS, Linux, and Termux (Android)
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/gorlitzer-labs/bifrost/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/gorlitzer-labs/seldon/main/modules/bifrost/install.sh | bash
 #
 # Or clone and run:
-#   git clone https://github.com/gorlitzer-labs/bifrost && cd bifrost && bash install.sh
+#   git clone https://github.com/gorlitzer-labs/seldon && cd seldon/modules/bifrost && bash install.sh
 
 set -euo pipefail
 

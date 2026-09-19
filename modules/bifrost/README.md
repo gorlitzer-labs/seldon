@@ -103,7 +103,7 @@ ssh <realm-host> tmux -V    # SSH key works and tmux is installed?
 
 **Clone install** (recommended — macOS, Linux, Termux):
 ```bash
-git clone https://github.com/gorlitzer-labs/bifrost.git
+git clone https://github.com/gorlitzer-labs/seldon.git
 cd bifrost
 make install      # or: bash install.sh
 ```
@@ -115,7 +115,7 @@ also makes the machine realm-ready (adds Homebrew to the non-interactive PATH so
 
 **One-liner** (only if the repo is public, or you pipe an authenticated fetch):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gorlitzer-labs/bifrost/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/gorlitzer-labs/seldon/main/modules/bifrost/install.sh | bash
 ```
 
 **Manual:**
@@ -251,7 +251,7 @@ Bifrost runs natively on Termux as a Heimdall:
 
 # 2. Install bifrost + dependencies (clone install — works for the private repo):
 pkg install git
-git clone https://github.com/gorlitzer-labs/bifrost.git && cd bifrost && bash install.sh
+git clone https://github.com/gorlitzer-labs/seldon.git && cd seldon/modules/bifrost && bash install.sh
 
 # 3. Set up and launch:
 bifrost setup
