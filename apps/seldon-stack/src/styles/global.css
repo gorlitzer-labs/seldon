@@ -1,0 +1,303 @@
+:root{
+  --bg:#0a0b10; --panel:rgba(16,19,28,.72); --ink:#f3efe6; --muted:#a7a596; --faint:#6d7186;
+  --line:rgba(200,170,90,.18); --gold:#e8ad3c; --gold-hi:#ffc95a;
+  --idle:#5ecb8f; --work:#efb045; --block:#f0664c;
+  --disp:"Archivo",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace; --body:"IBM Plex Sans",system-ui,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body,#root{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);overflow:hidden;-webkit-font-smoothing:antialiased}
+.stage{position:fixed;inset:0;z-index:0;touch-action:none}
+h1,h2,h3{margin:0;font-family:var(--disp);letter-spacing:-.02em;text-wrap:balance}
+.mono{font-family:var(--mono)}
+
+/* reading scrim so copy never fights the 3D */
+.scrim{position:fixed;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(100deg,rgba(8,9,14,.94) 0%,rgba(8,9,14,.8) 26%,rgba(8,9,14,.12) 52%,transparent 66%)}
+
+/* ---- story panel (left) ---- */
+.reelwrap{display:contents}
+.story{position:fixed;left:0;top:0;bottom:0;z-index:3;width:min(46%,540px);
+  display:flex;flex-direction:column;justify-content:center;gap:14px;padding:clamp(28px,5vw,72px);pointer-events:none}
+.story .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--gold)}
+.story h2{font-size:clamp(28px,4.4vw,52px);font-weight:800;line-height:1.02}
+.story .body{display:flex;flex-direction:column;gap:12px;max-width:42ch}
+.story .body p{margin:0;font-size:clamp(14px,1.5vw,17px);color:var(--muted);line-height:1.55}
+.beat-enter{animation:beatIn .6s cubic-bezier(.2,.7,.2,1) both}
+@keyframes beatIn{from{opacity:0;transform:translateY(16px);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+
+/* ---- chapter rail (right) ---- */
+.rail{position:fixed;right:clamp(14px,2vw,26px);top:50%;transform:translateY(-50%);z-index:4;
+  display:flex;flex-direction:column;gap:4px}
+.rail button{display:flex;align-items:center;gap:10px;justify-content:flex-end;background:none;border:0;cursor:pointer;
+  color:var(--faint);font-family:var(--mono);font-size:11px;padding:5px 2px;text-align:right}
+.rail button .mk{opacity:.7}
+.rail button .nub{width:22px;height:2px;background:currentColor;border-radius:2px;transition:width .25s,background .25s}
+.rail button:hover{color:var(--muted)}
+.rail button.on{color:var(--gold)} .rail button.on .nub{width:40px;background:var(--gold)}
+.rail button .lbl{opacity:0;transition:opacity .2s;max-width:0;overflow:hidden;white-space:nowrap}
+.rail button:hover .lbl,.rail button.on .lbl{opacity:1;max-width:160px}
+
+/* ---- controls (bottom) ---- */
+.controls{position:fixed;bottom:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:14px;
+  padding:16px clamp(16px,3vw,32px) calc(16px + env(safe-area-inset-bottom,0px))}
+.controls .cbtn{font-family:var(--mono);font-size:14px;width:40px;height:40px;border-radius:10px;cursor:pointer;
+  background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--ink);display:flex;align-items:center;justify-content:center}
+.controls .cbtn:hover{border-color:var(--gold)} .controls .cbtn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.controls .spacer{flex:1}
+.controls .count{font-family:var(--mono);font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
+.controls .narrate{width:auto;padding:0 14px;gap:7px;font-size:12px;letter-spacing:.02em}
+.controls .narrate.on{border-color:var(--gold);color:var(--gold);background:rgba(232,173,60,.1)}
+.controls .vpick{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03)}
+.controls .vpick .vopt{font-family:var(--mono);font-size:11px;padding:5px 10px;border:0;border-radius:7px;cursor:pointer;
+  background:none;color:var(--faint)}
+.controls .vpick .vopt.on{background:rgba(232,173,60,.16);color:var(--gold)}
+@media (max-width:820px){.controls .vpick{display:none}}
+.progress{position:fixed;top:0;left:0;height:2px;background:var(--gold);z-index:6;transition:width .5s ease}
+
+/* end credits — film roll over the hive */
+.credits{position:fixed;inset:0;z-index:4;overflow:hidden;pointer-events:none;
+  background:radial-gradient(ellipse at center,transparent 30%,rgba(6,7,12,.72) 100%)}
+.credits .creel{position:absolute;left:50%;transform:translateX(-50%);width:min(560px,calc(100vw - 40px));
+  text-align:center;font-family:var(--mono);color:var(--ink);
+  top:100%;animation:croll 42s linear forwards}
+@keyframes croll{from{top:100%}to{top:-160%}}
+.credits .ctitle{font-family:"Archivo",sans-serif;font-weight:900;font-size:clamp(28px,6vw,46px);
+  letter-spacing:.02em;color:#fff4dd}
+.credits .csub{color:var(--gold);font-size:13px;letter-spacing:.14em;text-transform:uppercase;margin-top:8px}
+.credits .cgroup{margin-top:52px}
+.credits .clabel{color:var(--faint);font-size:11px;letter-spacing:.24em;text-transform:uppercase;margin-bottom:16px}
+.credits .cmod{display:grid;grid-template-columns:26px 108px 116px 72px;gap:12px;align-items:center;
+  justify-content:center;padding:6px 0;font-size:14px;text-align:left}
+.credits .cemb{width:26px;height:26px;flex:none}
+.credits .cemb svg{width:26px;height:26px;stroke:var(--gold);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.credits .cnm{color:#f3efe6;font-weight:600}
+.credits .crole{color:var(--muted)}
+.credits .cver{color:var(--faint);font-size:12px;text-align:right}
+.credits .cline{color:var(--muted);font-size:14px;line-height:1.9}
+.credits .cby{color:#fff4dd;font-size:22px;font-weight:600;letter-spacing:.02em}
+.credits .cfin{margin-top:64px}
+.credits .cbig{font-family:"Archivo",sans-serif;font-weight:800;font-size:clamp(22px,4vw,32px);color:var(--gold)}
+.credits .cthanks{margin-top:64px;color:var(--faint);font-size:13px;letter-spacing:.14em;text-transform:uppercase}
+
+/* narration caption (subtitles) */
+.caption{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;z-index:6;
+  max-width:min(760px,calc(100vw - 40px));text-align:center;
+  font-family:var(--mono);font-size:14px;line-height:1.5;color:#fff4dd;
+  background:rgba(8,9,14,.72);backdrop-filter:blur(8px);border:1px solid var(--line);
+  border-radius:12px;padding:10px 18px;box-shadow:0 12px 40px rgba(0,0,0,.5);
+  display:flex;align-items:center;gap:9px;animation:capIn .3s both}
+.caption .capdot{width:7px;height:7px;border-radius:50%;background:var(--gold);flex:none;
+  box-shadow:0 0 10px var(--gold);animation:blink 1.4s ease-in-out infinite}
+@keyframes capIn{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translate(-50%,0)}}
+@media (max-width:820px){.caption{bottom:78px;font-size:12.5px;padding:10px 16px;
+  max-width:calc(100vw - 20px);width:calc(100vw - 20px)}}
+
+/* ---- module surface overlay (incident.io-style real UI) ---- */
+.surface{position:fixed;right:0;top:0;bottom:0;z-index:3;width:min(58%,760px);
+  display:flex;align-items:center;justify-content:center;padding:clamp(24px,4vw,64px);
+  transform:translateX(6%);opacity:0;pointer-events:none;transition:opacity .5s ease,transform .5s cubic-bezier(.2,.7,.2,1)}
+.surface.on{opacity:1;transform:none;pointer-events:auto}
+.win{width:100%;max-width:560px;border-radius:14px;overflow:hidden;background:#12141c;border:1px solid var(--line);
+  box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.win .tb{display:flex;align-items:center;gap:6px;padding:10px 13px;background:rgba(255,255,255,.03);border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;color:var(--faint)}
+.win .tb i{width:9px;height:9px;border-radius:50%;background:#33384a}
+.win .tb .t{margin-left:8px}
+.win .bd{padding:16px 18px}
+
+/* ---- syllabus (home) ---- */
+.syllabus{position:fixed;inset:0;z-index:5;overflow-y:auto;display:flex}
+.syllabus .in{margin:auto;max-width:900px;width:100%;padding:clamp(40px,8vh,110px) clamp(24px,5vw,64px)}
+.syllabus .eye{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold)}
+.syllabus h1{font-size:clamp(44px,9vw,104px);font-weight:900;letter-spacing:-.04em;line-height:.92;margin:14px 0 0}
+.syllabus .lede{color:var(--muted);font-size:clamp(15px,2vw,20px);max-width:56ch;margin-top:20px;line-height:1.55}
+.syllabus .list{margin-top:44px;border-top:1px solid var(--line)}
+.syllabus .row{display:flex;align-items:baseline;gap:18px;width:100%;background:none;border:0;border-bottom:1px solid var(--line);
+  cursor:pointer;color:var(--ink);padding:18px 6px;text-align:left;transition:padding-left .2s,background .2s}
+.syllabus .row:hover{padding-left:16px;background:rgba(232,173,60,.05)}
+.syllabus .row .mk{font-family:var(--mono);font-size:12px;color:var(--gold);width:28px;flex:none}
+.syllabus .row .ti{font-family:var(--disp);font-weight:700;font-size:clamp(17px,2.4vw,24px)}
+.syllabus .row .go{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--faint)}
+.syllabus .row:hover .go{color:var(--gold)}
+
+@media (max-width:820px){
+  .rail{display:none}
+  .scrim{background:linear-gradient(180deg,rgba(8,9,14,.86) 0%,rgba(8,9,14,.5) 46%,rgba(8,9,14,.6) 100%)}
+  /* reel becomes a flex column: compact story on top, surface takes ALL the
+     rest and scrolls only when its content overflows (so the terminal is as
+     large as it can be before scrolling). */
+  .reelwrap{position:fixed;left:0;right:0;top:0;bottom:calc(58px + env(safe-area-inset-bottom,0px));
+    z-index:3;display:flex;flex-direction:column;pointer-events:none}
+  .story{position:static;flex:0 0 auto;left:auto;right:auto;top:auto;bottom:auto;width:auto;height:auto;
+    justify-content:flex-start;padding:calc(env(safe-area-inset-top,0px) + 20px) 20px 10px;gap:8px}
+  .story h2{font-size:clamp(24px,7vw,32px)}
+  .story .body{max-width:none} .story .body p{font-size:14px}
+  .surface{position:static;flex:1 1 auto;min-height:0;left:auto;right:auto;top:auto;bottom:auto;width:auto;
+    max-height:none;display:block;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+    padding:0 14px 6px;pointer-events:auto;transform:translateY(6%)}
+  .surface.on{transform:none}
+  .controls{padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+}
+
+/* ---- terminal surface (real TUI) ---- */
+.term{width:100%;border-radius:12px;overflow:hidden;background:#0c0d13;border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.term .tb{display:flex;align-items:center;gap:6px;padding:10px 13px;background:rgba(255,255,255,.03);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--faint)}
+.term .tb i{width:9px;height:9px;border-radius:50%;background:#33384a}
+.term .tb .t{margin-left:8px}
+.term .tbody{margin:0;padding:14px 16px;font-family:var(--mono);font-size:11px;line-height:1.5;color:#c9c7be;overflow-x:auto;white-space:pre}
+.term .tln{opacity:0;animation:beatIn .4s both}
+.term .beeln{color:#8a6a2a} .term .gold{color:#e8ad3c} .term .dim{color:#6d7186}
+.term .ok{color:#5ecb8f} .term .work{color:#efb045} .term .di{color:#c9c7be} .term .cmp{color:#e8ad3c}
+
+/* wrapping terminal body (chat-style TUI that fits any width) */
+.term .tbody.wrap{white-space:normal;overflow-x:hidden}
+.term .beeblock{margin:0;color:#8a6a2a;font-size:.82em;line-height:1.25;overflow-x:auto;white-space:pre}
+.term .troom{margin-top:10px} .term .troom .dim{margin-right:6px}
+.term .tnote{font-size:.92em;margin-top:2px}
+.term .tmsgs{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.term .tmsg{border-left:2px solid var(--gold);padding:2px 0 2px 12px;opacity:0;animation:beatIn .45s both}
+.term .tmsg-h{color:#e8ad3c;font-size:.92em}
+.term .tmsg-b{color:#c9c7be;margin-top:3px;line-height:1.5}
+.term .tstatus{margin-top:16px} .term .cmp{margin-top:6px;color:#e8ad3c}
+
+/* hex labels (emblem + name) floating on each tile */
+.hexlabel{display:flex;flex-direction:column;align-items:center;gap:5px;width:70px;
+  transition:opacity .4s;pointer-events:none;user-select:none;text-align:center}
+.hexlabel.hide{opacity:0} .hexlabel.dim{opacity:.32}
+.hexlabel svg{width:36px;height:36px;stroke:#fff4dd;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))}
+.hexlabel span{font-family:var(--mono);font-size:11px;color:#fff4dd;font-weight:500;letter-spacing:.03em;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+
+/* CLI capture lines */
+.term .tbody.cli{white-space:pre-wrap;word-break:break-word}
+.term .cliln{opacity:0;animation:beatIn .35s both}
+.term .cliln.cmd{color:#e8ad3c} .term .cliln.ok{color:#5ecb8f} .term .cliln.bad{color:#f0664c} .term .cliln.dim{color:#6d7186}
+
+/* AAA typed terminal replay */
+.term.typed .tbody{white-space:normal;overflow-x:hidden}
+.term.typed .tblock{margin:0 0 12px}
+.term.typed .cline{white-space:pre-wrap;word-break:break-word;color:#f3efe6}
+.term.typed .prompt{color:#5ecb8f;font-weight:600;user-select:none}
+.term.typed .bin{color:#e8ad3c;font-weight:600}
+.term.typed .args{color:#e9e6dc}
+.term.typed .oline{white-space:pre-wrap;word-break:break-word;color:#b9c0cc;padding-left:14px;
+  border-left:1px solid rgba(255,255,255,.05);animation:outIn .28s both}
+.term.typed .oline.ok{color:#63d69a} .term.typed .oline.bad{color:#f0664c} .term.typed .oline.dim{color:#6d7186}
+.term.typed .caret{display:inline-block;width:7px;height:1.05em;vertical-align:-2px;margin-left:2px;
+  background:var(--gold);animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+@keyframes outIn{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+
+/* apiary — the real TUI (rounded boxes, per-sender colors, sigils) */
+.term.ap .apbody{padding:14px 16px;font-family:var(--mono);font-size:11px;line-height:1.5;
+  color:#b0b7c4;overflow-x:hidden;background:#0c0d13}
+.term.ap .apbanner{margin:0 0 10px;font-size:.82em;line-height:1.15;white-space:pre;overflow-x:auto}
+.term.ap .aproom{margin:0 0 12px;letter-spacing:.02em}
+.term.ap .apmsg{border:1px solid;border-radius:9px;padding:6px 11px;margin:0 0 9px;
+  background:rgba(255,255,255,.012);animation:apIn .4s both}
+.term.ap .aph{margin-bottom:2px}
+.term.ap .apc{white-space:pre-wrap;word-break:break-word}
+.term.ap .mcode{font-family:var(--mono);background:rgba(255,255,255,.06);color:#e6c98a;
+  padding:0 4px;border-radius:4px}
+.term.ap .apcmp{margin-top:12px}
+.term.ap .apcaret{display:inline-block;width:7px;height:1em;vertical-align:-2px;margin-left:3px;
+  background:#34d399;animation:blink 1s steps(1) infinite}
+@keyframes apIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* the seldon stack — finale, all six together e2e */
+.term.stack .stbody{padding:16px 18px;font-family:var(--mono);font-size:12px;color:#c9c7be}
+.term.stack .stflow{list-style:none;margin:0;padding:0;position:relative}
+.term.stack .stflow::before{content:"";position:absolute;left:19px;top:14px;bottom:14px;width:2px;
+  background:linear-gradient(180deg,#e8ad3c,#34d399,#b794f4,#ff8c42,#5fb0d6,#35C8FF);opacity:.35}
+.term.stack .strow{display:flex;gap:13px;align-items:flex-start;padding:7px 0;position:relative;
+  opacity:.28;filter:saturate(.4);transition:opacity .45s,filter .45s}
+.term.stack .strow.live{opacity:1;filter:none}
+.term.stack .stbadge{flex:none;width:40px;height:40px;border-radius:50%;border:1.5px solid;
+  display:grid;place-items:center;background:#0c0d13;box-shadow:0 0 0 4px #0c0d13, 0 0 22px -6px var(--a);z-index:1}
+.term.stack .stbadge svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.term.stack .stmeta{padding-top:2px}
+.term.stack .sthead{display:flex;align-items:baseline;gap:9px}
+.term.stack .sthead b{font-weight:600;font-size:13px}
+.term.stack .strole{color:#6d7186;font-size:11px}
+.term.stack .stdid{color:#c2c8d2;margin-top:2px;line-height:1.45}
+.term.stack .stship{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+  background:rgba(232,173,60,.05);opacity:0;transform:translateY(6px);transition:opacity .5s,transform .5s}
+.term.stack .stship.on{opacity:1;transform:none}
+.term.stack .stcmd{color:#f3efe6} .term.stack .stcmd .p{color:#5ecb8f} .term.stack .stcmd .b{color:#e8ad3c;font-weight:600}
+.term.stack .stout{color:#63d69a;margin-top:2px}
+.term.stack .stlive{display:flex;align-items:center;gap:8px;margin-top:9px;padding-top:9px;
+  border-top:1px solid var(--line);color:#e8ad3c;font-size:11.5px;letter-spacing:.02em}
+.term.stack .dotlive{width:7px;height:7px;border-radius:50%;background:#5ecb8f;box-shadow:0 0 9px #5ecb8f;animation:blink 1.4s ease-in-out infinite}
+
+/* composable — take one out */
+.term.apart .apbody2{padding:14px 16px;font-family:var(--mono);font-size:12px;color:#c9c7be}
+.term.apart .aprow{display:flex;gap:13px;align-items:flex-start;padding:7px 0;
+  opacity:.28;filter:saturate(.4);transition:opacity .4s,filter .4s}
+.term.apart .aprow.live{opacity:1;filter:none}
+.term.apart .apbadge{position:relative;flex:none;width:38px;height:38px;border-radius:50%;border:1.5px solid;
+  display:grid;place-items:center;background:#0c0d13}
+.term.apart .apbadge svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.5}
+.term.apart .apx{position:absolute;right:-3px;top:-3px;width:16px;height:16px;border-radius:50%;
+  background:#f0664c;color:#0c0d13;font-weight:700;font-size:13px;display:grid;place-items:center;line-height:1}
+.term.apart .apmeta{padding-top:1px}
+.term.apart .aphead{font-size:13px}
+.term.apart .apminus{color:#6d7186}
+.term.apart .apbecomes{color:#d0d5de;margin-top:2px;line-height:1.45}
+.term.apart .apjob{color:#8a8f9c;margin-top:2px;font-size:11.5px}
+.term.apart .apgood{color:#5ecb8f;text-transform:uppercase;letter-spacing:.1em;font-size:10px}
+.term.apart .apnote{margin-top:12px;padding-top:11px;border-top:1px solid var(--line);
+  color:var(--gold);font-size:12px;letter-spacing:.02em}
+
+/* Demerzel — her real UI (own palette, state-driven accent) */
+.term.dz{background:#05080b;--fg:#c9dcef;--dim:#54697f;--line:#141d27;--line-lit:#22303f;--mine:#FF9E3D;
+  display:flex;flex-direction:column;padding:16px 18px;font-family:var(--mono);font-size:12px;color:var(--fg);min-height:340px}
+.term.dz .dzid{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.term.dz .dzid b{font-weight:500;font-size:13px;color:var(--fg)}
+.term.dz .dzid i{font-style:normal;color:var(--dim);font-size:11px;transition:color .4s}
+.term.dz .dzdot{width:6px;height:6px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 10px var(--accent);transition:background .4s,box-shadow .4s;align-self:center}
+.term.dz .dzspacer{flex:1}
+.term.dz .dzread{font-size:11px;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
+.term.dz .dzstage{display:grid;place-items:center;padding:8px 0 12px}
+.term.dz .dzcanvas{width:190px;height:190px;display:block}
+.term.dz .dzlog{display:flex;flex-direction:column;gap:8px;flex:1;min-height:70px;
+  justify-content:flex-end;overflow:hidden}
+.term.dz .dzmsg{margin:0;padding:6px 11px;max-width:88%;line-height:1.5;border-left:2px solid var(--c);
+  background:color-mix(in oklab,var(--c) 8%,transparent);animation:apIn .32s both}
+.term.dz .dzmsg.them{align-self:flex-start}
+.term.dz .dzmsg.me{--c:var(--mine);align-self:flex-end}
+.term.dz .dzmsg.me .dztxt{opacity:.9}
+.term.dz .dzmsg.unprompted{border-left-width:4px;background:color-mix(in oklab,var(--c) 15%,transparent)}
+.term.dz .dzwho{display:block;font-size:10px;letter-spacing:.14em;color:var(--c);margin-bottom:2px;opacity:.85}
+.term.dz .dztxt{display:block;color:var(--fg)}
+.term.dz .dzmsg.pending .dztxt::after{content:"";display:inline-block;width:.45em;height:1em;margin-left:.15em;
+  background:var(--c);vertical-align:-.15em;animation:blink 1s steps(2) infinite}
+.term.dz .dzrail{display:flex;align-items:center;gap:18px;margin-top:14px;padding-top:10px;border-top:1px solid var(--line)}
+.term.dz .dzbtn{font:inherit;font-size:12px;color:var(--dim);background:none;border:0;padding:2px 0;cursor:default}
+.term.dz .dzbtn.prim{color:var(--fg);display:inline-flex;align-items:center;gap:7px}
+.term.dz .dzbtn.prim::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 6px var(--accent);transition:background .4s}
+
+/* Demerzel voice UI */
+.voiceui .vwave{display:flex;align-items:center;gap:3px;height:56px;margin:6px 0 14px}
+.voiceui .vwave span{flex:1;background:linear-gradient(180deg,var(--gold-hi),var(--gold));border-radius:2px;height:20%;
+  animation:vbar 1s ease-in-out infinite alternate}
+@keyframes vbar{to{height:100%}}
+.voiceui .vstate{font-family:var(--mono);font-size:12px;color:#c9c7be;margin-bottom:14px}
+.voiceui .vturn{display:flex;flex-direction:column;gap:10px;font-size:13.5px;line-height:1.5}
+.voiceui .vyou{color:#a7a596} .voiceui .vher{color:#f3efe6}
+.voiceui .vmeta{font-family:var(--mono);font-size:10.5px;margin-top:16px}
+@media (prefers-reduced-motion:reduce){.voiceui .vwave span{animation:none;height:50%}}
+
+/* ---- mobile surface internals: LAST so they beat the base .term/.tbody rules
+   (a media query adds no specificity, so an earlier one loses to later base
+   selectors — the same trap this file hit before). ---- */
+@media (max-width:820px){
+  .term,.win{max-width:none;max-height:none;overflow:visible;box-shadow:0 18px 50px rgba(0,0,0,.55)}
+  .term .tbody{font-size:11px;line-height:1.55;padding:13px}
+  .term.ap .apbody,.term.stack .stbody{font-size:11px;padding:13px}
+  .term.dz{min-height:0;font-size:11px}
+  .term.dz .dzstage{padding:6px 0 10px}
+  .term.dz .dzcanvas{width:150px;height:150px}
+}

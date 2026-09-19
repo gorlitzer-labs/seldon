@@ -1,0 +1,273 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Demerzel</title>
+<link rel="icon" href="data:,">
+<style>
+  /* The console fills the viewport and never scrolls. Everything that is an
+     ACTION opens a modal; everything that is a STATUS becomes a toast. The page
+     itself holds only the instrument, the log, and the rail -- previously all
+     three plus a voices form stacked into one tall scroll with the avatar cut
+     off the top. */
+  :root{
+    --ink:#05080b; --line:#141d27; --line-lit:#22303f;
+    --fg:#c9dcef; --dim:#54697f;
+    --accent:#4a6377;            /* offline; JS drives this from her state */
+    --mine:#FF9E3D;
+    --pad:clamp(.7rem, 2.5vw, 2rem);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;overflow:hidden}
+  body{
+    margin:0;background:var(--ink);color:var(--fg);
+    font:13px/1.6 ui-monospace,"SF Mono",Menlo,monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* Mobile first: one column, instrument over log over rail.
+     A single 30rem column was the only layout, which wasted two thirds of a
+     desktop window and made the log a 12rem letterbox. */
+  /* Mobile: the stage is sized to CONTENT (a square) and the log takes what is
+     left. It used to be the other way round -- the stage took 1fr, and because
+     the core is circular and sized by the narrower axis, a 358x525 cell left
+     about 167px of dead space above and below it while the log sat in a 192px
+     strip. */
+  main{
+    height:100dvh;padding:var(--pad);margin:0 auto;width:min(30rem,100%);
+    display:grid;gap:.6rem;
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto auto minmax(0,1fr) auto;
+    grid-template-areas:"id" "stage" "log" "rail";
+  }
+  .id{grid-area:id} .stage{grid-area:stage} #log{grid-area:log} .rail{grid-area:rail}
+
+  .stage{min-height:0;min-width:0;display:grid;place-items:center}
+  /* Square: the drawing is circular, so a non-square canvas is only padding.
+     Capped by viewport height as well as width so a tall phone does not get a
+     giant core and a two-line log. */
+  #avatar{display:none;aspect-ratio:1;width:100%;height:auto;
+          max-width:100%;max-height:min(46vh,100%)}
+  body[data-avatar=on] #avatar{display:block}
+  body[data-avatar=on] #orb{display:none}
+  #orb{width:64px;height:64px;border-radius:50%;
+       background:radial-gradient(circle at 35% 30%,#1c2b3a,#0a1017 70%)}
+
+  /* --- log: framed channels, fixed identity colours --- */
+  /* A terminal, not a panel: newest message sits flush against the rail and
+     older ones scroll off the top. The mask fades the overflow so a partly
+     visible message reads as scrolled rather than chopped in half, which is
+     what a hard max-height looked like. */
+  /* Bottom-anchored via margin-top:auto on the first child, NOT
+     justify-content:flex-end. flex-end on a scrollable flex container clips
+     overflow at the start edge unreachably: scrollHeight equals clientHeight
+     while the earliest messages sit above the top with no way to scroll to
+     them. Measured 253px of content lost that way. */
+  /* No fixed cap: the log owns the flexible grid row and grows into whatever
+     the square core leaves behind. */
+  #log{display:flex;flex-direction:column;gap:.5rem;
+       min-height:0;overflow-y:auto;overscroll-behavior:contain;
+       scrollbar-width:none}
+  /* Mobile top-anchors: the conversation starts directly under the core, so
+     short content leaves its slack above the rail instead of opening a gap
+     between the instrument and the first message. Desktop bottom-anchors
+     (below) because there the log owns a tall column of its own and keeping
+     the newest line beside the rail is what a console does. */
+  #log::-webkit-scrollbar{display:none}
+  /* The fade only means something when there is actually more above. */
+  #log[data-over]{mask-image:linear-gradient(to bottom,transparent,#000 2rem);
+       -webkit-mask-image:linear-gradient(to bottom,transparent,#000 2rem)}
+  .msg{--c:#35C8FF;
+       margin:0;padding:.42rem .7rem;max-width:88%;line-height:1.5;
+       border-left:2px solid var(--c);
+       background:color-mix(in oklab, var(--c) 8%, transparent);
+       transition:background .3s}
+  .msg .who{display:block;font-size:10px;letter-spacing:.14em;
+            color:var(--c);margin-bottom:.2rem;opacity:.85}
+  .msg .txt{display:block;color:var(--fg)}
+  .msg.them{align-self:flex-start}
+  .msg.me{--c:var(--mine);align-self:flex-end}
+  .msg.me .txt{opacity:.85}
+  .msg.unprompted{border-left-width:4px;
+       background:color-mix(in oklab, var(--c) 14%, transparent)}
+  .msg.alert{--c:#FF4D6D}
+  .msg.pending .txt::after{content:"";display:inline-block;width:.45em;height:1em;
+       margin-left:.15em;background:var(--c);vertical-align:-.15em;
+       animation:cursor 1s steps(2) infinite}
+  @keyframes cursor{50%{opacity:0}}
+
+  /* --- rail --- */
+  .rail{display:flex;align-items:center;gap:1.1rem;
+        padding-top:.8rem;border-top:1px solid var(--line)}
+  .rail .spacer{flex:1}
+  /* --- one button system ---
+     Everything clickable is .btn plus at most one modifier. Previously these
+     were styled by id and element with ad-hoc overrides, so the rail, the sheet
+     and the roster all drifted apart. */
+  .btn{
+    font:inherit;font-size:12px;line-height:1.4;
+    color:var(--dim);background:none;border:0;border-bottom:1px solid transparent;
+    padding:.2rem 0;cursor:pointer;
+    display:inline-flex;align-items:center;gap:.45rem;
+    transition:color .15s,border-color .15s,opacity .15s;
+  }
+  .btn:hover:not(:disabled){color:var(--fg);border-bottom-color:var(--line-lit)}
+  .btn:focus-visible{outline:1px solid var(--accent);outline-offset:3px;border-radius:1px}
+  .btn:disabled{opacity:.35;cursor:default}
+  /* the one action you press first, marked by a lit dot echoing the core */
+  .btn--primary{color:var(--fg)}
+  .btn--primary::before{content:"";width:6px;height:6px;border-radius:50%;
+      background:var(--accent);box-shadow:0 0 6px var(--accent);
+      transition:background .4s,box-shadow .4s}
+  .btn--primary:disabled{opacity:1;color:var(--dim)}
+  /* destructive, and quiet until you reach for it */
+  .btn--danger:hover:not(:disabled){color:#FF4D6D;border-bottom-color:#FF4D6D55}
+
+  /* --- toasts: transient status, never in the layout --- */
+  #toasts{position:fixed;top:var(--pad);right:var(--pad);z-index:20;
+          display:flex;flex-direction:column;gap:.4rem;
+          width:min(20rem,calc(100vw - 2*var(--pad)));pointer-events:none}
+  .toast{--c:var(--accent);pointer-events:auto;
+         padding:.5rem .7rem;font-size:12px;line-height:1.45;
+         border-left:2px solid var(--c);background:#0b1219;
+         box-shadow:0 6px 20px -8px #000;
+         animation:toastin .18s ease-out}
+  .toast.bad{--c:#FF4D6D}
+  .toast.good{--c:#18E08A}
+  .toast .k{display:block;font-size:10px;letter-spacing:.14em;color:var(--c);
+            margin-bottom:.15rem}
+  @keyframes toastin{from{opacity:0;transform:translateY(-4px)}}
+
+  /* --- modal: actions live here --- */
+  dialog{border:0;padding:0;background:none;max-width:none;max-height:none}
+  dialog::backdrop{background:#03060990;backdrop-filter:blur(3px)}
+  .sheet{width:min(26rem,calc(100vw - 2*var(--pad)));background:#080d13;
+         border:1px solid var(--line-lit);padding:1.1rem 1.2rem 1.2rem;
+         color:var(--fg);font:inherit}
+  .sheet h2{font-size:12px;font-weight:500;letter-spacing:.1em;color:var(--dim);
+            margin:0 0 .9rem;display:flex;align-items:center}
+  .sheet h2 .spacer{flex:1}
+  #roster{list-style:none;padding:0;margin:0 0 1rem;font-size:12px}
+  #roster li{display:grid;grid-template-columns:1fr auto auto auto;gap:.7rem;
+             align-items:center;padding:.35rem 0;border-bottom:1px solid var(--line)}
+  #roster li:last-child{border-bottom:0}
+  #roster .pname{color:var(--c,var(--fg))}
+  #roster .mark{font-size:11px;color:var(--dim)}
+  #roster .mark.owner{color:var(--mine)}
+  #roster .q{color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums}
+  #roster .none{display:block;color:var(--dim)}
+  .enrol{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;font-size:12px;
+         padding-top:.9rem;border-top:1px solid var(--line)}
+  .enrol input[type=text]{font:inherit;font-size:12px;background:none;color:var(--fg);
+         border:0;border-bottom:1px solid var(--line-lit);padding:.25rem 0;width:8rem}
+  .enrol input[type=text]::placeholder{color:var(--dim)}
+  .enrol input[type=text]:focus{outline:0;border-bottom-color:var(--accent)}
+  .enrol label{color:var(--dim);display:inline-flex;align-items:center;gap:.35rem;
+               cursor:pointer}
+  .enrol input[type=checkbox]{accent-color:var(--mine);margin:0}
+  .enrol .spacer{flex:1}
+  #phrases{margin:1rem 0 0;padding:0;list-style:none;font-size:12px;counter-reset:p}
+  #phrases li{color:var(--dim);padding:.24rem 0 .24rem 1.5rem;position:relative}
+  #phrases li::before{counter-increment:p;content:counter(p);position:absolute;left:0;
+                      color:var(--line-lit);font-size:11px}
+  #phrases li.now{color:var(--fg)}
+  #phrases li.now::before{color:var(--accent)}
+  #phrases li.done{opacity:.35;text-decoration:line-through}
+
+  /* --- layout overrides last ---
+     These were declared mid-sheet and silently cancelled: a media query has
+     no extra specificity, so a later base rule with the same selector wins.
+     #log{max-height:12rem} sat below them and pinned the desktop log to a
+     192px strip. Overrides go after everything they override. */
+  /* Desktop: instrument and log side by side, rail spanning both. The log gets
+     the full column height instead of a fixed strip, so a long reply is
+     readable without scrolling. */
+  @media (min-width:56rem) and (min-height:34rem){
+    main{
+      width:min(72rem,100%);
+      grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+      grid-template-rows:auto minmax(0,1fr) auto;
+      grid-template-areas:"id id" "stage log" "rail rail";
+      column-gap:clamp(1.25rem,3vw,2.5rem);
+    }
+    /* Side by side there is a whole column of height to fill, so let the square
+       grow into it rather than capping at 46vh. */
+    #avatar{max-height:100%}
+    #log{max-height:none;height:100%;padding-right:.25rem}
+    #log > :first-child{margin-top:auto}
+  }
+
+  /* Short and wide (a laptop in landscape, a phone on its side): the
+     instrument shrinks before the log does, since the log carries the words. */
+  /* Short and wide: the core gives up height first, the log keeps the words. */
+  @media (max-height:33rem){
+    #avatar{max-height:min(34vh,100%)}
+  }
+
+  .id{display:flex;align-items:baseline;gap:.6rem}
+  .id b{font-weight:500;font-size:13px}
+  .id i{font-style:normal;color:var(--dim);font-size:11px}
+  .id .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);
+           box-shadow:0 0 8px var(--accent);transition:background .4s,box-shadow .4s}
+  .id .spacer{flex:1}
+  .id #readout{font-size:11px;color:var(--dim);white-space:nowrap}
+  /* Whether she is waiting for her name or already in a conversation. This is
+     the single most useful thing to know at a glance. */
+  .id #attn{font-size:10px;letter-spacing:.12em;color:var(--dim);
+            padding:.1rem .4rem;border:1px solid var(--line);border-radius:2px}
+  .id #attn[data-s=open],.id #attn[data-s=held]{color:var(--accent);
+            border-color:color-mix(in oklab,var(--accent) 45%,transparent)}
+  /* Whether a voice check is active. She cannot fail closed with nobody
+     enrolled -- enrolling requires her to hear you -- so the honest fix is to
+     never let that be invisible. */
+  .id #guard{font-size:10px;letter-spacing:.12em;padding:.1rem .4rem;
+             border:1px solid var(--line);border-radius:2px;cursor:pointer}
+  .id #guard[data-on="0"]{color:var(--mine);
+             border-color:color-mix(in oklab,var(--mine) 45%,transparent)}
+  .id #guard[data-on="1"]{color:var(--dim)}
+  /* Overheard speech: logged so you can see she heard it, but visibly not a turn. */
+  .msg.overheard{--c:var(--line-lit);opacity:.6}
+  .msg.overheard .txt{font-style:italic}
+
+  /* The instrument takes whatever vertical space is left, so it is never cut
+     off and never needs scrolling to. */
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+<main>
+  <div class="id">
+    <span class="dot"></span><b>Demerzel</b><i id="state">offline</i>
+    <span id="attn"></span>
+    <span id="guard"></span>
+    <span class="spacer"></span><span id="readout"></span>
+  </div>
+
+  <div class="stage">
+    <canvas id="avatar" width="480" height="480"></canvas>
+    <div id="orb"></div>
+  </div>
+
+  <div id="log" aria-live="polite"></div>
+
+  <div class="rail">
+    <button id="go" class="btn btn--primary">listen</button>
+    <button id="stop" class="btn">interrupt</button>
+    <button id="clear" class="btn">clear</button>
+    <span class="spacer"></span>
+    <button id="voices" class="btn">voices</button>
+  </div>
+</main>
+
+<div id="toasts" aria-live="polite"></div>
+
+<dialog id="voicesheet">
+  <div class="sheet">
+    <h2>Voices <span class="spacer"></span><button id="sheetclose" class="btn">close</button></h2>
+    <ul id="roster"></ul>
+    <div class="enrol">
+      <input id="ename" type="text" placeholder="name" maxlength="40" autocomplete="off">
+      <label><input id="eowner" type="checkbox"> can answer the factory</label>
+      <span class="spacer"></span>
+      <button id="enrol" class="btn btn--primary">enrol</button>
+      <button id="ecancel" class="btn" hidden>cancel</button>
+    </div>
+    <ol id="phrases" hidden></ol>
+  </div>
+</dialog>
+<script type="module" src="./demerzel.js"></script>

@@ -1,0 +1,17 @@
+{
+  "turns": [
+    {
+      "stt_ms": 293.5173749999933,
+      "ttft_ms": 590.6771249999991,
+      "first_audio_ms": 1351.6920839999925
+    },
+    {
+      "stt_ms": 285.41454199999805,
+      "ttft_ms": 580.2542920000064,
+      "first_audio_ms": 1379.4988750000102
+    }
+  ],
+  "steady_endpoint_to_word_ms": 1379.4988750000102,
+  "hangover_ms": 576.0,
+  "steady_from_last_word_ms": 1955.4988750000102
+}

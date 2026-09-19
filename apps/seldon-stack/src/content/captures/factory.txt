@@ -1,0 +1,15 @@
+$ factory realms
+🌐 realms (from bifrost)
+  ● zanpakuto  gorlitzer@zanpakuto
+
+$ factory box doctor ~/weather-cli
+📦 box doctor
+   sealed    .ssh
+   sealed    .aws
+   sealed    .config/gh
+   sealed    .codex
+   sealed    .claude
+   ---
+   work mount OK
+
+   every host secret is sealed off from the box

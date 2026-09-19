@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+models/
+*.onnx
+.playwright-mcp/
+spikes/*.wav
+transcript.txt
+recordings/
