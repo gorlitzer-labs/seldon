@@ -1,0 +1,20 @@
+{
+  "name": "@gorlitzer-labs/seldon-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Seldon stack — one repo, six composable AI-agent tools + the installer and the 3D teardown.",
+  "type": "module",
+  "workspaces": [
+    "modules/apiary",
+    "modules/foundation",
+    "modules/comb",
+    "modules/factory",
+    "tools/seldon",
+    "apps/seldon-stack"
+  ],
+  "scripts": {
+    "publish:all": "node tools/seldon/scripts/publish-all.mjs",
+    "postinstall": "echo 'Seldon monorepo ready. Run `node tools/seldon/bin/seldon.js --help`.'"
+  },
+  "license": "MIT"
+}

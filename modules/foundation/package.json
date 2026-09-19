@@ -27,5 +27,8 @@
     "deterministic"
   ],
   "author": "Franco Berardi",
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }

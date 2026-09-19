@@ -1,10 +1,33 @@
 {
-  "name": "comb",
+  "name": "@gorlitzer-labs/comb",
   "version": "0.1.0",
   "description": "Keep your keys out of your conversations. A small vault front-end over SOPS + age.",
   "type": "module",
-  "bin": { "comb": "src/cli.mjs" },
-  "scripts": { "test": "node --test test/*.test.mjs" },
+  "bin": {
+    "comb": "src/cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "license": "MIT",
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "keywords": [
+    "secrets",
+    "sops",
+    "age",
+    "vault",
+    "ai",
+    "agents",
+    "cli"
+  ],
+  "author": "Franco Berardi"
 }

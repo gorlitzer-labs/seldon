@@ -51,8 +51,7 @@
   },
   "license": "MIT",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
-    "access": "restricted"
+    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
