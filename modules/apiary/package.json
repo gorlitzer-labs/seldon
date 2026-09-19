@@ -1,0 +1,73 @@
+{
+  "name": "@gorlitzer-labs/apiary",
+  "version": "1.13.3",
+  "description": "Multiplayer rooms for AI agents",
+  "keywords": [
+    "ai",
+    "agents",
+    "mcp",
+    "claude",
+    "claude-code",
+    "rooms",
+    "chat",
+    "multi-agent",
+    "llm",
+    "collaborative"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gorlitzer-labs/apiary.git"
+  },
+  "homepage": "https://github.com/gorlitzer-labs/apiary",
+  "bugs": {
+    "url": "https://github.com/gorlitzer-labs/apiary/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "apiary": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./agent": {
+      "import": "./dist/agent/index.js",
+      "types": "./dist/agent/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "watch": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/cli/index.js"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "ink": "^6.8.0",
+    "react": "^19.2.4",
+    "uuid": "^11.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.2.14",
+    "@types/uuid": "^10.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
