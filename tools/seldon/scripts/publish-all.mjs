@@ -3,6 +3,7 @@
 // Order matters: apiary + foundation before factory (which depends on them).
 import { execSync } from "node:child_process";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const ORDER = ["modules/apiary", "modules/foundation", "modules/comb", "modules/factory", "tools/seldon"];
@@ -13,7 +14,8 @@ for (const dir of ORDER) {
   const abs = path.join(ROOT, dir);
   const pj = JSON.parse(execSync(`cat ${path.join(abs, "package.json")}`));
   console.log(`\n▸ ${pj.name}@${pj.version}`);
-  if (pj.scripts?.build) execSync("npm run build", { cwd: abs, stdio: "inherit" });
-  execSync(`npm publish --access public${dry ? " --dry-run" : ""}`, { cwd: abs, stdio: "inherit" });
+  if (pj.scripts?.build && !existsSync(path.join(abs, "dist")))
+    execSync(`npm run build -w ${dir}`, { cwd: ROOT, stdio: "inherit" });
+  execSync(`npm publish -w ${dir} --access public${dry ? " --dry-run" : ""}`, { cwd: ROOT, stdio: "inherit" });
 }
 console.log("\nAll published.");
