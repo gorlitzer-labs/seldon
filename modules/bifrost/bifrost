@@ -929,22 +929,10 @@ mode_sync() {
   done
 }
 
-# Colors — ANSI 24-bit escape sequences for iTerm2
-# Heimdall: dark background (default)
-# Realms:   tinted backgrounds so you never forget where you are
-LOCAL_BG="0;0;0"          # black
-REMOTE_BG="40;10;10"      # dark red tint
-
 # ── Helpers ───────────────────────────────────────────────────────
-
-set_iterm_bg() {
-  local r=$1 g=$2 b=$3
-  printf "\033]1337;SetColors=bg=%02x/%02x/%02x\007" "$r" "$g" "$b"
-}
-
-iterm_set_tab_title() {
-  printf "\033]1;%s\007" "$1"
-}
+# Realm background tints (the dark-red/blue/… grid colours) are emitted
+# inline as `printf '\033]1337;SetColors=bg=...'` inside the AppleScript
+# and reconnect strings below — see REALM_COLORS / build_grid_applescript.
 
 ensure_tmux_session() {
   local host="$1" session="$2"
