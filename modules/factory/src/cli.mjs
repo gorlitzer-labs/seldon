@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// factory — The AI Agentic Factory CLI. Phase 1: the Front Door (`new`).
-// Coming: `watch` (the standalone 24/7 supervisor), `board` (the control panel).
+// factory — The AI Agentic Factory CLI. Dispatches every command:
+// `new` (front door), `watch` (24/7 supervisor), `board`/`state` (control panel),
+// `box` (sandboxed agent), `realms`, `decide`/`briefing` (escalation loop).
 import { c, say, err } from "./lib/log.mjs";
 import { factoryNew } from "./new.mjs";
 import { factoryWatch } from "./watch.mjs";

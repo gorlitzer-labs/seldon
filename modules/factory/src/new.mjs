@@ -6,7 +6,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { c, say, step, ok, warn, err } from "./lib/log.mjs";
+import { c, say, step, ok, warn } from "./lib/log.mjs";
 import { addToRegistry } from "./lib/hive.mjs";
 
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").split("-").slice(0, 4).join("-") || "project";

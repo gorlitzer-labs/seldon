@@ -1,24 +1,47 @@
 # The AI Agentic Factory 🏭
 
 > The suite of tools to **create · manage · maintain** a software factory of AI agents that runs
-> **24/7** under **supervised autonomy**. See [`THE-AGENTIC-FACTORY.md`](../THE-AGENTIC-FACTORY.md)
-> for the full blueprint.
+> **24/7** under **supervised autonomy**. See the
+> [seldon monorepo](https://github.com/gorlitzer-labs/seldon) for the full stack and blueprint.
 
 `factory` is the umbrella CLI — the **front door, the 24/7 supervisor, and the control panel** that
 tie the subsystems into one product.
+
+This module lives in the seldon monorepo at
+[`modules/factory`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/factory)
+(the old standalone repo is gone).
+
+## Install
+
+Published on npm as
+[`@gorlitzer-labs/factory`](https://www.npmjs.com/package/@gorlitzer-labs/factory):
+
+```bash
+npm i -g @gorlitzer-labs/factory
+```
+
+Or install it through the stack installer, which pulls in its `apiary` + `foundation`
+dependencies too:
+
+```bash
+npm i -g @gorlitzer-labs/seldon
+seldon install factory
+```
 
 ## The stack (subsystems)
 
 The Factory assembles four subsystems (each its own repo/layer):
 
-| Subsystem | Repo | Layer |
+| Subsystem | Module | Layer |
 |---|---|---|
-| **apiary** | [`gorlitzer-labs/apiary`](https://github.com/gorlitzer-labs/apiary) | transport — shared rooms/hives for agents |
+| **apiary** | [`modules/apiary`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/apiary) | transport — shared rooms/hives for agents |
 | **Hive Manifest** | `apiary/MANIFEST.md` | protocol — how agents behave (lanes, no-clobber, merge gate) |
-| **Foundation** | [`gorlitzer-labs/foundation`](https://github.com/gorlitzer-labs/foundation) | substrate — the four-file seam + deterministic spine |
+| **Foundation** | [`modules/foundation`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/foundation) | substrate — the four-file seam + deterministic spine |
 | **coord roles** | Claude Code skills + `agent-coord` MCP | orchestration — coordinator / worker / QA / CI / liaison |
 
-`factory` requires `apiary` and `foundation` on PATH (or reachable via `npx github:gorlitzer-labs/...`).
+`factory` requires `apiary` and `foundation` on PATH. `npm i -g @gorlitzer-labs/factory`
+pulls neither, so install them too (`npm i -g @gorlitzer-labs/apiary @gorlitzer-labs/foundation`,
+or `seldon install factory`, which includes both).
 
 ## Commands
 
@@ -26,6 +49,9 @@ The Factory assembles four subsystems (each its own repo/layer):
 factory new "<idea>"          create a line: repo · Foundation · plan · hive
 factory watch <project>       supervise one hive (24/7)   ·   watch --all  supervise every hive
 factory board                 live control panel + decisions pending your call
+factory state                 everything board shows, as JSON (read-only)
+factory box <dir>             run an agent with permissions skipped, inside a box
+factory realms                the machines factory can reach (read from bifrost)
 factory decide <id> "<call>"  answer a pending decision (reaches the agents)
 factory briefing              the accumulating morning briefing
 factory ls                    list every hive the factory knows
@@ -122,7 +148,7 @@ box be both credentialed and sealed. Revoking it is
 | `--agent claude\|codex` | launch that harness with its own permission bypass |
 | `--fresh` | throwaway home — forces a login, useful for testing |
 | `--creds` | mount *your* credential for that agent instead of the fleet's (the unsafe shortcut) |
-| `--with A,B` | hand those secrets to the agent via [comb](https://github.com/gorlitzer-labs/comb) |
+| `--with A,B` | hand those secrets to the agent via [comb](https://github.com/gorlitzer-labs/seldon/tree/main/modules/comb) |
 | `--memory` / `--cpus` | ceilings, default 4g / 2 |
 | `--no-net` | cut the network entirely |
 

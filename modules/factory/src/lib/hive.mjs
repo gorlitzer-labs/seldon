@@ -1,13 +1,10 @@
 // Shared hive registry + state gathering (used by the board; the supervisor reads state inline).
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { shOut, readSafe, count } from "./util.mjs";
 
 const REG = join(homedir(), ".factory", "hives.json");
-const shOut = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch (e) { return (e.stdout || "").toString(); } };
-const readSafe = (p) => (existsSync(p) ? readFileSync(p, "utf8") : "");
-const count = (s, re) => (s.match(re) || []).length;
 
 export function readRegistry() {
   try { return JSON.parse(readFileSync(REG, "utf8")); } catch { return []; }

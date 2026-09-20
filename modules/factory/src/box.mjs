@@ -9,11 +9,11 @@
 // capabilities, a memory and process ceiling, and NO credentials unless asked
 // for by name. The agent inside runs fully unrestricted, which is the point —
 // the restriction is the wall, not the leash.
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import { homedir } from "node:os";
-import { c, say, err } from "./lib/log.mjs";
+import { c, say } from "./lib/log.mjs";
 
 export const IMAGE = "factory-agentbox";
 
