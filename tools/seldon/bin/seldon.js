@@ -184,7 +184,7 @@ function installOne(m, dev) {
   return ok;
 }
 
-function doInstall(ids, { dev } = {}) {
+async function doInstall(ids, { dev } = {}) {
   ids = withRequires(ids);
   console.log(C.bold(`\nInstalling: `) + ids.join(", ") + (dev ? C.dim("  (dev: link from checkout)") : ""));
   console.log(C.bold("\nPreflight:"));
@@ -194,6 +194,8 @@ function doInstall(ids, { dev } = {}) {
   const good = results.filter(([, r]) => r).map(([i]) => i);
   const bad = results.filter(([, r]) => !r).map(([i]) => i);
   console.log("\n" + C.bold("Done. ") + C.green(good.join(", ") || "—") + (bad.length ? "  " + C.red("failed: " + bad.join(", ")) : ""));
+  // demerzel's models are the heavy part — offer to pull them now, at install time.
+  if (good.includes("demerzel")) await ensureDemerzelModels({ ask: true });
 }
 
 // ---- uninstall --------------------------------------------------------------
@@ -314,7 +316,26 @@ function demerzelModelsReady() {
 }
 const demerzelInstalled = () => fs.existsSync(path.join(SELDON_HOME, "demerzel", ".venv", "bin", "python"));
 
-function up() {
+// Fetch demerzel's model set (~25 GB) — offered, never silent. Respects the
+// chosen LLM (DEMERZEL_LLM) so `seldon install demerzel` / `seldon up` pull the
+// model you'll actually run. --models forces yes, --no-models forces skip.
+async function ensureDemerzelModels({ ask = true } = {}) {
+  if (!demerzelInstalled() || !platformOk(byId.demerzel)) return false;
+  if (demerzelModelsReady()) return true;
+  const home = path.join(SELDON_HOME, "demerzel");
+  const force = process.argv.includes("--models");
+  const skip = process.argv.includes("--no-models");
+  let doit = force;
+  if (!doit && !skip) doit = process.stdin.isTTY
+    ? await confirm(C.gold("\n  Download Demerzel's voice models now (~25 GB, one time)? [y/N] "))
+    : false; // never pull 25 GB non-interactively without --models
+  if (!doit) { console.log(C.dim("  models not fetched — the voice stays off until they are (seldon up will offer again).")); return false; }
+  const llm = process.env.DEMERZEL_LLM;
+  console.log(C.dim(`  fetching Demerzel models${llm ? ` (LLM ${llm})` : ""} — ~25 GB, resumable…`));
+  return run(path.join(home, ".venv/bin/python"), [path.join(home, "scripts/fetch-models.py")], { cwd: home, env: { ...process.env } });
+}
+
+async function up() {
   console.log(C.gold("\n  seldon — bringing the stack up\n"));
   const go = [];      // where-to-go lines
   const later = [];   // things that need one action first
@@ -324,10 +345,14 @@ function up() {
   if (demerzelInstalled()) {
     const home = path.join(SELDON_HOME, "demerzel");
     if (!platformOk(dem)) later.push("Voice (demerzel) needs macOS on Apple silicon — skipped here.");
-    else if (!demerzelModelsReady()) later.push(`Voice (demerzel) needs its models once (~25 GB):\n      ${path.join(home, ".venv/bin/python")} ${path.join(home, "scripts/fetch-models.py")}\n      then re-run  seldon up`);
     else {
-      const r = startDaemon("demerzel", path.join(home, ".venv/bin/python"), ["-m", "demerzel.server"], { cwd: home });
-      go.push(`${C.bold("Voice")}   ${C.cyan("http://localhost:8770")}   ${C.dim(r.already ? "(already up)" : "(starting — models load, ~30s)")}`);
+      if (!demerzelModelsReady()) await ensureDemerzelModels({ ask: true });  // offer the fetch inline
+      if (demerzelModelsReady()) {
+        const r = startDaemon("demerzel", path.join(home, ".venv/bin/python"), ["-m", "demerzel.server"], { cwd: home, env: { ...process.env } });
+        go.push(`${C.bold("Voice")}   ${C.cyan("http://localhost:8770")}   ${C.dim(r.already ? "(already up)" : "(starting — models load, ~30s)")}`);
+      } else {
+        later.push("Voice (demerzel): models not fetched yet — run `seldon up` again when you're ready to pull them.");
+      }
     }
   }
 
@@ -484,5 +509,5 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   const picked = await tui();
   if (!picked) { console.log(C.dim("nothing installed.")); return; }
   if (!picked.length) { console.log(C.dim("nothing selected.")); return; }
-  doInstall(picked, { dev });
+  await doInstall(picked, { dev });
 })();

@@ -279,6 +279,7 @@ that refusal is load-bearing.
 
 | Variable | Default | |
 |---|---|---|
+| `DEMERZEL_LLM` | `mlx-community/Qwen3.6-35B-A3B-4bit` | any MLX-compatible HF repo — e.g. a smaller model. The fetch script and runtime both follow it. |
 | `DEMERZEL_STT` | `qwen` | `parakeet` to A/B for speed over vocabulary |
 | `DEMERZEL_READONLY` | off | disables all writes; set this before sharing a session |
 | `DEMERZEL_FILE_ROOTS` | `~/Desktop` | where `read_file` / `find_files` may look |

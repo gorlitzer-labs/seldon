@@ -41,8 +41,19 @@ seldon down      # stop everything
 ```
 
 `seldon up` only starts what's installed. demerzel serves the voice UI on
-`http://localhost:8770`; its first run needs a one-time model fetch (~25 GB) and
-`up` prints the exact command if they're missing. Logs live in `~/.seldon/run/`.
+`http://localhost:8770`. Its model set (~25 GB) is a one-time download —
+`seldon install demerzel` **offers to fetch it right there** ([y/N]), and `seldon up`
+offers again if it's still missing. Nothing that big is ever pulled silently.
+Logs live in `~/.seldon/run/`.
+
+**Try a different LLM** (e.g. PrismML's Bonsai 2, ~5.9 GB, much smaller than the
+default): set `DEMERZEL_LLM` to any MLX-compatible HF repo before install/up, and
+both the fetch and the runtime follow it:
+
+```bash
+DEMERZEL_LLM=mlx-community/<bonsai-2-repo> seldon install demerzel   # fetch that model
+DEMERZEL_LLM=mlx-community/<bonsai-2-repo> seldon up                 # run it
+```
 
 ## Uninstall
 

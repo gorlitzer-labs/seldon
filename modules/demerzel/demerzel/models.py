@@ -24,7 +24,9 @@ import numpy as np
 
 from .protocol import MIC_SR
 
-LLM_MODEL = "mlx-community/Qwen3.6-35B-A3B-4bit"
+# The LLM is swappable: point DEMERZEL_LLM at any MLX-compatible HF repo
+# (e.g. a smaller model). Default is the model this was tuned and measured against.
+LLM_MODEL = os.environ.get("DEMERZEL_LLM", "mlx-community/Qwen3.6-35B-A3B-4bit")
 STT_QWEN = "mlx-community/Qwen3-ASR-1.7B-8bit"
 STT_PARAKEET = "mlx-community/parakeet-tdt-0.6b-v3"
 TTS_VOICE = "af_heart"
