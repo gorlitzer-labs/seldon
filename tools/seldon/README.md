@@ -28,6 +28,22 @@ seldon doctor                    # check external deps (tmux, sops, age, tailsca
 seldon list                      # everything available
 ```
 
+## Start the stack
+
+One command brings up the always-on services and prints where to go:
+
+```bash
+seldon up        # starts the voice (demerzel) + the supervisor (factory watch),
+                 # then prints: Voice → http://localhost:8770, how to put agents
+                 # to work, rooms, phone access
+seldon status    # what's running (pids)
+seldon down      # stop everything
+```
+
+`seldon up` only starts what's installed. demerzel serves the voice UI on
+`http://localhost:8770`; its first run needs a one-time model fetch (~25 GB) and
+`up` prints the exact command if they're missing. Logs live in `~/.seldon/run/`.
+
 ## Uninstall
 
 ```bash

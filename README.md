@@ -96,10 +96,30 @@ That's a solo agent's whole footing: a plan-gated workflow + secrets by
 reference. Scale up when you need to:
 
 ```bash
-seldon install apiary factory          # a room of agents + the 24/7 supervisor
-seldon install bifrost                 # run across machines / attach from your phone
-factory new "add a --units flag to the weather CLI"   # repo → foundation → apiary hive
+seldon install apiary factory demerzel bifrost   # rooms + supervisor + voice + multi-machine
 ```
+
+Then bring the whole thing up with one command — it starts the voice and the
+supervisor and tells you where to go:
+
+```console
+$ seldon up
+
+  seldon — bringing the stack up
+
+  Where to go:
+   • Voice   http://localhost:8770          (talk to Demerzel)
+   • Supervisor  running — heals agents, catches stalls   · live view: factory board
+   • Put agents to work  factory new "<your idea>"   → repo · foundation · apiary hive
+   • Agent rooms  apiary ps
+   • Across machines / phone  bifrost sessions
+
+  stop everything: seldon down   ·   check state: seldon status
+```
+
+`factory new "add a --units flag to the weather CLI"` seeds a repo through
+foundation into an apiary hive; the supervisor `seldon up` started then runs it
+while you check in by voice — waking you only for the pivotal call.
 
 The full multi-tool run (boxed agents, bifrost, voice check-in, wake-on-pivotal)
 is walked through in **[docs/end-to-end.md](docs/end-to-end.md)**.
