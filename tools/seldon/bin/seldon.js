@@ -242,6 +242,8 @@ function tui() {
     const finish = (ids) => {
       process.stdin.off("keypress", onKey);
       if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      process.stdin.pause();   // emitKeypressEvents resumed stdin; without this the
+      process.stdin.unref();   // event loop stays alive and the process hangs after install
       readline.cursorTo(process.stdout, 0); readline.clearScreenDown(process.stdout);
       resolve(ids);
     };
