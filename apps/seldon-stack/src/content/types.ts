@@ -5,7 +5,7 @@ export type ModuleId =
 export type View = "hive" | "surface" | "combo";
 
 /** One narration line + the scene cue it fires (voice comes later; text now). */
-export type SayLine = { text: string; look?: ModuleId; view?: View };
+export type SayLine = { text: string; look?: ModuleId | null; view?: View };
 
 /** A subchapter: one framed moment with copy, a scene state, and narration. */
 export type Beat = {
