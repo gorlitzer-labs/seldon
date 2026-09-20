@@ -155,7 +155,9 @@ function installPython(m, dev) {
   let ok;
   const uv = ensureUv();
   if (uv) {
-    const venvArgs = ["venv", venv];
+    const venvArgs = ["venv", venv, "--seed"]; // --seed puts pip in the venv:
+    // kokoro/misaki/spaCy shells out to pip at runtime to load its model, and a
+    // bare uv venv has none (crashes the voice on start otherwise).
     if (m.pyVersion) venvArgs.push("--python", m.pyVersion); // uv fetches a standalone CPython
     if (!run(uv, venvArgs)) return false;
     ok = run(uv, ["pip", "install", "--python", path.join(venv, "bin", "python"), "-r", req]);
