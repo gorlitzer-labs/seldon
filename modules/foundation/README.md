@@ -10,8 +10,12 @@ over.** It runs standalone too — solo or under any orchestrator. Nothing here 
 It is *not* groundwork. Its center of gravity is the **deterministic spine**: every state mutation
 goes through a concurrency-safe, atomic, ASCII-validated command — the model never hand-edits state.
 
+Lives in the [`gorlitzer-labs/seldon`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/foundation)
+monorepo at `modules/foundation`, published to npm as `@gorlitzer-labs/foundation`.
+
 ```bash
-npx github:gorlitzer-labs/foundation init      # install the seam + doc scaffold into the current repo
+npm i -g @gorlitzer-labs/foundation   # install the CLI
+foundation init                       # install the seam + doc scaffold + skills into the current repo
 ```
 
 ## The seam (writer-split — one writer per file, the filesystem *is* the concurrency control)
@@ -38,6 +42,15 @@ foundation versions [--all]              polyglot dep freshness (exit≠0 on maj
 foundation doctor                        flag doc↔reality drift + ADR reversals (CI, exit≠0)
 ```
 
+## Skills (the thin layer)
+
+`foundation init` also installs a skill layer: one `SKILL.md` source per skill, installed verbatim for
+Claude Code (`.claude/skills/`) and mirrored to Cursor (`.cursor/commands/`), Copilot
+(`.vscode/prompts/`), and Codex (`.codex/prompts/`). The model runs the workflow; the spine commands
+above own every state mutation.
+
+`/kickstart` · `/prd` · `/intake` · `/plan-phase` · `/orient` · `/branch` · `/verify` · `/decision` · `/glossary`
+
 ## Why it's better than the thing it learned from
 
 - **No load-bearing invisible Unicode.** The grammar is ASCII and *validated at write time* — a
@@ -51,5 +64,5 @@ foundation doctor                        flag doc↔reality drift + ADR reversal
 - **The ADR reversal tripwire.** `doctor` greps the real dependency tree against what "Accepted" ADRs
   said they rejected — catching decisions that were silently reversed.
 
-Status: **spine complete** (v0.1). Next: the thin skill layer (`/prd /kickstart /plan-phase /verify
-/branch /intake`) and the apiary `room create` hook. See `DESIGN.md`.
+Status: **spine + skill layer complete** (v0.1). Next: the apiary `room create` hook (nothing here
+imports apiary yet). See `DESIGN.md`.

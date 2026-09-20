@@ -17,13 +17,12 @@ from __future__ import annotations
 
 import os
 import re
-import time
 from typing import Iterator
 
 import mlx.core as mx
 import numpy as np
 
-from .protocol import MIC_SR, TTS_SR
+from .protocol import MIC_SR
 
 LLM_MODEL = "mlx-community/Qwen3.6-35B-A3B-4bit"
 STT_QWEN = "mlx-community/Qwen3-ASR-1.7B-8bit"

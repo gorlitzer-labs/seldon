@@ -19,8 +19,6 @@ mismatch here does not error, it just returns confident nonsense.
 """
 from __future__ import annotations
 
-import os
-
 import numpy as np
 
 from .protocol import MIC_SR

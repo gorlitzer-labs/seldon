@@ -32,7 +32,7 @@ from .turn import run_turn
 from .record import record_utterance
 from .attention import Attention, State as Attn
 from .factory import Item, Urgency, Watcher
-from .speaker import GUEST, OWNER, Speaker, available as speaker_available
+from .speaker import GUEST, Speaker, available as speaker_available
 
 WATCH_INTERVAL_S = 2.0
 

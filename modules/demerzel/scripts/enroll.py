@@ -11,7 +11,7 @@ the honest move is to record more or better audio rather than lower the bar.
 """
 import sys, warnings
 warnings.filterwarnings("ignore")
-import numpy as np, soundfile as sf, librosa
+import soundfile as sf, librosa
 
 sys.path.insert(0, ".")
 from demerzel.protocol import MIC_SR
