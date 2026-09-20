@@ -172,8 +172,14 @@ function installPython(m, dev) {
     run(py, ["-m", "venv", venv]);
     ok = run(path.join(venv, "bin", "pip"), ["install", "-r", req]);
   }
+  // demerzel needs spaCy's en_core_web_sm (kokoro G2P) in the venv — install it
+  // with the venv (a bare fetch-models skip would leave the voice unable to start).
+  if (ok && m.id === "demerzel") {
+    console.log(C.dim("  installing spaCy model en_core_web_sm (voice text processing)…"));
+    run(path.join(venv, "bin", "python"), ["-m", "spacy", "download", "en_core_web_sm"]);
+  }
   // demerzel has no standalone binary — it runs as a module from its venv.
-  if (ok && m.id === "demerzel") console.log(C.dim(`  run it: seldon up   (starts the voice on http://localhost:8770; first run fetches models)`));
+  if (ok && m.id === "demerzel") console.log(C.dim(`  run it: seldon up   (voice on http://localhost:8770; add --tailnet for your phone)`));
   else if (ok) console.log(C.dim(`  run it: ${path.join(dest, m.bin)}  (isolated venv at ${venv})`));
   return ok;
 }
@@ -320,6 +326,18 @@ function demerzelModelsReady() {
 }
 const demerzelInstalled = () => fs.existsSync(path.join(SELDON_HOME, "demerzel", ".venv", "bin", "python"));
 
+// This machine's Tailscale IPv4 (100.64.0.0/10), or null. Tries PATH then the
+// macOS app location. Used to expose the voice to your phone over the tailnet.
+function tailnetIp() {
+  for (const bin of ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/tailscale"]) {
+    try {
+      const ip = execSync(`${bin} ip -4`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim().split(/\s+/)[0];
+      if (/^100\./.test(ip)) return ip;
+    } catch {}
+  }
+  return null;
+}
+
 // Fetch demerzel's model set (~25 GB) — offered, never silent. Respects the
 // chosen LLM (DEMERZEL_LLM) so `seldon install demerzel` / `seldon up` pull the
 // model you'll actually run. --models forces yes, --no-models forces skip.
@@ -352,8 +370,17 @@ async function up() {
     else {
       if (!demerzelModelsReady()) await ensureDemerzelModels({ ask: true });  // offer the fetch inline
       if (demerzelModelsReady()) {
-        const r = startDaemon("demerzel", path.join(home, ".venv/bin/python"), ["-m", "demerzel.server"], { cwd: home, env: { ...process.env } });
-        go.push(`${C.bold("Voice")}   ${C.cyan("http://localhost:8770")}   ${C.dim(r.already ? "(already up)" : "(starting — models load, ~30s)")}`);
+        // --tailnet exposes the voice on this machine's tailnet IP (reachable
+        // from your phone). Default stays loopback (this machine only).
+        const wantTailnet = process.argv.includes("--tailnet") || process.argv.includes("--phone");
+        let host = null;
+        if (wantTailnet) { host = tailnetIp(); if (!host) later.push("--tailnet: no Tailscale IP found (is Tailscale running?) — started the voice on localhost instead."); }
+        const env = { ...process.env };
+        if (host) { env.DEMERZEL_HOST = host; stopDaemon("demerzel"); } // rebind: restart if it was on loopback
+        const r = startDaemon("demerzel", path.join(home, ".venv/bin/python"), ["-m", "demerzel.server"], { cwd: home, env });
+        const url = host ? `http://${host}:8770` : "http://localhost:8770";
+        go.push(`${C.bold("Voice")}   ${C.cyan(url)}   ${C.dim(host ? "(open it on your phone — on your tailnet)" : (r.already ? "(already up)" : "(starting — models load, ~30s)"))}`);
+        if (host) later.push(C.dim("Voice is on your tailnet — anyone on it can talk to Demerzel (and it can act on this Mac). Run with DEMERZEL_READONLY=1 to share it safely."));
       } else {
         later.push("Voice (demerzel): models not fetched yet — run `seldon up` again when you're ready to pull them.");
       }
@@ -510,6 +537,7 @@ ${C.bold("seldon")} — install the Seldon stack, pick what you use.
 
   ${C.bold("seldon")}                 open the checklist (space to pick, enter to install)
   ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
+  ${C.bold("seldon up --tailnet")}    also expose the voice on your tailnet (reach it from your phone)
   ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
   ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules
   ${C.bold("seldon uninstall")} ids…  remove the named modules (global CLI / isolated venv)
