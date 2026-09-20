@@ -104,7 +104,7 @@ ssh <realm-host> tmux -V    # SSH key works and tmux is installed?
 **Clone install** (recommended — macOS, Linux, Termux):
 ```bash
 git clone https://github.com/gorlitzer-labs/seldon.git
-cd bifrost
+cd seldon/modules/bifrost
 make install      # or: bash install.sh
 ```
 
@@ -198,7 +198,7 @@ bifrost direct                 # split panes: Heimdall + your default remote
 
 # Connect (works anywhere — Raven-friendly)
 bifrost gateway                # interactive session picker, then auto-hop
-bifrost sessions               # visual map of every session
+bifrost sessions               # visual map of every session (+ agent state)
 bifrost attach <session>       # attach directly
 bifrost run <realm> <cmd>      # run one command on a realm
 bifrost status                 # connectivity overview
@@ -225,6 +225,23 @@ bifrost realm add asgard    →  asgard-1, asgard-2, asgard-3, asgard-4
 bifrost realm add tatooine  →  tatooine-1, tatooine-2, tatooine-3, tatooine-4
 local (always present)      →  local-1, local-2, local-3, local-4
 ```
+
+### Agent state (v1.7.0)
+
+`bifrost sessions` also surfaces any `apiary_*` agent sessions running on
+Heimdall under an **AGENTS** group, with a one-glyph status so you can tell at a
+glance — from a phone — which agent needs you:
+
+| Glyph | State | Meaning |
+|---|---|---|
+| ● *(green)* | **idle** | a composer waiting for input — ready for the next task |
+| ◐ *(amber)* | **working** | busy (spinner / "Working…" timer / "esc to interrupt") |
+| ■ *(red)* | **blocked** | a prompt is waiting on **you** (approval, trust, sign-in) |
+| · *(dim)* | gone | the session is no longer running |
+
+State is read straight from each session's screen (no dependency on apiary
+itself), and a human-gating prompt (**blocked**) always outranks "also working"
+— because a blocked agent is the one only *you* can unstick.
 
 ---
 
