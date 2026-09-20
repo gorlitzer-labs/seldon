@@ -26,81 +26,44 @@ module (independent CI and releases); this is the map, not the monolith.
 — an interactive, `anatomy`-class 3D teardown. Fly through the hive; each cell
 opens the module's real TUI with real captured workflows and guided narration.
 
-## Install
+## Quickstart
 
-One installer, a checklist, install only what you use:
+Three steps. You don't need to know the tools first — seldon walks you through it.
 
-```bash
-pnpm add -g @gorlitzer-labs/seldon     # or: bun add -g …  ·  npm i -g …
-seldon                                 # ↑↓ move · space pick · a all · enter install
-# or name them:  seldon install foundation comb
-# check deps:    seldon doctor         (tmux · sops · age · tailscale · python)
-# remove:        seldon uninstall --all
-```
-
-Node tools install with pnpm (else npm; `--pm=bun` to opt in). **demerzel** (voice,
-macOS/Apple-silicon) installs into its **own isolated CPython 3.12 venv** via `uv`
-— your system Python is never touched.
-
-## Quickstart — a real first run
-
-A genuine session (real commands, real output) bootstrapping a throwaway
-**Weather CLI**. Start with the two tools you'll use on day one — the seam
-(**foundation**) and the vault (**comb**):
-
-```console
-$ seldon install foundation comb
-▸ foundation — the seam
-  ✓ foundation installed
-▸ comb — the vault
-  ✓ comb installed
-
-$ cd ~/code/weather-cli && foundation init
-✓ Foundation installed → ~/code/weather-cli
-  docs:   8 created, 0 kept  (seam: QUEUE · WORKSTREAMS · DONE · FACTS)
-  skills: 9 → .claude/skills/  (+ 27 harness mirrors: cursor · copilot · codex)
-  next:   /kickstart <idea>   ·   foundation status   ·   foundation doctor
-```
-
-Record work on the seam — every mutation is atomic and ASCII-validated:
-
-```console
-$ foundation queue "(P1) add a --units flag (°C/°F)"
-✓ queued (P1) add a --units flag (°C/°F)
-
-$ foundation stream weather-cli working "scaffolding the CLI"
-✓ stream weather-cli → working (scaffolding the CLI)
-
-$ foundation fact runtime-node "node is the runtime" --verify "node --version"
-· verifying: node --version
-v22.23.1
-✓ fact `runtime-node` verified 2026-09-20T16:28Z by you        # a fact is only recorded if its check passes
-
-$ foundation status
-next  (P1) add a --units flag (°C/°F)
-streams  weather-cli:working
-```
-
-Keep the API key out of code, prompts, and shell history — reference it by name:
-
-```console
-$ comb set WEATHER_API_KEY              # prompts for the value, never echoes it
-$ comb ls                               # names, age, notes — never values
-  name                 updated      note
-  WEATHER_API_KEY      2026-09-20   https://…
-
-$ comb run --with WEATHER_API_KEY -- npm test    # injected only for this command
-```
-
-That's a solo agent's whole footing: a plan-gated workflow + secrets by
-reference. Scale up when you need to:
+**1. Install seldon, then run it:**
 
 ```bash
-seldon install apiary factory demerzel bifrost   # rooms + supervisor + voice + multi-machine
+npm i -g @gorlitzer-labs/seldon     # or: pnpm add -g …  ·  bun add -g …
+seldon
 ```
 
-Then bring the whole thing up with one command — it starts the voice and the
-supervisor and tells you where to go:
+The picker opens. Arrows to move, **space** to tick, **a** for all, **Enter** to
+install. Don't know what to pick? Press **a**, then **Enter**.
+
+```text
+ ███████╗███████╗██╗     ██████╗  ██████╗ ███╗   ██╗
+ ██╔════╝██╔════╝██║     ██╔══██╗██╔═══██╗████╗  ██║
+ ███████╗█████╗  ██║     ██║  ██║██║   ██║██╔██╗ ██║
+ ╚════██║██╔══╝  ██║     ██║  ██║██║   ██║██║╚██╗██║
+ ███████║███████╗███████╗██████╔╝╚██████╔╝██║ ╚████║
+ ╚══════╝╚══════╝╚══════╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝
+  the AI-agent-factory stack — pick your tools
+  ↑↓ move · space toggle · a all · enter install · q quit
+
+  ❯ [x] apiary      npm     shared rooms where AI agents talk, coordinate, hand off
+        needs: node tmux
+    [x] foundation  npm     the deterministic project workflow beneath it all
+    [x] comb        npm     keys by name; a leak audit; multi-machine secrets
+    [x] factory     npm     the 24/7 supervisor — new · watch · board · box · realms
+    [x] bifrost     shell   tmux + Tailscale; sessions survive; phone access
+    [x] demerzel    python  a fully-local voice you talk to (MLX, Apple silicon)
+```
+
+It installs each one and checks the tools they need. If you pick **demerzel**
+(the voice), it asks whether to download its models (~25 GB) — say **y** to get
+the voice, **n** to skip for now.
+
+**2. Start everything — it tells you where to go:**
 
 ```console
 $ seldon up
@@ -117,12 +80,35 @@ $ seldon up
   stop everything: seldon down   ·   check state: seldon status
 ```
 
-`factory new "add a --units flag to the weather CLI"` seeds a repo through
-foundation into an apiary hive; the supervisor `seldon up` started then runs it
-while you check in by voice — waking you only for the pivotal call.
+**3. Check what's installed and running, any time:**
 
-The full multi-tool run (boxed agents, bifrost, voice check-in, wake-on-pivotal)
-is walked through in **[docs/end-to-end.md](docs/end-to-end.md)**.
+```console
+$ seldon status
+
+  seldon — stack status
+
+  ● apiary      v1.13.4
+  ● foundation  v0.1.2
+  ● comb        v0.1.2
+  ● factory     v0.1.2   supervisor up (pid 58617)
+  ● bifrost     v1.7.0
+  ● demerzel    venv + models ✓   voice up http://localhost:8770
+
+  demerzel LLM: mlx-community/Qwen3.6-35B-A3B-4bit (default)
+  start: seldon up · stop: seldon down · logs: ~/.seldon/run/
+```
+
+**Put agents on a real job** — describe it in plain English:
+
+```bash
+factory new "build me a CLI that shows the weather"
+```
+
+That's it. `seldon down` stops everything; `seldon uninstall --all` removes it.
+
+<sub>Want the deep dive — how one task threads through all six tools (boxed agents,
+secrets by reference, voice check-in, wake-on-pivotal)? See
+**[docs/end-to-end.md](docs/end-to-end.md)**.</sub>
 
 ## How the parts fit
 
