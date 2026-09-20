@@ -13,8 +13,9 @@ function parse(text: string): Block[] {
 }
 const outClass = (l: string) => {
   const t = l.trim();
-  if (t.startsWith("✗") || t.includes("REACHABLE")) return "bad";
-  if (t.startsWith("✓") || t.includes("✓") || /sealed off from the box|work mount OK/.test(t)) return "ok";
+  if (t.startsWith("■") || t.startsWith("✗") || t.includes("REACHABLE")) return "bad";   // needs-you / error
+  if (t.startsWith("◐")) return "work";                                                   // working
+  if (t.startsWith("●") || t.startsWith("✓") || t.includes("✓") || /sealed off from the box|work mount OK/.test(t)) return "ok"; // idle / success
   if (t.startsWith("·") || t.startsWith("(") || t.startsWith("#") || t.startsWith("---") ||
       t.startsWith("📦") || t.startsWith("sealed") || t.startsWith("public key") || t.startsWith("private key")) return "dim";
   return "";
