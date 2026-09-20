@@ -37,7 +37,7 @@ function screen(s: string): string[] {
 /** Verbatim from the pane where this happened. */
 const DEAD_CODEX_PANE = screen(`
 🎉 Update ran successfully! Please restart Codex.
-> Please join the apiary room you were invited to by calling the join_room tool with this URL: http://100.112.183.19:7890/?token=abc
+> Please join the apiary room you were invited to by calling the join_room tool with this URL: http://100.64.0.1:7890/?token=abc
 zsh: command not found: Please
 ~/Desktop/apiary-game lanes/integration >                              py base 09:55:33
 `);

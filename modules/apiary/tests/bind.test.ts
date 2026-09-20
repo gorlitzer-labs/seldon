@@ -27,7 +27,7 @@ import {
 describe("isTailnetAddress", () => {
   test("accepts the whole CGNAT range Tailscale uses (100.64.0.0/10)", () => {
     expect(isTailnetAddress("100.64.0.0")).toBe(true);
-    expect(isTailnetAddress("100.112.183.19")).toBe(true);
+    expect(isTailnetAddress("100.64.0.1")).toBe(true);
     expect(isTailnetAddress("100.127.255.255")).toBe(true);
   });
 
@@ -113,7 +113,7 @@ describe("resolveBindAddress aliases", () => {
 
 describe("advertisedAddress", () => {
   test("a specific bind is advertised verbatim", () => {
-    expect(advertisedAddress("100.112.183.19")).toBe("100.112.183.19");
+    expect(advertisedAddress("100.64.0.1")).toBe("100.64.0.1");
     expect(advertisedAddress(LOOPBACK)).toBe(LOOPBACK);
   });
 
@@ -143,7 +143,7 @@ describe("interface order does not change the answer", () => {
   // The bug being guarded: "the first non-internal IPv4" depends on OS
   // interface order, so the same code picked the LAN on one machine and the
   // tailnet on another. These pass an explicit order, in both arrangements.
-  const TS = { iface: "utun0", address: "100.112.183.19" };
+  const TS = { iface: "utun0", address: "100.64.0.1" };
   const LAN = { iface: "en0", address: "192.168.1.72" };
 
   test("tailnetAddress finds the tailnet whichever way round they are listed", () => {
