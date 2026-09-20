@@ -49,6 +49,13 @@ It's a stack, not a bundle — install only what you use:
 - **A team of agents** → add **apiary** (shared rooms) + **factory** (the supervisor).
 - **Across machines / from your phone** → add **bifrost**.
 
+## Package managers
+
+Node tools install via **pnpm** or **bun** if present (much faster than npm), else npm —
+override with `seldon install --pm=pnpm|bun|npm`. demerzel (Python) always installs into
+its **own isolated venv** — never your system/active Python — using **uv** if available,
+else `python3 -m venv` + pip.
+
 ## From a checkout
 
 ```bash
