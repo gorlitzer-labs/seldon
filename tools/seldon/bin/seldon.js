@@ -253,6 +253,8 @@ function confirm(question) {
     readline.emitKeypressEvents(process.stdin);
     process.stdin.setRawMode(true);
     process.stdin.resume();
+    process.stdin.ref();  // a prior picker/prompt may have unref'd stdin; without
+                          // this the loop empties and we exit before reading a key
     const onKey = (str, key) => {
       process.stdin.off("keypress", onKey);
       process.stdin.setRawMode(false);
@@ -437,7 +439,14 @@ const BANNER = [
 ];
 function tui() {
   return new Promise((resolve) => {
-    const rows = MODULES.map((m) => ({ m, on: platformOk(m) && ["apiary", "foundation", "factory"].includes(m.id) }));
+    // Pre-check what's already installed so the picker mirrors reality. On a
+    // fresh machine (nothing installed) fall back to the recommended starter set.
+    const anyInstalled = MODULES.some((m) => moduleInstalled(m));
+    const rows = MODULES.map((m) => ({
+      m,
+      installed: moduleInstalled(m),
+      on: platformOk(m) && (anyInstalled ? moduleInstalled(m) : ["apiary", "foundation", "factory"].includes(m.id)),
+    }));
     let cur = 0;
     const methodTag = (m) => ({ npm: "npm", shell: "shell", python: "python" }[m.method]);
     const draw = () => {
@@ -445,7 +454,7 @@ function tui() {
       readline.clearScreenDown(process.stdout);
       const out = [];
       BANNER.forEach((l) => out.push(C.gold(l)));
-      out.push(C.dim("  the AI-agent-factory stack — pick your tools"));
+      out.push(C.dim("  the AI-agent-factory stack — pick your tools  ") + C.green("✓ = installed"));
       out.push(C.dim("  ↑↓ move · space toggle · a all · enter install · q quit\n"));
       rows.forEach((r, i) => {
         const sel = r.on ? C.green("[x]") : "[ ]";
@@ -454,7 +463,8 @@ function tui() {
         const name = i === cur ? C.bold(r.m.id.padEnd(11)) : r.m.id.padEnd(11);
         const deps = r.m.needs.map((d) => (depOk(d) ? d : C.red(d))).join(" ");
         const platNote = okp ? C.red(" (unsupported OS)") : "";
-        out.push(`  ${cursor} ${sel} ${name} ${C.dim(methodTag(r.m).padEnd(7))} ${C.dim(r.m.blurb)}${platNote}`);
+        const mark = r.installed ? C.green("✓") : " ";
+        out.push(`  ${cursor} ${sel} ${mark} ${name} ${C.dim(methodTag(r.m).padEnd(7))} ${C.dim(r.m.blurb)}${platNote}`);
         if (i === cur) out.push(`        ${C.dim("needs: " + (deps || "nothing"))}${r.m.requires.length ? C.dim("  · pulls in: " + r.m.requires.join(", ")) : ""}`);
       });
       process.stdout.write(out.join("\n") + "\n");
