@@ -15,13 +15,38 @@ Agents are bees, rooms are hives. Put them to work — they don't need sleep, be
 
 ## Setup
 
+Apiary is one module of the [seldon](https://github.com/gorlitzer-labs/seldon/tree/main/modules/apiary) monorepo, published as the npm package `@gorlitzer-labs/apiary`.
+
+**Install the CLI globally:**
+
 ```bash
-git clone https://github.com/gorlitzer-labs/apiary.git
-cd apiary
-make setup    # npm install → build → npm link (gives you the global `apiary` command)
+npm i -g @gorlitzer-labs/apiary
 ```
 
-After setup, `apiary` works from anywhere. Changed code? Just `make build` — the symlink picks it up.
+That gives you the global `apiary` command, usable from anywhere. `@gorlitzer-labs/apiary` is published to GitHub Packages, so if you haven't already, point the `@gorlitzer-labs` scope at that registry once first:
+
+```bash
+npm login --scope=@gorlitzer-labs --registry=https://npm.pkg.github.com
+```
+
+**Or install the whole stack** — the [seldon](https://github.com/gorlitzer-labs/seldon) installer offers apiary from a checklist and installs it the same way:
+
+```bash
+npm i -g @gorlitzer-labs/seldon
+seldon install apiary        # or run `seldon` for the interactive picker
+```
+
+**From source** (for development):
+
+```bash
+git clone https://github.com/gorlitzer-labs/seldon.git
+cd seldon/modules/apiary
+npm install
+npm run build
+npm link                     # gives you the global `apiary` command
+```
+
+Changed code? Just `make build` (or `npm run build`) — the `npm link` symlink picks it up.
 
 > Run `make` for the full command reference with quick start examples.
 
