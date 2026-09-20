@@ -10,8 +10,8 @@ import { notify, brief } from "./lib/notify.mjs";
 import { fileDecision } from "./lib/decisions.mjs";
 import { readRegistry } from "./lib/hive.mjs";
 import { resolveRealm, runnerArgv } from "./lib/realm.mjs";
+import { shOut, readSafe, count } from "./lib/util.mjs";
 
-const shOut = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch (e) { return (e.stdout || "").toString(); } };
 // Is an agent's tmux session alive? Locally when the hive has no realm, else
 // over ssh to the realm — the check is the same, only the machine differs.
 const tmuxAliveOn = (realm, name) => {
@@ -19,8 +19,6 @@ const tmuxAliveOn = (realm, name) => {
   try { execFileSync(bin, args, { stdio: "ignore" }); return true; } catch { return false; }
 };
 const nowHM = () => new Date().toTimeString().slice(0, 5);
-const readSafe = (p) => (existsSync(p) ? readFileSync(p, "utf8") : "");
-const count = (s, re) => (s.match(re) || []).length;
 const mtime = (p) => (existsSync(p) ? Math.floor(statSync(p).mtimeMs) : 0);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
