@@ -1,6 +1,6 @@
 {
   "name": "@gorlitzer-labs/foundation",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Foundation — a lean, deterministic project-development workflow you bolt onto any repo. The sheet that guides how the comb gets built.",
   "type": "module",
   "bin": {
