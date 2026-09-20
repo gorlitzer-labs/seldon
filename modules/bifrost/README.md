@@ -207,6 +207,7 @@ bifrost status                 # connectivity overview
 bifrost sync                   # push tmux.conf to all realms
 bifrost doctor                 # check prerequisites
 bifrost upgrade                # update to latest
+bifrost version                # print the installed version
 bifrost kill                   # tear down all sessions
 bifrost quickstart / help      # guided onboarding / command reference
 ```

@@ -55,7 +55,7 @@ matters. Everything else is recoverable; that is not. Back it up somewhere real.
 |---|---|
 | `comb init` | create the age key and the encrypted store |
 | `comb set <NAME> [--url <where>]` | take a value without echoing it, and store it |
-| `comb ls` | names, dates and notes — never values |
+| `comb ls` | names, age and notes — never values |
 | `comb run --with A,B -- <cmd>` | run a command with those secrets in its environment |
 | `comb rotate <NAME>` | tell you where to go, then take the new value |
 | `comb audit` | which secrets leaked into transcripts and shell history |

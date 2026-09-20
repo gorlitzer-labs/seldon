@@ -23,8 +23,9 @@ first word, with a 35B model doing the thinking.
 | **Front end** | Vanilla JS + vendored **three.js** | No build step, no CDN. `web/vendor/` is checked in. |
 | **Extensibility** | An **MCP client**, as a skill | Any MCP server becomes a capability. Nothing enabled by default. |
 
-Python 3.13. About 4,500 lines. No framework — no LangChain, no pipecat, no
-livekit. The pipeline is short enough to read in an afternoon.
+Python 3.12 (its `kokoro` pin caps Python at `<3.13`). About 4,500 lines. No
+framework — no LangChain, no pipecat, no livekit. The pipeline is short enough to
+read in an afternoon.
 
 ---
 
@@ -245,9 +246,20 @@ Guards that exist because they had to:
 
 Needs Apple Silicon with ≥ 36 GB. She holds ~21.5 GB resident.
 
+**The easy path — via the seldon installer** (recommended). It provisions an
+**isolated CPython 3.12 venv** at `~/.seldon/demerzel/.venv` using `uv` (auto-installed
+into `~/.seldon/bin` if missing) — your system/active Python is never touched:
+
 ```bash
-python3.13 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+seldon install demerzel
+~/.seldon/demerzel/demerzel        # fetches models on first run (~24 GB), then serves on :8770
+```
+
+**Or by hand**, from a checkout — use Python 3.12 (not 3.13; `kokoro` requires `<3.13`):
+
+```bash
+uv venv .venv --python 3.12 && source .venv/bin/activate   # or: python3.12 -m venv .venv
+uv pip install -r requirements.txt                          # or: pip install -r requirements.txt
 python scripts/fetch-models.py     # ~24 GB, resumable
 python -m demerzel.server            # then open http://localhost:8770
 ```

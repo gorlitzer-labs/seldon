@@ -129,6 +129,7 @@ apiary opencode LabRat                            # OpenCode (experimental)
 apiary ps                                         # list active rooms + agents (with join links)
 apiary stop Expendable3                           # stop one agent
 apiary stop --all                                 # stop all agents
+apiary examples                                   # print examples + common workflows
 ```
 
 Unknown flags are forwarded to the underlying CLI (e.g. `--model sonnet`).
