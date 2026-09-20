@@ -1,5 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
 <title>Demerzel</title>
 <link rel="icon" href="data:,">
 <style>
@@ -16,11 +18,21 @@
     --pad:clamp(.7rem, 2.5vw, 2rem);
   }
   *{box-sizing:border-box}
-  html,body{height:100%;overflow:hidden}
+  html,body{height:100%;overflow:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%}
   body{
     margin:0;background:var(--ink);color:var(--fg);
     font:13px/1.6 ui-monospace,"SF Mono",Menlo,monospace;
     -webkit-font-smoothing:antialiased;
+    /* respect the notch/home-bar so the rail isn't under the gesture area */
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  /* Touch: fat, thumbable tap targets for the rail + sheet buttons, and inputs
+     at 16px so iOS doesn't zoom the page when you focus the name field. */
+  @media (pointer:coarse){
+    .rail{gap:1.4rem}
+    .rail .btn, .sheet .btn{min-height:44px;font-size:15px}
+    .enrol input[type=text]{font-size:16px}
+    .msg{max-width:94%}
   }
   /* Mobile first: one column, instrument over log over rail.
      A single 30rem column was the only layout, which wasted two thirds of a
