@@ -1,9 +1,13 @@
-$ bifrost status
-Bifrost status
+$ bifrost sessions
+Bifrost sessions
 
-  HEIMDALL (ML6MCWV0MW):
-    No active sessions
+  HEIMDALL (ML6MCWV0MW)
+    (no sessions)
 
-  REALM — zanpakuto (zanpakuto):
-    ✓ Reachable
-    No active sessions
+  AGENTS
+    ● ana   idle
+    ◐ ben   working
+    ■ cass  blocked
+
+  REALM — zanpakuto (zanpakuto)  online
+    (no sessions)

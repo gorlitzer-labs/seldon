@@ -183,7 +183,7 @@ h1,h2,h3{margin:0;font-family:var(--disp);letter-spacing:-.02em;text-wrap:balanc
 .term.typed .args{color:#e9e6dc}
 .term.typed .oline{white-space:pre-wrap;word-break:break-word;color:#b9c0cc;padding-left:14px;
   border-left:1px solid rgba(255,255,255,.05);animation:outIn .28s both}
-.term.typed .oline.ok{color:#63d69a} .term.typed .oline.bad{color:#f0664c} .term.typed .oline.dim{color:#6d7186}
+.term.typed .oline.ok{color:#63d69a} .term.typed .oline.bad{color:#f0664c} .term.typed .oline.dim{color:#6d7186} .term.typed .oline.work{color:#efb045}
 .term.typed .caret{display:inline-block;width:7px;height:1.05em;vertical-align:-2px;margin-left:2px;
   background:var(--gold);animation:blink 1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
