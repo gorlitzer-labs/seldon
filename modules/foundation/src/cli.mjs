@@ -52,7 +52,7 @@ function help() {
 }
 
 const { flags, pos } = parse(rest);
-const dir = flags.dir || pos.dirOverride || process.cwd();
+const dir = flags.dir || process.cwd();
 
 try {
   switch (cmd) {

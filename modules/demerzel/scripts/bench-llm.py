@@ -8,7 +8,7 @@ and sustained decode, for short voice-shaped turns.
 TTFT is the number that decides whether she feels alive. Sustained tok/s only
 has to beat speech (~15-20 tok/s) to keep the TTS fed without gaps.
 """
-import json, sys, time
+import json, time
 import mlx.core as mx
 from mlx_lm import load, stream_generate
 from mlx_lm.sample_utils import make_sampler

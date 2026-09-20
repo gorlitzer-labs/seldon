@@ -20,7 +20,7 @@ export function phaseProgress(root) {
     for (const e of entries) {
       const p = join(d, e);
       if (statSync(p).isDirectory()) walk(p);
-      else if (/tasks.*\.md$/i.test(e) || /_TASKS\.md$/.test(e)) files.push(p);
+      else if (/tasks.*\.md$/i.test(e)) files.push(p);
     }
   };
   walk(dir);

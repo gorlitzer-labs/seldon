@@ -21,7 +21,7 @@ One frame cannot be mispaired.
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from enum import Enum
 
 MIC_SR = 16_000     # what the STT and VAD expect

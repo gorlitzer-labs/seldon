@@ -312,4 +312,7 @@ Honest list, all of it in `docs/QUEUE.md`:
 - **MLX**, **Kokoro**, **Silero VAD**, **3D-Speaker CAM++**, **mlx-audio**,
   **parakeet-mlx** — all of it runs on their work.
 
-Private repo. Ask before sharing further.
+Lives in the `gorlitzer-labs/seldon` monorepo at
+[`modules/demerzel`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/demerzel)
+(the old standalone `gorlitzer/demerzel` repo is gone). All paths below are
+relative to this module directory. Private repo — ask before sharing further.
