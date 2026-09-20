@@ -55,12 +55,21 @@ function run(cmd, args, opts = {}) {
 // Is a command on PATH? (used to pick the fastest package manager)
 const has = (bin) => { try { execSync(`command -v ${bin}`, { stdio: "ignore" }); return true; } catch { return false; } };
 
-// Pick the node package manager: --pm=<x> override, else the fastest present.
-// pnpm/bun install globally far faster than npm; npm is the universal fallback.
+// pnpm can only `add -g` when a global bin dir is configured (else ERR_PNPM_NO_GLOBAL_BIN_DIR).
+const pnpmGlobalReady = () => {
+  if (process.env.PNPM_HOME) return true;
+  try {
+    const d = execSync("pnpm config get global-bin-dir", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    return !!d && d !== "undefined" && d !== "null";
+  } catch { return false; }
+};
+
+// Pick the node package manager: --pm=<x> override, else the fastest that can
+// actually global-install; npm is the universal fallback.
 function nodePM() {
   const ov = (process.argv.find((a) => a.startsWith("--pm=")) || "").split("=")[1];
   if (ov) return ov;
-  if (has("pnpm")) return "pnpm";
+  if (has("pnpm") && pnpmGlobalReady()) return "pnpm";
   if (has("bun")) return "bun";
   return "npm";
 }
@@ -72,11 +81,15 @@ function installNpm(m, dev) {
     const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json")));
     if (pj.scripts?.build) run(pm, ["run", "build"], { cwd: dir });
     const link = pm === "pnpm" ? ["link", "--global"] : ["link"]; // bun/npm: `link`
-    return run(pm, link, { cwd: dir });
+    if (run(pm, link, { cwd: dir })) return true;
+    if (pm !== "npm") { console.log(C.dim("  falling back to npm link…")); return run("npm", ["link"], { cwd: dir }); }
+    return false;
   }
   // pnpm/bun: `add -g` · npm: `install -g` — a global CLI, no project touched
   const add = pm === "npm" ? ["install", "-g", m.pkg] : ["add", "-g", m.pkg];
-  return run(pm, add);
+  if (run(pm, add)) return true;
+  if (pm !== "npm") { console.log(C.dim(`  ${pm} failed — falling back to npm…`)); return run("npm", ["install", "-g", m.pkg]); }
+  return false;
 }
 
 function installShell(m, dev) {
@@ -97,10 +110,15 @@ function installPython(m, dev) {
   if (!(dev && IN_CHECKOUT)) {
     console.log(C.dim(`  fetching ${m.id} into ${dest}`));
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    if (!fs.existsSync(path.join(dest, ".git"))) {
-      if (!run("git", ["clone", "--depth", "1", `https://github.com/${MONOREPO}.git`, dest + ".tmp"])) return false;
-      fs.renameSync(path.join(dest + ".tmp", m.dir), dest);
-      fs.rmSync(dest + ".tmp", { recursive: true, force: true });
+    if (fs.existsSync(path.join(dest, ".git"))) {
+      run("git", ["-C", dest, "pull", "--ff-only"]);   // already cloned → update in place
+    } else {
+      const tmp = dest + ".tmp";
+      fs.rmSync(tmp, { recursive: true, force: true });                 // clear any stale tmp
+      if (!run("git", ["clone", "--depth", "1", `https://github.com/${MONOREPO}.git`, tmp])) return false;
+      fs.rmSync(dest, { recursive: true, force: true });                // dest must not exist before rename (fixes ENOTEMPTY)
+      fs.renameSync(path.join(tmp, m.dir), dest);
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   }
   // Always a DEDICATED venv under the module dir — we never install into the
