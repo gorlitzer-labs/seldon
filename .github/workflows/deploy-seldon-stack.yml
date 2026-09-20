@@ -29,3 +29,21 @@ jobs:
           tags: |
             ghcr.io/gorlitzer-labs/seldon-stack:latest
             ghcr.io/gorlitzer-labs/seldon-stack:${{ github.sha }}
+  # Rolls the live deployment to THIS commit's image. Runs on a self-hosted
+  # runner that can reach home-k3s (GitHub-hosted runners can't). Keeps the
+  # SHA-pin model — no :latest, fully reproducible. One-time setup: register a
+  # self-hosted runner with the label `home-k3s` on a tailnet machine that has
+  # kubectl access to the cluster. Until then, use scripts/deploy-seldon-stack.sh.
+  deploy:
+    needs: image
+    # Skipped (green) until you register a self-hosted runner labeled `home-k3s`
+    # and set repo variable SELF_HOSTED_DEPLOY=true. Until then, roll manually:
+    #   scripts/deploy-seldon-stack.sh
+    if: ${{ vars.SELF_HOSTED_DEPLOY == 'true' }}
+    runs-on: [self-hosted, home-k3s]
+    steps:
+      - name: Roll seldon-stack to this commit
+        run: |
+          kubectl -n seldon set image deployment/seldon-stack \
+            seldon-stack=ghcr.io/gorlitzer-labs/seldon-stack:${{ github.sha }}
+          kubectl -n seldon rollout status deployment/seldon-stack --timeout=120s
