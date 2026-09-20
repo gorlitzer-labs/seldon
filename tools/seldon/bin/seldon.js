@@ -64,13 +64,13 @@ const pnpmGlobalReady = () => {
   } catch { return false; }
 };
 
-// Pick the node package manager: --pm=<x> override, else the fastest that can
-// actually global-install; npm is the universal fallback.
+// Pick the node package manager: --pm=<x> override (pnpm|bun|npm), else pnpm
+// when it can global-install, else npm (the universal fallback). bun is not
+// auto-preferred — opt in with --pm=bun.
 function nodePM() {
   const ov = (process.argv.find((a) => a.startsWith("--pm=")) || "").split("=")[1];
   if (ov) return ov;
   if (has("pnpm") && pnpmGlobalReady()) return "pnpm";
-  if (has("bun")) return "bun";
   return "npm";
 }
 
