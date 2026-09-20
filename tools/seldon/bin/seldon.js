@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // seldon — the Seldon stack installer. Pick your tools; install each via its
 // native method. Zero dependencies: a raw-terminal checklist, no build step.
-import { execSync, spawnSync } from "node:child_process";
+import { execSync, spawnSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -170,7 +170,9 @@ function installPython(m, dev) {
     run(py, ["-m", "venv", venv]);
     ok = run(path.join(venv, "bin", "pip"), ["install", "-r", req]);
   }
-  if (ok) console.log(C.dim(`  run it: ${path.join(dest, m.bin)}  (isolated venv at ${venv})`));
+  // demerzel has no standalone binary — it runs as a module from its venv.
+  if (ok && m.id === "demerzel") console.log(C.dim(`  run it: seldon up   (starts the voice on http://localhost:8770; first run fetches models)`));
+  else if (ok) console.log(C.dim(`  run it: ${path.join(dest, m.bin)}  (isolated venv at ${venv})`));
   return ok;
 }
 
@@ -278,6 +280,90 @@ async function doUninstall(ids, { yes = false, all = false } = {}) {
   console.log("\n" + C.bold("Done. ") + C.green("removed: " + (good.join(", ") || "—")) + (bad.length ? "  " + C.red("failed: " + bad.join(", ")) : ""));
 }
 
+// ---- up / down / status : the friendly front door ---------------------------
+// The stack's only always-on services are the voice (demerzel) and the
+// supervisor loop (factory watch). We run them as detached background daemons,
+// track them by pidfile under ~/.seldon/run, and print one map of where to go.
+const RUN_DIR = path.join(process.env.HOME, ".seldon", "run");
+const SELDON_HOME = path.join(process.env.HOME, ".seldon");
+const pidFile = (name) => path.join(RUN_DIR, name + ".pid");
+const readPid = (name) => { try { return parseInt(fs.readFileSync(pidFile(name), "utf8").trim(), 10) || 0; } catch { return 0; } };
+const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const daemonUp = (name) => { const p = readPid(name); return p && isAlive(p) ? p : 0; };
+
+function startDaemon(name, cmd, args, opts = {}) {
+  if (daemonUp(name)) return { already: true, pid: readPid(name) };
+  fs.mkdirSync(RUN_DIR, { recursive: true });
+  const log = fs.openSync(path.join(RUN_DIR, name + ".log"), "a");
+  const child = spawn(cmd, args, { detached: true, stdio: ["ignore", log, log], ...opts });
+  fs.writeFileSync(pidFile(name), String(child.pid));
+  child.unref();
+  return { pid: child.pid };
+}
+function stopDaemon(name) {
+  const pid = readPid(name);
+  if (!pid || !isAlive(pid)) { try { fs.rmSync(pidFile(name), { force: true }); } catch {} return false; }
+  try { process.kill(-pid, "SIGTERM"); } catch { try { process.kill(pid, "SIGTERM"); } catch {} }
+  try { fs.rmSync(pidFile(name), { force: true }); } catch {}
+  return true;
+}
+// demerzel needs its model set in the HF cache before it can serve.
+function demerzelModelsReady() {
+  const hub = path.join(process.env.HOME, ".cache", "huggingface", "hub");
+  try { return fs.existsSync(hub) && fs.readdirSync(hub).some((d) => d.startsWith("models--")); } catch { return false; }
+}
+const demerzelInstalled = () => fs.existsSync(path.join(SELDON_HOME, "demerzel", ".venv", "bin", "python"));
+
+function up() {
+  console.log(C.gold("\n  seldon — bringing the stack up\n"));
+  const go = [];      // where-to-go lines
+  const later = [];   // things that need one action first
+
+  // Voice — demerzel (background daemon)
+  const dem = byId.demerzel;
+  if (demerzelInstalled()) {
+    const home = path.join(SELDON_HOME, "demerzel");
+    if (!platformOk(dem)) later.push("Voice (demerzel) needs macOS on Apple silicon — skipped here.");
+    else if (!demerzelModelsReady()) later.push(`Voice (demerzel) needs its models once (~25 GB):\n      ${path.join(home, ".venv/bin/python")} ${path.join(home, "scripts/fetch-models.py")}\n      then re-run  seldon up`);
+    else {
+      const r = startDaemon("demerzel", path.join(home, ".venv/bin/python"), ["-m", "demerzel.server"], { cwd: home });
+      go.push(`${C.bold("Voice")}   ${C.cyan("http://localhost:8770")}   ${C.dim(r.already ? "(already up)" : "(starting — models load, ~30s)")}`);
+    }
+  }
+
+  // Supervisor — factory watch (background daemon, the "let it work" loop)
+  if (has("factory")) {
+    const r = startDaemon("factory-watch", "factory", ["watch", "--all"]);
+    go.push(`${C.bold("Supervisor")}  ${C.dim(r.already ? "already running" : "running")} — heals agents, catches stalls   ${C.dim("· live view: factory board")}`);
+  }
+
+  // The rest are on-demand, not daemons — point at the command.
+  if (has("factory")) go.push(`${C.bold("Put agents to work")}  ${C.cyan('factory new "<your idea>"')}   ${C.dim("→ repo · foundation · apiary hive")}`);
+  if (has("apiary"))  go.push(`${C.bold("Agent rooms")}  ${C.cyan("apiary ps")}   ${C.dim("(active rooms + join links)")}`);
+  if (has("bifrost")) go.push(`${C.bold("Across machines / phone")}  ${C.cyan("bifrost sessions")}`);
+
+  if (go.length) { console.log(C.bold("  Where to go:")); for (const l of go) console.log("   • " + l); }
+  else console.log(C.dim("  nothing to start — install services first: seldon install factory demerzel"));
+  if (later.length) { console.log("\n" + C.gold("  First, one step:")); for (const l of later) console.log("   • " + l); }
+  console.log("\n  " + C.dim("stop everything: seldon down   ·   check state: seldon status") + "\n");
+}
+
+function down() {
+  const names = ["demerzel", "factory-watch"];
+  const stopped = names.filter((n) => stopDaemon(n));
+  console.log(stopped.length ? C.green("stopped: ") + stopped.join(", ") : C.dim("nothing was running."));
+}
+
+function statusCmd() {
+  console.log(C.bold("\nseldon services\n"));
+  const rows = [["Voice (demerzel)", "demerzel"], ["Supervisor (factory watch)", "factory-watch"]];
+  for (const [label, name] of rows) {
+    const pid = daemonUp(name);
+    console.log(`  ${label.padEnd(28)} ${pid ? C.green("up") + C.dim(` (pid ${pid})`) : C.dim("down")}`);
+  }
+  console.log(C.dim(`\n  logs: ${RUN_DIR}/<service>.log\n`));
+}
+
 // ---- the checklist TUI ------------------------------------------------------
 const BANNER = [
   " ███████╗███████╗██╗     ██████╗  ██████╗ ███╗   ██╗",
@@ -349,6 +435,8 @@ function help() {
 ${C.bold("seldon")} — install the Seldon stack, pick what you use.
 
   ${C.bold("seldon")}                 open the checklist (space to pick, enter to install)
+  ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
+  ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
   ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules
   ${C.bold("seldon uninstall")} ids…  remove the named modules (global CLI / isolated venv)
   ${C.bold("seldon uninstall --all")} remove the whole stack (also drops ~/.seldon)
@@ -387,6 +475,9 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
     if (bad.length) { console.log(C.red(`unknown module(s): ${bad.join(", ")}`)); console.log(C.dim(`modules: ${MODULES.map((m) => m.id).join(", ")}`)); process.exitCode = 1; return; }
     return doUninstall(ids, { all, yes: argv.includes("--yes") });
   }
+  if (cmd === "up") return up();
+  if (cmd === "down") return down();
+  if (cmd === "status") return statusCmd();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
   // interactive
   if (!process.stdin.isTTY) { console.log(C.red("no TTY — use: seldon install <ids…>")); process.exitCode = 1; return; }
