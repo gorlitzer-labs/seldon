@@ -52,14 +52,31 @@ function run(cmd, args, opts = {}) {
   return r.status === 0;
 }
 
+// Is a command on PATH? (used to pick the fastest package manager)
+const has = (bin) => { try { execSync(`command -v ${bin}`, { stdio: "ignore" }); return true; } catch { return false; } };
+
+// Pick the node package manager: --pm=<x> override, else the fastest present.
+// pnpm/bun install globally far faster than npm; npm is the universal fallback.
+function nodePM() {
+  const ov = (process.argv.find((a) => a.startsWith("--pm=")) || "").split("=")[1];
+  if (ov) return ov;
+  if (has("pnpm")) return "pnpm";
+  if (has("bun")) return "bun";
+  return "npm";
+}
+
 function installNpm(m, dev) {
+  const pm = nodePM();
   if (dev && IN_CHECKOUT) {
     const dir = path.join(REPO_ROOT, m.dir);
     const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json")));
-    if (pj.scripts?.build) run("npm", ["--prefix", dir, "run", "build"]);
-    return run("npm", ["link"], { cwd: dir });
+    if (pj.scripts?.build) run(pm, ["run", "build"], { cwd: dir });
+    const link = pm === "pnpm" ? ["link", "--global"] : ["link"]; // bun/npm: `link`
+    return run(pm, link, { cwd: dir });
   }
-  return run("npm", ["install", "-g", m.pkg]);
+  // pnpm/bun: `add -g` · npm: `install -g` — a global CLI, no project touched
+  const add = pm === "npm" ? ["install", "-g", m.pkg] : ["add", "-g", m.pkg];
+  return run(pm, add);
 }
 
 function installShell(m, dev) {
@@ -86,10 +103,21 @@ function installPython(m, dev) {
       fs.rmSync(dest + ".tmp", { recursive: true, force: true });
     }
   }
+  // Always a DEDICATED venv under the module dir — we never install into the
+  // user's system/global/active Python. uv (if present) is faster and can even
+  // fetch its own CPython, so it doesn't touch their interpreter at all; plain
+  // venv+pip is the isolated fallback. No `--system`, no active-env writes.
   const venv = path.join(dest, ".venv");
-  run("python3", ["-m", "venv", venv]);
-  const ok = run(path.join(venv, "bin", "pip"), ["install", "-r", path.join(dest, "requirements.txt")]);
-  if (ok) console.log(C.dim(`  run it: ${path.join(dest, m.bin)}  (venv at ${venv})`));
+  const req = path.join(dest, "requirements.txt");
+  let ok;
+  if (has("uv")) {
+    if (!run("uv", ["venv", venv])) return false;
+    ok = run("uv", ["pip", "install", "--python", path.join(venv, "bin", "python"), "-r", req]);
+  } else {
+    run("python3", ["-m", "venv", venv]);
+    ok = run(path.join(venv, "bin", "pip"), ["install", "-r", req]);
+  }
+  if (ok) console.log(C.dim(`  run it: ${path.join(dest, m.bin)}  (isolated venv at ${venv})`));
   return ok;
 }
 
@@ -138,7 +166,7 @@ function tui() {
         const sel = r.on ? C.green("[x]") : "[ ]";
         const cursor = i === cur ? C.gold("❯") : " ";
         const okp = !platformOk(r.m);
-        const name = (i === cur ? C.bold(r.m.id) : r.m.id).padEnd(11);
+        const name = i === cur ? C.bold(r.m.id.padEnd(11)) : r.m.id.padEnd(11);
         const deps = r.m.needs.map((d) => (depOk(d) ? d : C.red(d))).join(" ");
         const platNote = okp ? C.red(" (unsupported OS)") : "";
         out.push(`  ${cursor} ${sel} ${name} ${C.dim(methodTag(r.m).padEnd(7))} ${C.dim(r.m.blurb)}${platNote}`);
@@ -186,6 +214,11 @@ ${C.bold("seldon")} — install the Seldon stack, pick what you use.
   ${C.bold("seldon doctor")} [ids…]   check external deps (tmux, sops, age, tailscale, python…)
   ${C.bold("seldon list")}            list the modules
   ${C.bold("seldon --dev")}           link node modules from this checkout instead of npm
+  ${C.bold("seldon install --pm=pnpm")}  force the node package manager (pnpm|bun|npm; auto-detected)
+
+  ${C.dim("node tools install via pnpm/bun if present (faster), else npm.")}
+  ${C.dim("python (demerzel) installs into its own isolated venv — never your system Python;")}
+  ${C.dim("uses uv if present, else python3 -m venv + pip.")}
 
   modules: ${MODULES.map((m) => m.id).join(", ")}
 `);
