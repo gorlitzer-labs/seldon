@@ -36,11 +36,11 @@ jobs:
   # kubectl access to the cluster. Until then, use scripts/deploy-seldon-stack.sh.
   deploy:
     needs: image
-    # Skipped (green) until you register a self-hosted runner labeled `home-k3s`
-    # and set repo variable SELF_HOSTED_DEPLOY=true. Until then, roll manually:
+    # Skipped (green) until you use the existing self-hosted runner (the optiplex)
+    # (SELF_HOSTED_DEPLOY=true gates it); the runner needs kubectl to home-k3s. Until then, roll manually:
     #   scripts/deploy-seldon-stack.sh
     if: ${{ vars.SELF_HOSTED_DEPLOY == 'true' }}
-    runs-on: [self-hosted, home-k3s]
+    runs-on: self-hosted
     steps:
       - name: Roll seldon-stack to this commit
         run: |
