@@ -55,6 +55,30 @@ function run(cmd, args, opts = {}) {
 // Is a command on PATH? (used to pick the fastest package manager)
 const has = (bin) => { try { execSync(`command -v ${bin}`, { stdio: "ignore" }); return true; } catch { return false; } };
 
+// A usable uv, for Python modules. Prefer one on PATH; else a prior isolated
+// copy; else bootstrap uv into ~/.seldon/bin with NO shell/profile changes.
+// uv can fetch a standalone CPython (e.g. 3.12) itself, so the user's own
+// Python is never touched — which is the whole point for demerzel. null = give up.
+function ensureUv() {
+  if (has("uv")) return "uv";
+  const dir = path.join(process.env.HOME, ".seldon", "bin");
+  const local = path.join(dir, "uv");
+  if (fs.existsSync(local)) return local;
+  console.log(C.dim("  installing uv (isolated → ~/.seldon/bin, no shell changes)"));
+  fs.mkdirSync(dir, { recursive: true });
+  const ok = run("bash", ["-c",
+    `curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR='${dir}' UV_NO_MODIFY_PATH=1 sh`]);
+  return ok && fs.existsSync(local) ? local : null;
+}
+
+// Fallback interpreter when uv is unavailable: an exact minor already on PATH
+// (python3.12 → 3.11 → 3.10). Used only to seed an isolated venv, never modified.
+function pickPython(ver) {
+  const [maj, min] = ver.split(".").map(Number);
+  for (let m = min; m >= 10; m--) { const b = `python${maj}.${m}`; if (has(b)) return b; }
+  return null;
+}
+
 // pnpm can only `add -g` when a global bin dir is configured (else ERR_PNPM_NO_GLOBAL_BIN_DIR).
 const pnpmGlobalReady = () => {
   if (process.env.PNPM_HOME) return true;
@@ -127,12 +151,23 @@ function installPython(m, dev) {
   // venv+pip is the isolated fallback. No `--system`, no active-env writes.
   const venv = path.join(dest, ".venv");
   const req = path.join(dest, "requirements.txt");
+  fs.rmSync(venv, { recursive: true, force: true }); // never reuse a venv built on the wrong Python
   let ok;
-  if (has("uv")) {
-    if (!run("uv", ["venv", venv])) return false;
-    ok = run("uv", ["pip", "install", "--python", path.join(venv, "bin", "python"), "-r", req]);
+  const uv = ensureUv();
+  if (uv) {
+    const venvArgs = ["venv", venv];
+    if (m.pyVersion) venvArgs.push("--python", m.pyVersion); // uv fetches a standalone CPython
+    if (!run(uv, venvArgs)) return false;
+    ok = run(uv, ["pip", "install", "--python", path.join(venv, "bin", "python"), "-r", req]);
   } else {
-    run("python3", ["-m", "venv", venv]);
+    // No uv (and couldn't bootstrap it). Fall back to a matching system python.
+    const py = m.pyVersion ? pickPython(m.pyVersion) : "python3";
+    if (!py) {
+      console.log(C.red(`  ${m.id} needs Python ${m.pyVersion} but uv is unavailable and no python${m.pyVersion} is on PATH.`));
+      console.log(C.dim(`  install uv (fetches Python ${m.pyVersion} in isolation): https://astral.sh/uv`));
+      return false;
+    }
+    run(py, ["-m", "venv", venv]);
     ok = run(path.join(venv, "bin", "pip"), ["install", "-r", req]);
   }
   if (ok) console.log(C.dim(`  run it: ${path.join(dest, m.bin)}  (isolated venv at ${venv})`));
@@ -236,7 +271,7 @@ ${C.bold("seldon")} — install the Seldon stack, pick what you use.
 
   ${C.dim("node tools install via pnpm/bun if present (faster), else npm.")}
   ${C.dim("python (demerzel) installs into its own isolated venv — never your system Python;")}
-  ${C.dim("uses uv if present, else python3 -m venv + pip.")}
+  ${C.dim("uses uv (auto-installed to ~/.seldon/bin if missing) to fetch a standalone CPython 3.12.")}
 
   modules: ${MODULES.map((m) => m.id).join(", ")}
 `);

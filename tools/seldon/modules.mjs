@@ -76,6 +76,9 @@ export const MODULES = [
     bin: "demerzel",
     needs: ["python3"],
     requires: [],
+    // kokoro==0.9.4 caps Python at <3.13; the venv is pinned to 3.12 and uv
+    // fetches a standalone CPython 3.12 in isolation (never the system Python).
+    pyVersion: "3.12",
     platforms: { platform: "darwin", arch: "arm64" }, // macOS + Apple silicon only
   },
 ];

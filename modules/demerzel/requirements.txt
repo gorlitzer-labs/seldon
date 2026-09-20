@@ -1,4 +1,4 @@
-# Demerzel — Apple Silicon only. Python 3.13.
+# Demerzel — Apple Silicon only. Python 3.12 (kokoro 0.9.4 requires <3.13).
 # Versions are the ones this was built and measured against.
 
 # Brain — MLX
