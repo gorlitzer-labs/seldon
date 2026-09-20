@@ -1,8 +1,10 @@
 # build the static site
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+# deps layer — cached unless package.json/lock change
+COPY package.json package-lock.json ./
+RUN npm ci
+# source layer — the only thing that rebuilds on app changes
 COPY . .
 RUN npm run build
 
