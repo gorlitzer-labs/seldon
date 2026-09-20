@@ -47,6 +47,11 @@ _active: dict = {"session": None}
 # Writes Demerzel can make: resolving a factory decision is permanent, and memory
 # is durable. Off behind a shared link.
 READONLY = os.environ.get("DEMERZEL_READONLY", "").lower() in {"1", "true", "yes"}
+# Bind host for the UI + websocket. Default loopback (this machine only). Set
+# DEMERZEL_HOST to a tailnet IP to reach the voice from your phone — the web
+# client already dials the websocket at the page's own host, so serving the page
+# on that address is enough. Consider DEMERZEL_READONLY when exposing it.
+HOST = os.environ.get("DEMERZEL_HOST", "127.0.0.1")
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
 worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="demerzel-gpu")
 
@@ -384,7 +389,7 @@ async def handler(ws):
 def serve_http():
     h = functools.partial(http.server.SimpleHTTPRequestHandler, directory=WEB_DIR)
     socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("127.0.0.1", HTTP_PORT), h) as httpd:
+    with socketserver.TCPServer((HOST, HTTP_PORT), h) as httpd:
         httpd.serve_forever()
 
 
@@ -423,8 +428,9 @@ async def main():
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(worker, load_models)   # same thread as every turn
     threading.Thread(target=serve_http, daemon=True).start()
-    print(f"\n  Demerzel is listening -- open http://localhost:{HTTP_PORT}/\n", flush=True)
-    async with websockets.serve(handler, "127.0.0.1", WS_PORT, max_size=None):
+    where = "localhost" if HOST in ("127.0.0.1", "") else HOST
+    print(f"\n  Demerzel is listening -- open http://{where}:{HTTP_PORT}/\n", flush=True)
+    async with websockets.serve(handler, HOST, WS_PORT, max_size=None):
         await asyncio.Future()
 
 

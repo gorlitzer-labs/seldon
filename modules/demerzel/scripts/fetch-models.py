@@ -34,20 +34,4 @@ else:
     urllib.request.urlretrieve(SPEAKER_URL, dest)
     print(f"OK  -> {dest}", flush=True)
 
-# spaCy English model for kokoro's grapheme-to-phoneme (misaki -> en_core_web_sm).
-# Small but required: without it the TTS voice crashes on first start.
-print("\n=== spaCy en_core_web_sm  (kokoro text processing) ===", flush=True)
-try:
-    import spacy
-    try:
-        spacy.load("en_core_web_sm")
-        print("OK  en_core_web_sm already present", flush=True)
-    except Exception:
-        import subprocess
-        subprocess.run([sys.executable, "-m", "spacy", "download", "en_core_web_sm"], check=True)
-        print("OK  en_core_web_sm downloaded", flush=True)
-except Exception as e:
-    print(f"FAIL en_core_web_sm: {type(e).__name__}: {e}", flush=True)
-    sys.exit(1)
-
 print("\nall models present", flush=True)
