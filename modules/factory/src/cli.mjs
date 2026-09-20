@@ -10,9 +10,11 @@ import { factoryDecide, factoryBriefing } from "./decide.mjs";
 import { factoryBox } from "./box.mjs";
 import { factoryRealms } from "./realms.mjs";
 import { factoryState } from "./state.mjs";
+import { VERSION, checkAndNotify } from "./update-check.mjs";
 
 const argv = process.argv.slice(2);
 const [cmd, ...rest] = argv;
+if (process.stdout.isTTY) checkAndNotify();
 
 function parse(args) {
   const flags = {}, pos = [];
@@ -73,7 +75,7 @@ try {
     case "realms": await factoryRealms(flags); break;
     case "decide": await factoryDecide(pos[0], pos.slice(1)); break;
     case "briefing": await factoryBriefing(); break;
-    case "version": case "--version": case "-v": say("factory 0.1.0"); break;
+    case "version": case "--version": case "-v": say(`factory ${VERSION}`); break;
     case undefined: case "help": case "--help": case "-h": help(); break;
     default: err(`unknown command: ${cmd}`); help(); process.exit(2);
   }

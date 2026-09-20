@@ -1,6 +1,6 @@
 {
   "name": "@gorlitzer-labs/factory",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The AI Agentic Factory — front door + supervisor for a 24/7 agent software factory. Runs the line: idea -> repo -> Foundation -> plan -> apiary hive.",
   "type": "module",
   "bin": {
