@@ -16,11 +16,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/gorlitzer-labs/apiary.git"
+    "url": "git+https://github.com/gorlitzer-labs/seldon.git",
+    "directory": "modules/apiary"
   },
-  "homepage": "https://github.com/gorlitzer-labs/apiary",
+  "homepage": "https://github.com/gorlitzer-labs/seldon/tree/main/modules/apiary",
   "bugs": {
-    "url": "https://github.com/gorlitzer-labs/apiary/issues"
+    "url": "https://github.com/gorlitzer-labs/seldon/issues"
   },
   "type": "module",
   "main": "./dist/index.js",

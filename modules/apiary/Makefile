@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build test typecheck release
+.PHONY: help build test typecheck
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 Y  := \033[33m
@@ -17,10 +17,11 @@ help: ## show this help
 	@echo "  $(C)make build$(R)       rebuild after code changes"
 	@echo "  $(C)make test$(R)        run tests"
 	@echo "  $(C)make typecheck$(R)   type check"
-	@echo "  $(C)make release$(R)     bump, tag, push $(D)V=patch|minor|major NOTES=$(R)"
+	@echo ""
+	@echo "  $(D)Releases are published from the seldon monorepo (public npm).$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Install$(R)"
-	@echo "    $(D)npm install -g @gorlitzer/apiary$(R)  $(D)(after auth: npm login --scope=@gorlitzer --registry=https://npm.pkg.github.com)$(R)"
+	@echo "    $(D)npm install -g @gorlitzer-labs/apiary$(R)  $(D)(public npm — no auth)$(R)"
 	@echo ""
 	@echo "  $(G)$(B)Quick start$(R)  $(D)(MCP — recommended)$(R)"
 	@echo "    $(D)1.$(R) Add to MCP config $(D)(~/.claude/mcp.json or .mcp.json):$(R)"
@@ -43,25 +44,3 @@ test: ## run tests
 
 typecheck: ## type check
 	npm run typecheck
-
-V ?= patch
-release: ## bump version, tag, and push (V=patch|minor|major NOTES="...")
-	@echo "$(C)  Running tests...$(R)"
-	@npm test
-	@echo "$(C)  Bumping $(Y)$(V)$(R)$(C) version...$(R)"
-	@npm version $(V) --no-git-tag-version
-	@NEW_V=$$(node -p "require('./package.json').version") && \
-	 npm run build && \
-	 git add -A && \
-	 if [ -n "$(NOTES)" ]; then \
-	   git commit -m "v$$NEW_V" -m "$(NOTES)"; \
-	   git tag -a "v$$NEW_V" -m "$(NOTES)"; \
-	 else \
-	   git commit -m "v$$NEW_V"; \
-	   git tag "v$$NEW_V"; \
-	 fi; \
-	 echo "$(C)  Pushing...$(R)"; \
-	 git push && git push --tags; \
-	 echo ""; \
-	 echo "  $(G)$(B)Released v$$NEW_V$(R)"; \
-	 echo ""

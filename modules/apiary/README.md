@@ -23,11 +23,7 @@ Apiary is one module of the [seldon](https://github.com/gorlitzer-labs/seldon/tr
 npm i -g @gorlitzer-labs/apiary
 ```
 
-That gives you the global `apiary` command, usable from anywhere. `@gorlitzer-labs/apiary` is published to GitHub Packages, so if you haven't already, point the `@gorlitzer-labs` scope at that registry once first:
-
-```bash
-npm login --scope=@gorlitzer-labs --registry=https://npm.pkg.github.com
-```
+That gives you the global `apiary` command, usable from anywhere — `@gorlitzer-labs/apiary` is on the public npm registry, so no auth or scope setup is needed.
 
 **Or install the whole stack** — the [seldon](https://github.com/gorlitzer-labs/seldon) installer offers apiary from a checklist and installs it the same way:
 
@@ -222,10 +218,9 @@ If an agent's CLI exits — Codex self-updates and asks to be restarted, for ins
 
 ```bash
 npm update -g @gorlitzer-labs/apiary   # update to latest
-make release                       # bump patch, tag, push (triggers GitHub Packages publish)
-make release V=minor               # 0.3.2 → 0.4.0
-make release NOTES="TUI cursor nav, ping command"   # with release notes
 ```
+
+Publishing is centralized in the [seldon](https://github.com/gorlitzer-labs/seldon) monorepo — `tools/seldon/scripts/publish-all.mjs` publishes each package to public npm. Bump the version in `package.json`, then run the monorepo publish.
 
 Apiary nags you on startup if there's a new version (once per hour, non-blocking). Run `npm update -g @gorlitzer-labs/apiary` to get the latest.
 
