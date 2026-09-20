@@ -379,14 +379,51 @@ function down() {
   console.log(stopped.length ? C.green("stopped: ") + stopped.join(", ") : C.dim("nothing was running."));
 }
 
-function statusCmd() {
-  console.log(C.bold("\nseldon services\n"));
-  const rows = [["Voice (demerzel)", "demerzel"], ["Supervisor (factory watch)", "factory-watch"]];
-  for (const [label, name] of rows) {
-    const pid = daemonUp(name);
-    console.log(`  ${label.padEnd(28)} ${pid ? C.green("up") + C.dim(` (pid ${pid})`) : C.dim("down")}`);
+// Version of a globally-installed node package, across pnpm / npm / bun roots.
+function npmGlobalVersion(pkg) {
+  const roots = [];
+  for (const c of ["pnpm root -g", "npm root -g"]) {
+    try { roots.push(execSync(c, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim()); } catch {}
   }
-  console.log(C.dim(`\n  logs: ${RUN_DIR}/<service>.log\n`));
+  roots.push(path.join(process.env.HOME, ".bun/install/global/node_modules"));
+  for (const r of roots) {
+    try { const pj = path.join(r, pkg, "package.json"); if (fs.existsSync(pj)) return JSON.parse(fs.readFileSync(pj, "utf8")).version; } catch {}
+  }
+  return "";
+}
+function bifrostVersion() {
+  for (const p of [path.join(process.env.HOME, "bin", "bifrost"), path.join(process.env.HOME, ".local/bin/bifrost")]) {
+    try { if (fs.existsSync(p)) { const mm = fs.readFileSync(p, "utf8").match(/BIFROST_VERSION=["']?([\d.]+)/); return mm ? mm[1] : "installed"; } } catch {}
+  }
+  return "";
+}
+function moduleInstalled(m) {
+  if (m.method === "python") return demerzelInstalled();
+  if (m.method === "shell") return has(m.bin) || fs.existsSync(path.join(process.env.HOME, "bin", m.bin)) || fs.existsSync(path.join(process.env.HOME, ".local/bin", m.bin));
+  return has(m.bin);
+}
+
+function statusCmd() {
+  console.log(C.bold("\n  seldon — stack status\n"));
+  for (const m of MODULES) {
+    const inst = moduleInstalled(m);
+    const dot = inst ? C.green("●") : C.dim("○");
+    let detail;
+    if (!inst) detail = platformOk(m) ? C.dim(`not installed   ${C.dim("· seldon install " + m.id)}`) : C.dim("not supported on this machine");
+    else if (m.method === "npm") detail = C.dim("v" + (npmGlobalVersion(m.pkg) || "?"));
+    else if (m.id === "bifrost") detail = C.dim("v" + (bifrostVersion() || "?"));
+    else if (m.id === "demerzel") detail = demerzelModelsReady() ? C.dim("venv + models ✓") : C.gold("venv ok · models not fetched (seldon up)");
+    else detail = C.dim("installed");
+
+    // service state for the two daemons
+    let svc = "";
+    if (m.id === "factory") { const p = daemonUp("factory-watch"); svc = p ? "   " + C.green("supervisor up") + C.dim(` (pid ${p})`) : "   " + C.dim("supervisor down"); }
+    if (m.id === "demerzel" && inst) { const p = daemonUp("demerzel"); svc = p ? "   " + C.green("voice up") + " " + C.cyan("http://localhost:8770") : "   " + C.dim("voice down"); }
+
+    console.log(`  ${dot} ${C.bold(m.id.padEnd(11))} ${detail}${svc}`);
+  }
+  if (demerzelInstalled()) console.log(C.dim(`\n  demerzel LLM: ${process.env.DEMERZEL_LLM || "mlx-community/Qwen3.6-35B-A3B-4bit (default)"}`));
+  console.log(C.dim(`\n  start: seldon up   ·   stop: seldon down   ·   logs: ${RUN_DIR}/\n`));
 }
 
 // ---- the checklist TUI ------------------------------------------------------
