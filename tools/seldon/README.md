@@ -16,7 +16,7 @@ Pick the tools you want from a checklist; each installs via its native method
 ## Install
 
 ```bash
-npm i -g @gorlitzer-labs/seldon
+pnpm add -g @gorlitzer-labs/seldon     # or: bun add -g …  ·  npm i -g …
 seldon                 # open the checklist — ↑↓ move · space pick · a all · enter install
 ```
 
@@ -27,6 +27,18 @@ seldon install foundation comb   # install just these
 seldon doctor                    # check external deps (tmux, sops, age, tailscale, python)
 seldon list                      # everything available
 ```
+
+## Uninstall
+
+```bash
+seldon uninstall comb demerzel   # remove specific modules (asks to confirm)
+seldon uninstall --all           # remove the whole stack (also drops ~/.seldon)
+seldon uninstall <ids> --yes     # skip the confirm prompt
+```
+
+Node tools are removed from the global store; demerzel's isolated venv and
+bifrost's binary + config are deleted. Your system Python, tmux, tailscale,
+sops/age are never touched.
 
 ## The stack
 
@@ -51,10 +63,15 @@ It's a stack, not a bundle — install only what you use:
 
 ## Package managers
 
-Node tools install via **pnpm** or **bun** if present (much faster than npm), else npm —
-override with `seldon install --pm=pnpm|bun|npm`. demerzel (Python) always installs into
-its **own isolated venv** — never your system/active Python — using **uv** if available,
-else `python3 -m venv` + pip.
+Node tools install with **pnpm** when it can global-install (much faster than npm),
+else **npm**. **bun** is supported but opt-in — `seldon install --pm=bun` (also
+`--pm=pnpm|npm` to force any of them).
+
+demerzel (Python) always installs into its **own isolated venv** — never your
+system or active Python. It pins **CPython 3.12** (its `kokoro` pin caps Python at
+`<3.13`) and uses **uv** to provision a standalone 3.12: if `uv` isn't present,
+seldon bootstraps it into `~/.seldon/bin` with no shell/PATH changes. If uv can't
+be installed, it falls back to a matching `python3.12` on PATH.
 
 ## From a checkout
 
