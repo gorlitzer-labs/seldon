@@ -1,8 +1,6 @@
-# The AI Agentic Factory 🏭
+# factory
 
-> The suite of tools to **create · manage · maintain** a software factory of AI agents that runs
-> **24/7** under **supervised autonomy**. See the
-> [seldon monorepo](https://github.com/gorlitzer-labs/seldon) for the full stack and blueprint.
+**the floor** — the 24/7 supervisor for a software factory of AI agents: **create · manage · maintain** under supervised autonomy.
 
 `factory` is the umbrella CLI — the **front door, the 24/7 supervisor, and the control panel** that
 tie the subsystems into one product.
