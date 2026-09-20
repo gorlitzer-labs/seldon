@@ -114,6 +114,14 @@ function doInstall(ids, { dev } = {}) {
 }
 
 // ---- the checklist TUI ------------------------------------------------------
+const BANNER = [
+  " ███████╗███████╗██╗     ██████╗  ██████╗ ███╗   ██╗",
+  " ██╔════╝██╔════╝██║     ██╔══██╗██╔═══██╗████╗  ██║",
+  " ███████╗█████╗  ██║     ██║  ██║██║   ██║██╔██╗ ██║",
+  " ╚════██║██╔══╝  ██║     ██║  ██║██║   ██║██║╚██╗██║",
+  " ███████║███████╗███████╗██████╔╝╚██████╔╝██║ ╚████║",
+  " ╚══════╝╚══════╝╚══════╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝",
+];
 function tui() {
   return new Promise((resolve) => {
     const rows = MODULES.map((m) => ({ m, on: platformOk(m) && ["apiary", "foundation", "factory"].includes(m.id) }));
@@ -123,7 +131,8 @@ function tui() {
       readline.cursorTo(process.stdout, 0, 0);
       readline.clearScreenDown(process.stdout);
       const out = [];
-      out.push(C.bold(C.gold("  The Seldon stack")) + C.dim("   — pick your tools"));
+      BANNER.forEach((l) => out.push(C.gold(l)));
+      out.push(C.dim("  the AI-agent-factory stack — pick your tools"));
       out.push(C.dim("  ↑↓ move · space toggle · a all · enter install · q quit\n"));
       rows.forEach((r, i) => {
         const sel = r.on ? C.green("[x]") : "[ ]";

@@ -1,11 +1,8 @@
-# Foundation 🐝
+# foundation
 
-> A lean, **deterministic** project-development workflow you bolt onto any repo — the beekeeper's
-> *foundation sheet* that guides how the comb gets built.
+**the seam** — a lean, **deterministic** project workflow you bolt onto any repo: the plan a codebase and its agents follow.
 
-Foundation pairs with **apiary** (the transport) and the **Hive Manifest** (the protocol): apiary
-moves messages, the Manifest says how agents behave, **Foundation is the substrate they coordinate
-over.** It runs standalone too — solo or under any orchestrator. Nothing here imports apiary.
+It runs standalone — solo or under any orchestrator — and pairs with **apiary** when agents coordinate over it. Nothing here imports apiary.
 
 It is *not* groundwork. Its center of gravity is the **deterministic spine**: every state mutation
 goes through a concurrency-safe, atomic, ASCII-validated command — the model never hand-edits state.

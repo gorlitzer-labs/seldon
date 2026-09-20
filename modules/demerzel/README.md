@@ -1,6 +1,6 @@
-# Demerzel
+# demerzel
 
-A voice assistant that runs entirely on one MacBook Pro. You say her name, she
+**the voice** — a fully-local voice assistant. You say her name, she
 listens, she answers, she does things. Nothing leaves the machine — no API key,
 no cloud STT, no telemetry, verified with `lsof`, not with a promise.
 

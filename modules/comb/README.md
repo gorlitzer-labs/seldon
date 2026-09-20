@@ -1,6 +1,6 @@
 # comb
 
-Keep your keys out of your conversations.
+**the vault** — keep your keys out of your conversations. Keys by name, never by value.
 
 You paste a Cloudflare token to an agent so it can do a job. That token is now in
 a transcript file on your disk, in plaintext, forever. Do it enough times and you
