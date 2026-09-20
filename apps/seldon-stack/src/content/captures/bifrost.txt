@@ -10,4 +10,5 @@ Bifrost sessions
     ■ cass  blocked
 
   REALM — zanpakuto (zanpakuto)  online
-    (no sessions)
+    ● zanpakuto-1  weather-cli  (node)
+      → bifrost attach zanpakuto-1
