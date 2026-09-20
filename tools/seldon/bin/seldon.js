@@ -194,6 +194,90 @@ function doInstall(ids, { dev } = {}) {
   console.log("\n" + C.bold("Done. ") + C.green(good.join(", ") || "—") + (bad.length ? "  " + C.red("failed: " + bad.join(", ")) : ""));
 }
 
+// ---- uninstall --------------------------------------------------------------
+// Remove a node CLI from the global store. `rm -g` is the same verb for pnpm,
+// npm and bun; try the chosen PM first, then any other present (a tool may have
+// been installed under a different one). Removing an absent package is success.
+function uninstallNpm(m) {
+  const pm = nodePM();
+  const tried = new Set();
+  for (const cand of [pm, "pnpm", "npm", "bun"]) {
+    if (tried.has(cand) || !has(cand)) continue;
+    tried.add(cand);
+    if (run(cand, ["rm", "-g", m.pkg])) return true;
+  }
+  console.log(C.dim(`  ${m.id} not found in any global store (already gone)`));
+  return true;
+}
+
+// demerzel & co: the isolated venv lives under ~/.seldon/<id>. Just delete it.
+function uninstallPython(m) {
+  const dest = path.join(process.env.HOME, ".seldon", m.id);
+  if (fs.existsSync(dest)) { fs.rmSync(dest, { recursive: true, force: true }); console.log(C.dim(`  removed ${dest}`)); }
+  else console.log(C.dim(`  ${m.id} not present`));
+  return true;
+}
+
+// bifrost: a single script in ~/bin or ~/.local/bin, plus ~/.config/bifrost.
+function uninstallShell(m) {
+  let removed = false;
+  for (const p of [path.join(process.env.HOME, "bin", m.bin), path.join(process.env.HOME, ".local", "bin", m.bin)]) {
+    if (fs.existsSync(p)) { fs.rmSync(p, { force: true }); console.log(C.dim(`  removed ${p}`)); removed = true; }
+  }
+  const cfg = path.join(process.env.HOME, ".config", m.id);
+  if (fs.existsSync(cfg)) { fs.rmSync(cfg, { recursive: true, force: true }); console.log(C.dim(`  removed ${cfg}`)); removed = true; }
+  if (!removed) console.log(C.dim(`  ${m.id} not present`));
+  return true;
+}
+
+function uninstallOne(m) {
+  console.log("\n" + C.bold(`▸ ${m.id}`) + C.dim(` — remove`));
+  const fn = { npm: uninstallNpm, shell: uninstallShell, python: uninstallPython }[m.method];
+  const ok = fn(m);
+  console.log(ok ? C.green(`  ✓ ${m.id} removed`) : C.red(`  ✗ ${m.id} failed`));
+  return ok;
+}
+
+// A single y/N prompt. Built on the same raw-keypress mechanism as the picker
+// (proven to release stdin and let the process exit) rather than
+// readline.createInterface, whose stdin stayed entangled and hung after abort.
+// One keypress: 'y' = yes, anything else (incl. Ctrl-C) = no.
+function confirm(question) {
+  return new Promise((resolve) => {
+    if (!process.stdin.isTTY) return resolve(true); // non-interactive: assume yes (paired with an explicit ids/--all)
+    process.stdout.write(question);
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    const onKey = (str, key) => {
+      process.stdin.off("keypress", onKey);
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdin.unref();
+      process.stdout.write((str || "") + "\n");
+      resolve(/^y$/i.test(str || "") && !(key && key.ctrl));
+    };
+    process.stdin.on("keypress", onKey);
+  });
+}
+
+async function doUninstall(ids, { yes = false, all = false } = {}) {
+  const targets = all ? MODULES.map((m) => m.id) : ids;
+  if (!targets.length) { console.log(C.red("nothing to uninstall — name modules or use `seldon uninstall --all`.")); process.exitCode = 1; return; }
+  console.log(C.bold("\nUninstall: ") + targets.join(", "));
+  console.log(C.dim("  removes their global CLI / isolated venv — never your system Python, tmux, tailscale, etc."));
+  if (!yes && !(await confirm(C.gold("\nProceed? [y/N] ")))) { console.log(C.dim("aborted.")); return; }
+  const results = targets.map((id) => [id, uninstallOne(byId[id])]);
+  // A full uninstall also drops the isolated ~/.seldon (demerzel + the uv/CPython it bootstrapped).
+  if (all) {
+    const root = path.join(process.env.HOME, ".seldon");
+    if (fs.existsSync(root)) { fs.rmSync(root, { recursive: true, force: true }); console.log(C.dim(`\n  removed ${root} (isolated uv/venv store)`)); }
+  }
+  const good = results.filter(([, r]) => r).map(([i]) => i);
+  const bad = results.filter(([, r]) => !r).map(([i]) => i);
+  console.log("\n" + C.bold("Done. ") + C.green("removed: " + (good.join(", ") || "—")) + (bad.length ? "  " + C.red("failed: " + bad.join(", ")) : ""));
+}
+
 // ---- the checklist TUI ------------------------------------------------------
 const BANNER = [
   " ███████╗███████╗██╗     ██████╗  ██████╗ ███╗   ██╗",
@@ -266,10 +350,13 @@ ${C.bold("seldon")} — install the Seldon stack, pick what you use.
 
   ${C.bold("seldon")}                 open the checklist (space to pick, enter to install)
   ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules
+  ${C.bold("seldon uninstall")} ids…  remove the named modules (global CLI / isolated venv)
+  ${C.bold("seldon uninstall --all")} remove the whole stack (also drops ~/.seldon)
   ${C.bold("seldon doctor")} [ids…]   check external deps (tmux, sops, age, tailscale, python…)
   ${C.bold("seldon list")}            list the modules
   ${C.bold("seldon --dev")}           link node modules from this checkout instead of npm
   ${C.bold("seldon install --pm=pnpm")}  force the node package manager (pnpm|bun|npm; auto-detected)
+  ${C.dim("uninstall takes --yes to skip the confirm prompt.")}
 
   ${C.dim("node tools install via pnpm/bun if present (faster), else npm.")}
   ${C.dim("python (demerzel) installs into its own isolated venv — never your system Python;")}
@@ -283,7 +370,8 @@ const argv = process.argv.slice(2);
 const dev = argv.includes("--dev");
 const args = argv.filter((a) => !a.startsWith("--"));
 const cmd = args[0];
-const ids = args.slice(1).filter((id) => byId[id]);
+const tokens = args.slice(1);                          // raw names after the command
+const ids = tokens.filter((id) => byId[id]);           // only the valid module ids
 
 (async () => {
   if (argv.includes("--help") || cmd === "help") return help();
@@ -292,6 +380,12 @@ const ids = args.slice(1).filter((id) => byId[id]);
   if (cmd === "install") {
     if (ids.length) return doInstall(ids, { dev });
     // install with no ids -> fall through to the picker
+  }
+  if (cmd === "uninstall") {
+    const all = argv.includes("--all");
+    const bad = tokens.filter((t) => !byId[t]);
+    if (bad.length) { console.log(C.red(`unknown module(s): ${bad.join(", ")}`)); console.log(C.dim(`modules: ${MODULES.map((m) => m.id).join(", ")}`)); process.exitCode = 1; return; }
+    return doUninstall(ids, { all, yes: argv.includes("--yes") });
   }
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
   // interactive
