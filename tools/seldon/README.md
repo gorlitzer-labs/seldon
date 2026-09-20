@@ -33,12 +33,19 @@ seldon list                      # everything available
 One command brings up the always-on services and prints where to go:
 
 ```bash
-seldon up        # starts the voice (demerzel) + the supervisor (factory watch),
-                 # then prints: Voice → http://localhost:8770, how to put agents
-                 # to work, rooms, phone access
-seldon status    # what's running (pids)
-seldon down      # stop everything
+seldon up            # starts the voice (demerzel) + the supervisor (factory watch),
+                     # then prints: Voice → http://localhost:8770, how to put agents
+                     # to work, rooms, phone access
+seldon up --tailnet  # also expose the voice on your tailnet → reach it from your phone
+seldon status        # what's running (pids)
+seldon down          # stop everything
 ```
+
+**Phone access:** `seldon up --tailnet` binds the voice to this machine's Tailscale
+IP and prints `http://<tailnet-ip>:8770` — open it on any device on your tailnet.
+The default `seldon up` stays loopback-only. Since Demerzel can act on the host,
+exposing it means anyone on your tailnet can talk to it — run with
+`DEMERZEL_READONLY=1` when sharing.
 
 `seldon up` only starts what's installed. demerzel serves the voice UI on
 `http://localhost:8770`. Its model set (~25 GB) is a one-time download —
