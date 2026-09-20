@@ -17,9 +17,9 @@
  * matters. Everything else is recoverable; that is not. It never goes in the
  * store, it never goes in the repo.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 
 /** Where the encrypted store and the key live. Override for tests. */
