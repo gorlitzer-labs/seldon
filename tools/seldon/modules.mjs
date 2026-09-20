@@ -83,13 +83,15 @@ export const MODULES = [
 export const byId = Object.fromEntries(MODULES.map((m) => [m.id, m]));
 
 /** External tools we can probe, and how a user installs each (macOS-first hint). */
+// Hints are cross-platform on purpose — name the tool + where to get it, never
+// assume a package manager (this ships to anyone, not one machine).
 export const DEPS = {
-  node:     { probe: "node --version",     hint: "install Node 20+ (nvm, or brew install node)" },
-  tmux:     { probe: "tmux -V",            hint: "brew install tmux" },
-  sops:     { probe: "sops --version",     hint: "brew install sops" },
-  age:      { probe: "age --version",      hint: "brew install age" },
-  tailscale:{ probe: "tailscale version",  hint: "brew install --cask tailscale (or tailscale.com/download)" },
-  python3:  { probe: "python3 --version",  hint: "brew install python@3.13" },
+  node:     { probe: "node --version",     hint: "Node 20+ — nodejs.org / nvm / your package manager" },
+  tmux:     { probe: "tmux -V",            hint: "tmux — your package manager (brew · apt · dnf · pacman · pkg)" },
+  sops:     { probe: "sops --version",     hint: "sops — github.com/getsops/sops/releases (or brew · apt)" },
+  age:      { probe: "age --version",      hint: "age — github.com/FiloSottile/age/releases (or brew · apt)" },
+  tailscale:{ probe: "tailscale version",  hint: "tailscale — tailscale.com/download" },
+  python3:  { probe: "python3 --version",  hint: "Python 3.11+ — python.org / your package manager" },
 };
 
 /** Expand a selection to include hard requires (factory -> apiary, foundation). */
