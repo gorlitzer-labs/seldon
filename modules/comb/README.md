@@ -19,6 +19,19 @@ comb run --with CF_API_TOKEN -- curl -H "Authorization: Bearer $CF_API_TOKEN" ..
 comb audit
 ```
 
+## Install
+
+```bash
+npm i -g @gorlitzer-labs/comb
+```
+
+Also needs `sops` and `age` on your `PATH`, and Node 20+ — see [Requires](#requires)
+below.
+
+`comb` is part of the
+[`gorlitzer-labs/seldon`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/comb)
+monorepo, at `modules/comb`.
+
 ## Why not a secrets server
 
 Infisical and OpenBao are good. They are also a database, a cache, a patch

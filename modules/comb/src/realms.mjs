@@ -10,7 +10,7 @@
 // Revoking a realm is re-encrypting the store WITHOUT its key — no secret has to
 // be rotated, because that realm can no longer decrypt anything, old copies
 // included (its key never changes what the current ciphertext is encrypted to).
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { combHome, storePath, keyPath } from "./backends/sops.mjs";
