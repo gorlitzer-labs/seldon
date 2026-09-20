@@ -5,9 +5,11 @@ import { c, say, err } from "./lib/log.mjs";
 import { init } from "./init.mjs";
 import { doctor } from "./doctor.mjs";
 import * as ops from "./commands.mjs";
+import { VERSION, checkAndNotify } from "./update-check.mjs";
 
 const argv = process.argv.slice(2);
 const [cmd, ...rest] = argv;
+if (process.stdout.isTTY) checkAndNotify();
 
 // crude flag/positional split: --flag val, --bool, positionals
 function parse(args) {
@@ -66,7 +68,7 @@ try {
     case "status": await ops.status(pos[0] || dir); break;
     case "versions": await ops.versions(dir, flags); break;
     case "doctor": process.exit(await doctor(pos[0] || dir)); break;
-    case "version": case "--version": case "-v": say("foundation 0.1.0"); break;
+    case "version": case "--version": case "-v": say(`foundation ${VERSION}`); break;
     case undefined: case "help": case "--help": case "-h": help(); break;
     default: err(`unknown command: ${cmd}`); help(); process.exit(2);
   }

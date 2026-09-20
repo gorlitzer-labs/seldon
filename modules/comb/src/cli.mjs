@@ -23,6 +23,7 @@ import { createInterface } from "node:readline";
 import * as store from "./backends/sops.mjs";
 import * as realms from "./realms.mjs";
 import { scan, defaultTargets } from "./audit.mjs";
+import { VERSION, checkAndNotify } from "./update-check.mjs";
 
 const B = (s) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
@@ -80,6 +81,7 @@ function help() {
 }
 
 const [cmd, ...rest] = process.argv.slice(2);
+if (process.stdout.isTTY) checkAndNotify();
 const flags = {}; const pos = [];
 for (let i = 0; i < rest.length; i++) {
   const a = rest[i];
@@ -234,7 +236,7 @@ try {
     }
 
     case undefined: case "help": case "--help": case "-h": help(); break;
-    case "version": case "--version": case "-v": say("comb 0.1.0"); break;
+    case "version": case "--version": case "-v": say(`comb ${VERSION}`); break;
     default: say(red(`unknown command: ${cmd}`)); help(); process.exit(2);
   }
 } catch (e) {
