@@ -71,6 +71,15 @@ function formatMultilineContent(content: string, roomLabel: string | undefined, 
 }
 
 /**
+ * Render `prefix` followed by content whose wrapped continuation lines align
+ * under the text after `prefix`. Passing `prefix` in one place keeps the visible
+ * prefix and the alignment padding from silently drifting apart.
+ */
+function renderLine(prefix: string, content: string, roomLabel: string | undefined): string {
+  return `${prefix}${formatMultilineContent(content, roomLabel, prefix)}`;
+}
+
+/**
  * Format a typed event as ContentPart[] for the LLM session.
  * Returns null for events that shouldn't be sent to the LLM (noise).
  *
@@ -103,9 +112,9 @@ export function formatEvent(
       let text: string;
       if (msg.reply_to_id && replyContext) {
         const rRef = assignRef ? mkRef(msg.reply_to_id) : ref;
-        text = `${linePrefix}${name} (→ ${rRef} ${replyContext.senderName}): ${formatMultilineContent(msg.content, roomLabel, `${linePrefix}${name} (→ ${rRef} ${replyContext.senderName}): `)}`;
+        text = renderLine(`${linePrefix}${name} (→ ${rRef} ${replyContext.senderName}): `, msg.content, roomLabel);
       } else {
-        text = `${linePrefix}${name}: ${formatMultilineContent(msg.content, roomLabel, `${linePrefix}${name}: `)}`;
+        text = renderLine(`${linePrefix}${name}: `, msg.content, roomLabel);
       }
       const parts: ContentPart[] = [{ type: "text", text }];
       if (msg.image_url) parts.push({ type: "image", url: msg.image_url });
@@ -116,7 +125,7 @@ export function formatEvent(
       const name = resolveName(resolveParticipant, msg.sender_id, msg.sender_name);
       const ref = mkRef(msg.id);
       const linePrefix = `${ts}${ref} ${r}⚡ `;
-      const text = `${linePrefix}${name}: ${formatMultilineContent(msg.content, roomLabel, `${linePrefix}${name}: `)}`;
+      const text = renderLine(`${linePrefix}${name}: `, msg.content, roomLabel);
       const parts: ContentPart[] = [{ type: "text", text }];
       if (msg.image_url) parts.push({ type: "image", url: msg.image_url });
       return parts;

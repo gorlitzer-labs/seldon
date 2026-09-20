@@ -116,7 +116,7 @@ export async function buildCatchUpLines(
       if ((msg.recipients?.length ?? 0) > 0 && msg.sender_id !== selfId && (!selfId || !msg.recipients!.includes(selfId))) {
         continue;
       }
-      lines.push(await formatMsgLine(event.message, conn, (id) => mkRef(id)));
+      lines.push(await formatMsgLine(event.message, conn, mkRef));
       // Collect path-type image attachments as content blocks
       for (const att of event.message.attachments ?? []) {
         if (att.type === "path") {
