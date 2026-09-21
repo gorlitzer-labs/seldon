@@ -32,6 +32,15 @@ let speakerName = 'YOU', speakerColor = UNKNOWN_COLOR;
 let reconnectTimer = null, reconnectDelay = 700, wantConnection = false;
 let enrolPhrases = [];
 let pending = null;                  // her reply block while it still streams
+let coldStart = true;                // first reply of a session pays the model warm-up
+
+// A loader bubble shown the moment she starts thinking, before the first token —
+// otherwise a slow cold prefill looks like nothing is happening. Becomes the reply.
+function showLoader() {
+  if (pending) return;
+  pending = addMessage('DEMERZEL', coldStart ? 'warming up the model' : 'thinking', 'them loader');
+  pending.dataset.loader = '1';
+}
 
 // --- status: toasts, never layout ----------------------------------------
 function toast(kind, text, tone = '', ms = 4200) {
@@ -93,6 +102,7 @@ function setState(s) {
   document.body.dataset.state = s;
   document.documentElement.style.setProperty('--accent', ACCENT[s] || ACCENT.idle);
   sending = (s === 'idle' || s === 'listening');
+  if (s === 'thinking') showLoader();          // chat feedback during the wait
   if (avatar) avatar.setState(s);
 }
 
@@ -267,8 +277,17 @@ function onMessage(ev) {
       if (m.done) {
         if (pending) pending.classList.remove('pending');
         pending = null;
+        coldStart = false;                       // warm-up paid; later turns say "thinking"
       } else if (!pending) {
         pending = addMessage('DEMERZEL', m.text, 'them pending');
+        coldStart = false;
+      } else if (pending.dataset.loader) {
+        // first real token replaces the "warming up" loader with the reply
+        delete pending.dataset.loader;
+        pending.className = 'msg them pending';
+        pending.querySelector('.txt').textContent = m.text;
+        coldStart = false;
+        requestAnimationFrame(() => stickBottom());
       } else {
         const t = pending.querySelector('.txt');
         t.textContent += (t.textContent ? ' ' : '') + m.text;
@@ -355,7 +374,14 @@ function scheduleReconnect() {
 
 /** Open the socket. The audio graph is set up once, by start(). */
 async function connect() {
-  ws = new WebSocket(`ws://${location.hostname}:${WS_PORT}`);
+  // On an HTTPS page (e.g. served through `tailscale serve` so the mic works
+  // off-device) the socket must be wss and same-origin at /ws -- a plain
+  // ws://host:8765 is mixed content and blocked. On http/localhost, keep the
+  // direct port so nothing changes for desktop / loopback use.
+  const wsUrl = location.protocol === 'https:'
+    ? `wss://${location.host}/ws`
+    : `ws://${location.hostname}:${WS_PORT}`;
+  ws = new WebSocket(wsUrl);
   ws.binaryType = 'arraybuffer';
   ws.onmessage = onMessage;
   ws.onclose = () => {

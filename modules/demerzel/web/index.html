@@ -34,10 +34,13 @@
     .enrol input[type=text]{font-size:16px}
     .msg{max-width:94%}
     /* On phones, skip the heavy 3D avatar and use the animated orb — it's the
-       clear loading visual and doesn't jank the WebGL canvas on mobile GPUs. */
+       clear loading visual and doesn't jank the WebGL canvas on mobile GPUs.
+       Keep it small so the conversation gets most of the screen. */
     body[data-avatar=on] #avatar{display:none}
     body[data-avatar=on] #orb{display:block}
-    #orb{width:120px;height:120px}
+    #orb{width:60px;height:60px}
+    .stage{padding:.15rem 0}          /* trim the instrument band */
+    main{gap:.45rem;grid-template-rows:auto auto minmax(0,1fr) auto}  /* log owns the slack */
   }
   /* Mobile first: one column, instrument over log over rail.
      A single 30rem column was the only layout, which wasted two thirds of a
@@ -126,6 +129,12 @@
        margin-left:.15em;background:var(--c);vertical-align:-.15em;
        animation:cursor 1s steps(2) infinite}
   @keyframes cursor{50%{opacity:0}}
+  /* loader bubble: shown while she thinks, before the first token (LM-Studio-ish) */
+  .msg.loader{--c:#FFB020}
+  .msg.loader .txt{color:var(--dim);font-style:italic}
+  .msg.loader .txt::after{content:" ···";font-style:normal;color:var(--c);
+       animation:pulse 1.1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}
 
   /* --- rail --- */
   .rail{display:flex;align-items:center;gap:1.1rem;
