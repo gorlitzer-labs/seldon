@@ -1,6 +1,6 @@
 {
   "name": "@gorlitzer-labs/comb",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Keep your keys out of your conversations. A small vault front-end over SOPS + age.",
   "type": "module",
   "bin": {
