@@ -22,10 +22,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # External tools some suites exercise: comb (age + sops vault), apiary/factory (tmux).
+      - name: system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age tmux
+          SOPS=3.9.4
+          sudo curl -fsSL "https://github.com/getsops/sops/releases/download/v${SOPS}/sops-v${SOPS}.linux.amd64" -o /usr/local/bin/sops
+          sudo chmod +x /usr/local/bin/sops
+      # npm install (not ci): module lockfiles drift and ci is strict; we just
+      # need devDeps (e.g. vitest) present to run the suite.
       - name: install deps
         working-directory: ${{ matrix.pkg }}
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+        run: npm install --no-audit --no-fund
       - name: test
         working-directory: ${{ matrix.pkg }}
         run: npm test
