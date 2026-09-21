@@ -41,6 +41,14 @@ seldon status        # what's running (pids)
 seldon down          # stop everything
 ```
 
+**Voice brain (Qwen or Bonsai):** the first `seldon up` after installing the voice
+asks once — **q** for Qwen 3.6-35B (in-process, sharpest, ~20 GB) or **b** for
+Bonsai 2-27B (a local llama-server, lighter ~7 GB, tool-capable) — and remembers
+the choice. Switch anytime with `seldon up --brain=qwen|bonsai`. When you pick
+Bonsai, seldon fetches its runtime + model (~7 GB, macOS/Apple-silicon) and runs
+the server as a managed daemon; `seldon status` shows the active brain, `seldon
+down` stops it.
+
 **Phone access:** `seldon up --tailnet` binds the voice to this machine's Tailscale
 IP and prints `http://<tailnet-ip>:8770` — open it on any device on your tailnet.
 The default `seldon up` stays loopback-only. Since Demerzel can act on the host,
