@@ -549,9 +549,39 @@ async function up() {
 }
 
 function down() {
-  const names = ["demerzel", "bonsai", "factory-watch"];
-  const stopped = names.filter((n) => stopDaemon(n));
-  console.log(stopped.length ? C.green("stopped: ") + stopped.join(", ") : C.dim("nothing was running."));
+  const tracked = ["demerzel", "bonsai", "factory-watch"].filter((n) => stopDaemon(n));
+  // Belt-and-suspenders so nothing leaks: also reap by seldon's OWN ports and
+  // process signatures. This catches a server started outside seldon (manual
+  // launch) or a pidfile that drifted. Scoped tightly — only our ports and
+  // command shapes — so unrelated processes are never touched.
+  const probes = [
+    "lsof -nP -iTCP:8081 -sTCP:LISTEN -t",                    // bonsai llama-server
+    "lsof -nP -iTCP:8770 -sTCP:LISTEN -t",                    // voice UI
+    "lsof -nP -iTCP:8765 -sTCP:LISTEN -t",                    // voice websocket
+    `pgrep -f '${SELDON_HOME}/bonsai/bin/llama-server'`,
+    "pgrep -f 'demerzel[.]server'",
+    "pgrep -f 'factory.*watch --all'",
+  ];
+  const collect = () => {
+    const s = new Set();
+    for (const c of probes) {
+      try { execSync(c, { stdio: ["ignore", "pipe", "ignore"] }).toString().split(/\s+/).filter(Boolean).forEach((p) => s.add(p)); } catch {}
+    }
+    s.delete(String(process.pid));
+    return [...s];
+  };
+  const first = collect();
+  for (const p of first) { try { process.kill(Number(p), "SIGTERM"); } catch {} }
+  let reaped = 0;
+  if (first.length) {
+    try { execSync("sleep 1.5"); } catch {}
+    for (const p of collect()) { try { process.kill(Number(p), "SIGKILL"); reaped++; } catch {} }
+    reaped = first.length;   // count what we signalled
+  }
+  const parts = [];
+  if (tracked.length) parts.push("stopped " + tracked.join(", "));
+  if (first.length) parts.push(`reaped ${first.length} straggler${first.length > 1 ? "s" : ""}`);
+  console.log(parts.length ? C.green(parts.join(" · ")) : C.dim("nothing was running."));
 }
 
 // Version of a globally-installed node package, across pnpm / npm / bun roots.
