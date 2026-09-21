@@ -15,7 +15,8 @@
     "README.md"
   ],
   "scripts": {
-    "smoke": "node test/smoke.mjs"
+    "smoke": "node test/smoke.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "keywords": [
     "ai",

@@ -5,15 +5,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "seldon.js");
 
 // Run the CLI; return { code, out } with ANSI stripped. Never throws.
-function run(args) {
+// `env` extras are merged in (e.g. SELDON_HOME to sandbox state).
+function run(args, env = {}) {
   try {
-    const out = execFileSync("node", [BIN, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const out = execFileSync("node", [BIN, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } });
     return { code: 0, out: strip(out) };
   } catch (e) {
     return { code: e.status ?? 1, out: strip((e.stdout || "") + (e.stderr || "")) };
@@ -64,4 +67,17 @@ test("no args without a TTY errors instead of hanging on the picker", () => {
   const { code, out } = run([]);          // stdin is ignored (not a TTY)
   assert.equal(code, 1);
   assert.match(out, /no TTY|install/i);
+});
+
+test("status reports the remembered brain from a sandboxed SELDON_HOME (read-only)", () => {
+  // status is read-only, so a temp SELDON_HOME can't touch the real stack.
+  const home = mkdtempSync(path.join(tmpdir(), "seldon-home-"));
+  try {
+    mkdirSync(path.join(home, "demerzel", ".venv", "bin"), { recursive: true });
+    writeFileSync(path.join(home, "demerzel", ".venv", "bin", "python"), "");   // demerzel "installed"
+    writeFileSync(path.join(home, "brain"), "bonsai");
+    const { code, out } = run(["status"], { SELDON_HOME: home });
+    assert.equal(code, 0);
+    assert.match(out, /voice brain:\s*bonsai/i, "status reflects the saved brain");
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });

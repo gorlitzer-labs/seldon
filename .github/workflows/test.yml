@@ -15,6 +15,7 @@ jobs:
         pkg:
           - tools/seldon
           - modules/apiary
+          - modules/foundation
           - modules/comb
           - modules/factory
     steps:

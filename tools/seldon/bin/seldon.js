@@ -317,8 +317,10 @@ async function doUninstall(ids, { yes = false, all = false } = {}) {
 // The stack's only always-on services are the voice (demerzel) and the
 // supervisor loop (factory watch). We run them as detached background daemons,
 // track them by pidfile under ~/.seldon/run, and print one map of where to go.
-const RUN_DIR = path.join(process.env.HOME, ".seldon", "run");
-const SELDON_HOME = path.join(process.env.HOME, ".seldon");
+// SELDON_HOME can be overridden (tests point it at a temp dir; also a legit
+// user override). Everything — run/, bonsai/, demerzel/, brain — derives from it.
+const SELDON_HOME = process.env.SELDON_HOME || path.join(process.env.HOME, ".seldon");
+const RUN_DIR = path.join(SELDON_HOME, "run");
 const pidFile = (name) => path.join(RUN_DIR, name + ".pid");
 const readPid = (name) => { try { return parseInt(fs.readFileSync(pidFile(name), "utf8").trim(), 10) || 0; } catch { return 0; } };
 const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
