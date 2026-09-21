@@ -111,8 +111,20 @@ def load_all(verbose: bool = True) -> tuple[Ears, Brain, Voice]:
     ears = Ears()
     say("loading voice (kokoro) ...", flush=True)
     voice = Voice()
-    say("loading brain (qwen3.6-35b-a3b) ...", flush=True)
-    brain = Brain()
+    # Brain backend: default is the in-process MLX model (Qwen). Set
+    # DEMERZEL_BRAIN=bonsai (or DEMERZEL_LLM_SERVER=<url>) to use a local
+    # OpenAI-compatible server instead -- no 20 GB in-process LLM.
+    if os.environ.get("DEMERZEL_BRAIN", "").lower() == "bonsai" or os.environ.get("DEMERZEL_LLM_SERVER"):
+        from .brain_bonsai import BonsaiBrain, server_url, server_healthy
+        if not server_healthy():
+            raise RuntimeError(
+                f"DEMERZEL_BRAIN=bonsai but no server at {server_url()} "
+                f"(start it with `seldon up` / the Bonsai llama-server).")
+        say(f"brain: bonsai server @ {server_url()} (no in-process LLM)", flush=True)
+        brain = BonsaiBrain()
+    else:
+        say("loading brain (qwen3.6-35b-a3b) ...", flush=True)
+        brain = Brain()
     say(f"loaded in {time.perf_counter()-t0:.1f}s -- warming ...", flush=True)
 
     t1 = time.perf_counter()

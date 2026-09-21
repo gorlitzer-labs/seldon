@@ -1,6 +1,6 @@
 {
   "name": "@gorlitzer-labs/seldon",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Install the Seldon stack — pick your tools from a checklist; each installs via its native method.",
   "type": "module",
   "bin": {

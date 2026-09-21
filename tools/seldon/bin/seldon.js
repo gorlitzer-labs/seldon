@@ -335,6 +335,18 @@ function tailnetIp() {
       if (/^100\./.test(ip)) return ip;
     } catch {}
   }
+  // CLI missing/moved? The tailnet address is still on a utun interface —
+  // read it straight from the OS (Tailscale's CGNAT range is 100.64.0.0/10).
+  try {
+    const out = execSync("ifconfig", { stdio: ["ignore", "pipe", "ignore"] }).toString();
+    const m = out.match(/inet (100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)/);
+    if (m) return m[1];
+  } catch {}
+  try { // linux `ip addr`
+    const out = execSync("ip -4 addr", { stdio: ["ignore", "pipe", "ignore"] }).toString();
+    const m = out.match(/inet (100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)/);
+    if (m) return m[1];
+  } catch {}
   return null;
 }
 
