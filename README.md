@@ -71,6 +71,7 @@ $ seldon up
   seldon — bringing the stack up
 
   Where to go:
+   • Brain   Qwen 3.6-35B (in-process)      · switch: seldon up --brain=bonsai
    • Voice   http://localhost:8770          (talk to Demerzel)
    • Supervisor  running — heals agents, catches stalls   · live view: factory board
    • Put agents to work  factory new "<your idea>"   → repo · foundation · apiary hive
@@ -79,6 +80,10 @@ $ seldon up
 
   stop everything: seldon down   ·   check state: seldon status
 ```
+
+The first time, `seldon up` asks once which **voice brain** to use — **Qwen** (in-process,
+sharpest) or **Bonsai 2** (a lighter local server) — and remembers it. Add `--tailnet`
+to reach the voice from your phone (needs HTTPS for the mic — see the [installer notes](tools/seldon/README.md#start-the-stack)).
 
 **3. Check what's installed and running, any time:**
 
@@ -94,7 +99,7 @@ $ seldon status
   ● bifrost     v1.7.0
   ● demerzel    venv + models ✓   voice up http://localhost:8770
 
-  demerzel LLM: mlx-community/Qwen3.6-35B-A3B-4bit (default)
+  voice brain: bonsai  server up   · switch: seldon up --brain=qwen|bonsai
   start: seldon up · stop: seldon down · logs: ~/.seldon/run/
 ```
 

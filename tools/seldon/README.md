@@ -55,19 +55,26 @@ The default `seldon up` stays loopback-only. Since Demerzel can act on the host,
 exposing it means anyone on your tailnet can talk to it — run with
 `DEMERZEL_READONLY=1` when sharing.
 
+> **Mic needs HTTPS.** Browsers only allow the microphone in a *secure context*
+> (HTTPS or localhost). The `http://<tailnet-ip>` URL loads on a phone but the
+> mic stays blocked. To talk from a phone, front the voice with HTTPS — e.g.
+> `tailscale serve` (Tailscale HTTPS must be enabled for your tailnet), which
+> gives a `https://<machine>.<tailnet>.ts.net` URL with a real cert. On the Mac
+> itself, `http://localhost:8770` is a secure context, so the mic works there.
+
 `seldon up` only starts what's installed. demerzel serves the voice UI on
 `http://localhost:8770`. Its model set (~25 GB) is a one-time download —
 `seldon install demerzel` **offers to fetch it right there** ([y/N]), and `seldon up`
 offers again if it's still missing. Nothing that big is ever pulled silently.
 Logs live in `~/.seldon/run/`.
 
-**Try a different LLM** (e.g. PrismML's Bonsai 2, ~5.9 GB, much smaller than the
-default): set `DEMERZEL_LLM` to any MLX-compatible HF repo before install/up, and
-both the fetch and the runtime follow it:
+**Swap the in-process Qwen model:** set `DEMERZEL_LLM` to any MLX-compatible HF
+repo before install/up — the fetch and the runtime both follow it (this only
+changes the *Qwen brain*; for Bonsai use `--brain=bonsai` above, which is a
+separate llama-server, not an MLX repo).
 
 ```bash
-DEMERZEL_LLM=mlx-community/<bonsai-2-repo> seldon install demerzel   # fetch that model
-DEMERZEL_LLM=mlx-community/<bonsai-2-repo> seldon up                 # run it
+DEMERZEL_LLM=mlx-community/<some-mlx-repo> seldon up
 ```
 
 ## Uninstall

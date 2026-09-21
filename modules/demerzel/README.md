@@ -251,8 +251,9 @@ Needs Apple Silicon with ≥ 36 GB. She holds ~21.5 GB resident.
 into `~/.seldon/bin` if missing) — your system/active Python is never touched:
 
 ```bash
-seldon install demerzel
-~/.seldon/demerzel/demerzel        # fetches models on first run (~24 GB), then serves on :8770
+seldon install demerzel            # offers the one-time model fetch (~25 GB)
+seldon up                          # starts the voice on http://localhost:8770
+                                   # (add --tailnet for your phone; --brain=bonsai for the Bonsai brain)
 ```
 
 **Or by hand**, from a checkout — use Python 3.12 (not 3.13; `kokoro` requires `<3.13`):
@@ -260,7 +261,7 @@ seldon install demerzel
 ```bash
 uv venv .venv --python 3.12 && source .venv/bin/activate   # or: python3.12 -m venv .venv
 uv pip install -r requirements.txt                          # or: pip install -r requirements.txt
-python scripts/fetch-models.py     # ~24 GB, resumable
+python scripts/fetch-models.py     # ~25 GB, resumable
 python -m demerzel.server            # then open http://localhost:8770
 ```
 
@@ -279,7 +280,9 @@ that refusal is load-bearing.
 
 | Variable | Default | |
 |---|---|---|
-| `DEMERZEL_LLM` | `mlx-community/Qwen3.6-35B-A3B-4bit` | any MLX-compatible HF repo — e.g. a smaller model. The fetch script and runtime both follow it. |
+| `DEMERZEL_BRAIN` | `qwen` | `bonsai` runs the brain as a local OpenAI-compatible server (Bonsai 2 via llama.cpp) instead of the in-process Qwen — lighter (~7 GB vs ~20 GB). Managed for you by `seldon up --brain=bonsai`. |
+| `DEMERZEL_LLM_SERVER` | `http://127.0.0.1:8081` | where the brain server lives when `DEMERZEL_BRAIN=bonsai`. |
+| `DEMERZEL_LLM` | `mlx-community/Qwen3.6-35B-A3B-4bit` | swaps the in-process **Qwen** MLX model (only when brain=qwen); any MLX-compatible HF repo. |
 | `DEMERZEL_STT` | `qwen` | `parakeet` to A/B for speed over vocabulary |
 | `DEMERZEL_READONLY` | off | disables all writes; set this before sharing a session |
 | `DEMERZEL_FILE_ROOTS` | `~/Desktop` | where `read_file` / `find_files` may look |
@@ -328,4 +331,4 @@ Honest list, all of it in `docs/QUEUE.md`:
 Lives in the `gorlitzer-labs/seldon` monorepo at
 [`modules/demerzel`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/demerzel)
 (the old standalone `gorlitzer/demerzel` repo is gone). All paths below are
-relative to this module directory. Private repo — ask before sharing further.
+relative to this module directory.
