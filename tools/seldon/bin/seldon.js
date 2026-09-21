@@ -275,6 +275,27 @@ function confirm(question) {
   });
 }
 
+// Read one keypress and return the character (same stdin-safe pattern as confirm).
+function readKey(question) {
+  return new Promise((resolve) => {
+    if (!process.stdin.isTTY) return resolve("");
+    process.stdout.write(question);
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.ref();
+    const onKey = (str, key) => {
+      process.stdin.off("keypress", onKey);
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdin.unref();
+      process.stdout.write((str || "") + "\n");
+      resolve((key && key.ctrl && key.name === "c") ? "" : (str || ""));
+    };
+    process.stdin.on("keypress", onKey);
+  });
+}
+
 async function doUninstall(ids, { yes = false, all = false } = {}) {
   const targets = all ? MODULES.map((m) => m.id) : ids;
   if (!targets.length) { console.log(C.red("nothing to uninstall — name modules or use `seldon uninstall --all`.")); process.exitCode = 1; return; }
@@ -369,6 +390,99 @@ async function ensureDemerzelModels({ ask = true } = {}) {
   return run(path.join(home, ".venv/bin/python"), [path.join(home, "scripts/fetch-models.py")], { cwd: home, env: { ...process.env } });
 }
 
+// ---- the voice brain: Qwen (in-process) or Bonsai (local llama-server) ------
+// Bonsai runs as a separate OpenAI-compatible server (PrismML's llama.cpp),
+// which frees the ~20 GB the in-process Qwen holds. seldon manages that server
+// as a daemon so the choice is durable, and remembers it in ~/.seldon/brain.
+const BONSAI_HOME = path.join(SELDON_HOME, "bonsai");
+const BONSAI_BIN = path.join(BONSAI_HOME, "bin", "llama-server");
+const BONSAI_PORT = 8081;
+const BRAIN_FILE = path.join(SELDON_HOME, "brain");
+const BONSAI_RELEASE = "prism-b10709-9a9394a";           // pinned PrismML llama.cpp build
+const BONSAI_GGUF_REPO = "prism-ml/Ternary-Bonsai-2-27B-gguf";
+const BONSAI_GGUF_FILE = "Ternary-Bonsai-2-27B-PQ2_0.gguf";
+
+const savedBrain = () => { try { return fs.readFileSync(BRAIN_FILE, "utf8").trim(); } catch { return ""; } };
+const saveBrain = (b) => { try { fs.mkdirSync(SELDON_HOME, { recursive: true }); fs.writeFileSync(BRAIN_FILE, b); } catch {} };
+
+function bonsaiGgufPath() {
+  const local = path.join(BONSAI_HOME, BONSAI_GGUF_FILE);
+  if (fs.existsSync(local)) return local;
+  try {
+    const base = path.join(process.env.HOME, ".cache/huggingface/hub/models--prism-ml--Ternary-Bonsai-2-27B-gguf/snapshots");
+    for (const s of fs.readdirSync(base)) {
+      const f = path.join(base, s, BONSAI_GGUF_FILE);
+      if (fs.existsSync(f)) return fs.realpathSync(f);
+    }
+  } catch {}
+  return null;
+}
+const bonsaiInstalled = () => fs.existsSync(BONSAI_BIN) && !!bonsaiGgufPath();
+const bonsaiHealthy = () => { try { execSync(`curl -sf -o /dev/null --max-time 3 http://127.0.0.1:${BONSAI_PORT}/health`, { stdio: "ignore" }); return true; } catch { return false; } };
+
+function startBonsaiServer() {
+  if (bonsaiHealthy()) return { already: true };
+  const gguf = bonsaiGgufPath();
+  // tuned: flash-attn + single slot (warm prefix sticks) + cache reuse
+  return startDaemon("bonsai", BONSAI_BIN,
+    ["--jinja", "-m", gguf, "--host", "127.0.0.1", "--port", String(BONSAI_PORT),
+     "-c", "8192", "-ngl", "999", "-fa", "on", "--parallel", "1", "--cache-reuse", "256"]);
+}
+
+// Download the Bonsai runtime (PrismML prebuilt macOS binary) + the GGUF. Big,
+// so always offered, never silent. macOS/Apple-silicon only (like the voice).
+async function ensureBonsaiAssets() {
+  if (bonsaiInstalled()) return true;
+  if (process.platform !== "darwin" || process.arch !== "arm64") {
+    console.log(C.red("  Bonsai brain is macOS / Apple-silicon only.")); return false;
+  }
+  const force = process.argv.includes("--yes");
+  const ok = force || (process.stdin.isTTY
+    ? await confirm(C.gold("  Bonsai needs a one-time download (~7 GB model + runtime). Get it now? [y/N] "))
+    : false);
+  if (!ok) { console.log(C.dim("  skipped — Bonsai not fetched.")); return false; }
+  fs.mkdirSync(path.join(BONSAI_HOME, "bin"), { recursive: true });
+  if (!fs.existsSync(BONSAI_BIN)) {
+    console.log(C.dim("  fetching Bonsai runtime (PrismML llama.cpp, macOS-arm64)…"));
+    const url = `https://github.com/PrismML-Eng/llama.cpp/releases/download/${BONSAI_RELEASE}/llama-${BONSAI_RELEASE}-bin-macos-arm64.tar.gz`;
+    const tmp = path.join(BONSAI_HOME, ".dl");
+    // extract anywhere, then find llama-server + its sibling dylibs (layout-proof)
+    run("bash", ["-c",
+      `set -e; rm -rf '${tmp}'; mkdir -p '${tmp}'; curl -fSL '${url}' -o '${tmp}/b.tgz'; ` +
+      `tar -xzf '${tmp}/b.tgz' -C '${tmp}'; ` +
+      `d=$(dirname "$(find '${tmp}' -name llama-server -type f | head -1)"); ` +
+      `cp "$d/llama-server" "$d"/*.dylib '${path.join(BONSAI_HOME, "bin")}/' 2>/dev/null || cp "$d/llama-server" '${path.join(BONSAI_HOME, "bin")}/'; ` +
+      `chmod +x '${BONSAI_BIN}'; rm -rf '${tmp}'`]);
+  }
+  if (!bonsaiGgufPath()) {
+    console.log(C.dim("  fetching Bonsai 2 model (~7 GB, resumable)…"));
+    const url = `https://huggingface.co/${BONSAI_GGUF_REPO}/resolve/main/${BONSAI_GGUF_FILE}`;
+    run("bash", ["-c", `curl -fL -C - '${url}' -o '${path.join(BONSAI_HOME, BONSAI_GGUF_FILE)}'`]);
+  }
+  return bonsaiInstalled();
+}
+
+// Decide the voice brain: --brain=X flag > saved choice > a one-key prompt when
+// the voice is installed and we're interactive > qwen. The prompt is the "right
+// moment": only surfaced once, then remembered.
+async function chooseBrain() {
+  const flag = (process.argv.find((a) => a.startsWith("--brain=")) || "").split("=")[1];
+  if (flag) { saveBrain(flag); return flag; }
+  const saved = savedBrain();
+  if (saved) return saved;
+  if (demerzelInstalled() && process.stdin.isTTY) {
+    console.log(C.bold("\n  Voice brain — pick once (remembered):"));
+    console.log("   " + C.cyan("q") + C.dim(" Qwen 3.6-35B — in-process, sharpest, ~20 GB RAM"));
+    console.log("   " + C.cyan("b") + C.dim(" Bonsai 2-27B — local server, lighter (~7 GB), tool-capable"));
+    const k = await readKey(C.gold("  [q/b] "));
+    const brain = /^b/i.test(k) ? "bonsai" : "qwen";
+    console.log(C.dim(`  → ${brain}`));
+    saveBrain(brain);
+    return brain;
+  }
+  return "qwen";
+}
+
 async function up() {
   console.log(C.gold("\n  seldon — bringing the stack up\n"));
   const go = [];      // where-to-go lines
@@ -382,16 +496,34 @@ async function up() {
     else {
       if (!demerzelModelsReady()) await ensureDemerzelModels({ ask: true });  // offer the fetch inline
       if (demerzelModelsReady()) {
-        // --tailnet exposes the voice on this machine's tailnet IP (reachable
-        // from your phone). Default stays loopback (this machine only).
+        const env = { ...process.env };
+        // --- choose the brain (remembered) ---
+        let brain = await chooseBrain();
+        if (brain === "bonsai") {
+          if (!bonsaiInstalled()) await ensureBonsaiAssets();
+          if (bonsaiInstalled()) {
+            const bs = startBonsaiServer();
+            env.DEMERZEL_BRAIN = "bonsai";
+            env.DEMERZEL_LLM_SERVER = `http://127.0.0.1:${BONSAI_PORT}`;
+            go.push(`${C.bold("Brain")}  Bonsai 2 ${C.dim("(local server :8081, ~7 GB) " + (bs.already ? "already up" : "starting"))}`);
+          } else {
+            later.push("Bonsai unavailable — using Qwen. (macOS/arm64 + the ~7 GB download are needed.)");
+            brain = "qwen"; saveBrain("qwen");
+          }
+        }
+        if (brain === "qwen") go.push(`${C.bold("Brain")}  Qwen 3.6-35B ${C.dim("(in-process)")}`);
+        // --- tailnet exposure (phone). Default loopback (this machine only) ---
         const wantTailnet = process.argv.includes("--tailnet") || process.argv.includes("--phone");
         let host = null;
         if (wantTailnet) { host = tailnetIp(); if (!host) later.push("--tailnet: no Tailscale IP found (is Tailscale running?) — started the voice on localhost instead."); }
-        const env = { ...process.env };
-        if (host) { env.DEMERZEL_HOST = host; stopDaemon("demerzel"); } // rebind: restart if it was on loopback
+        if (host) env.DEMERZEL_HOST = host;
+        // (Re)start the voice only when it isn't running, or when an explicit
+        // change was requested (--brain / --tailnet) — otherwise leave it be.
+        const explicit = process.argv.some((a) => a.startsWith("--brain=")) || wantTailnet;
+        if (explicit && daemonUp("demerzel")) stopDaemon("demerzel");
         const r = startDaemon("demerzel", path.join(home, ".venv/bin/python"), ["-m", "demerzel.server"], { cwd: home, env });
         const url = host ? `http://${host}:8770` : "http://localhost:8770";
-        go.push(`${C.bold("Voice")}   ${C.cyan(url)}   ${C.dim(host ? "(open it on your phone — on your tailnet)" : (r.already ? "(already up)" : "(starting — models load, ~30s)"))}`);
+        go.push(`${C.bold("Voice")}   ${C.cyan(url)}   ${C.dim(host ? "(open on your phone — tailnet)" : (r.already ? "(already up)" : "(starting — models load, ~30s)"))}`);
         if (host) later.push(C.dim("Voice is on your tailnet — anyone on it can talk to Demerzel (and it can act on this Mac). Run with DEMERZEL_READONLY=1 to share it safely."));
       } else {
         later.push("Voice (demerzel): models not fetched yet — run `seldon up` again when you're ready to pull them.");
@@ -417,7 +549,7 @@ async function up() {
 }
 
 function down() {
-  const names = ["demerzel", "factory-watch"];
+  const names = ["demerzel", "bonsai", "factory-watch"];
   const stopped = names.filter((n) => stopDaemon(n));
   console.log(stopped.length ? C.green("stopped: ") + stopped.join(", ") : C.dim("nothing was running."));
 }
@@ -465,7 +597,13 @@ function statusCmd() {
 
     console.log(`  ${dot} ${C.bold(m.id.padEnd(11))} ${detail}${svc}`);
   }
-  if (demerzelInstalled()) console.log(C.dim(`\n  demerzel LLM: ${process.env.DEMERZEL_LLM || "mlx-community/Qwen3.6-35B-A3B-4bit (default)"}`));
+  if (demerzelInstalled()) {
+    const brain = savedBrain() || "qwen";
+    const bstate = brain === "bonsai"
+      ? (daemonUp("bonsai") || bonsaiHealthy() ? C.green("server up") : C.dim("server down"))
+      : C.dim("in-process");
+    console.log(C.dim(`\n  voice brain: `) + C.bold(brain) + "  " + bstate + C.dim("   · switch: seldon up --brain=qwen|bonsai"));
+  }
   console.log(C.dim(`\n  start: seldon up   ·   stop: seldon down   ·   logs: ${RUN_DIR}/\n`));
 }
 
@@ -550,6 +688,7 @@ ${C.bold("seldon")} — install the Seldon stack, pick what you use.
   ${C.bold("seldon")}                 open the checklist (space to pick, enter to install)
   ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
   ${C.bold("seldon up --tailnet")}    also expose the voice on your tailnet (reach it from your phone)
+  ${C.bold("seldon up --brain=X")}    pick the voice brain: qwen (in-process) | bonsai (local server); remembered
   ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
   ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules
   ${C.bold("seldon uninstall")} ids…  remove the named modules (global CLI / isolated venv)
