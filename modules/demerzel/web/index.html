@@ -33,6 +33,11 @@
     .rail .btn, .sheet .btn{min-height:44px;font-size:15px}
     .enrol input[type=text]{font-size:16px}
     .msg{max-width:94%}
+    /* On phones, skip the heavy 3D avatar and use the animated orb — it's the
+       clear loading visual and doesn't jank the WebGL canvas on mobile GPUs. */
+    body[data-avatar=on] #avatar{display:none}
+    body[data-avatar=on] #orb{display:block}
+    #orb{width:120px;height:120px}
   }
   /* Mobile first: one column, instrument over log over rail.
      A single 30rem column was the only layout, which wasted two thirds of a
@@ -59,8 +64,25 @@
           max-width:100%;max-height:min(46vh,100%)}
   body[data-avatar=on] #avatar{display:block}
   body[data-avatar=on] #orb{display:none}
-  #orb{width:64px;height:64px;border-radius:50%;
-       background:radial-gradient(circle at 35% 30%,#1c2b3a,#0a1017 70%)}
+  /* The lightweight state orb (shown when the 3D avatar is off, and always on
+     mobile). It IS the loading visual: a spinning ring + a pulsing glow while
+     she works, so a slow first token reads as "thinking", not "frozen". */
+  #orb{width:96px;height:96px;border-radius:50%;position:relative;
+       background:radial-gradient(circle at 35% 30%,#1c2b3a,#0a1017 70%);
+       transition:box-shadow .4s,transform .4s}
+  #orb::before{content:"";position:absolute;inset:-7px;border-radius:50%;
+       background:conic-gradient(from 0deg,transparent 0 62%,var(--accent));
+       -webkit-mask:radial-gradient(farthest-side,#0000 calc(100% - 3px),#000 0);
+               mask:radial-gradient(farthest-side,#0000 calc(100% - 3px),#000 0);
+       opacity:0;transition:opacity .3s;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+  body[data-state=listening] #orb{box-shadow:0 0 26px -6px var(--accent);animation:breathe 2.4s ease-in-out infinite}
+  body[data-state=thinking]  #orb{box-shadow:0 0 34px -4px #FFB020;animation:breathe 1.3s ease-in-out infinite}
+  body[data-state=thinking]  #orb::before{opacity:.95;background:conic-gradient(from 0deg,transparent 0 58%,#FFB020)}
+  body[data-state=speaking]  #orb{box-shadow:0 0 32px -4px #35C8FF;animation:breathe 1.1s ease-in-out infinite}
+  body[data-state=busy]      #orb{box-shadow:0 0 30px -4px #FF4D6D}
+  body[data-state=busy]      #orb::before{opacity:.95;background:conic-gradient(from 0deg,transparent 0 58%,#FF4D6D)}
 
   /* --- log: framed channels, fixed identity colours --- */
   /* A terminal, not a panel: newest message sits flush against the rail and
