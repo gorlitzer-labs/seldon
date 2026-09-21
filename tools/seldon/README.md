@@ -49,18 +49,17 @@ Bonsai, seldon fetches its runtime + model (~7 GB, macOS/Apple-silicon) and runs
 the server as a managed daemon; `seldon status` shows the active brain, `seldon
 down` stops it.
 
-**Phone access:** `seldon up --tailnet` binds the voice to this machine's Tailscale
-IP and prints `http://<tailnet-ip>:8770` — open it on any device on your tailnet.
-The default `seldon up` stays loopback-only. Since Demerzel can act on the host,
-exposing it means anyone on your tailnet can talk to it — run with
-`DEMERZEL_READONLY=1` when sharing.
+**Phone access:** `seldon up --tailnet` serves the voice over **HTTPS** on your
+tailnet (via `tailscale serve`) and prints a `https://<machine>.<tailnet>.ts.net`
+URL — open it on your phone and the **mic works** (browsers require HTTPS for the
+microphone; plain http can't). The default `seldon up` stays loopback-only, and
+the Mac's own `http://localhost:8770` already works (localhost is a secure context).
 
-> **Mic needs HTTPS.** Browsers only allow the microphone in a *secure context*
-> (HTTPS or localhost). The `http://<tailnet-ip>` URL loads on a phone but the
-> mic stays blocked. To talk from a phone, front the voice with HTTPS — e.g.
-> `tailscale serve` (Tailscale HTTPS must be enabled for your tailnet), which
-> gives a `https://<machine>.<tailnet>.ts.net` URL with a real cert. On the Mac
-> itself, `http://localhost:8770` is a secure context, so the mic works there.
+Needs **HTTPS Certificates enabled** for your tailnet — one toggle at
+[login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns) → *HTTPS
+Certificates*; `--tailnet` tells you if it isn't. The serve config persists across
+reboots. Since Demerzel can act on the host, anyone on your tailnet can talk to it
+— use `DEMERZEL_READONLY=1` when sharing.
 
 `seldon up` only starts what's installed. demerzel serves the voice UI on
 `http://localhost:8770`. Its model set (~25 GB) is a one-time download —

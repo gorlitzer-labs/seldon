@@ -32,11 +32,11 @@ Install methods per module:
 |---|---|---|
 | apiary, foundation, comb, factory | npm | `npm i -g @gorlitzer-labs/<m>` (or `npm link` in `--dev`) |
 | bifrost | shell | runs `modules/bifrost/install.sh` (fetched from this repo) |
-| demerzel | python | clone + venv + `pip install -r requirements.txt` (macOS/Apple-silicon only) |
+| demerzel | python | isolated CPython 3.12 venv via `uv` (auto-installed to `~/.seldon/bin`; `python3 -m venv` fallback), macOS/Apple-silicon only |
 
 Rules the installer enforces: **requires** (factory → apiary + foundation),
 **platform gating** (demerzel), and a **preflight doctor** that flags missing
-external deps with the `brew install …` line before it starts.
+external deps with a cross-platform hint (`brew · apt · dnf · pacman · pkg`) before it starts.
 
 ## Publishing
 

@@ -371,6 +371,55 @@ function tailnetIp() {
   return null;
 }
 
+// Find the Tailscale CLI (PATH, homebrew, or the macOS app bundle).
+function tailscaleBin() {
+  for (const b of ["tailscale", "/opt/homebrew/bin/tailscale", "/usr/local/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/tailscale", "/usr/bin/tailscale"]) {
+    try { execSync(`${b} version`, { stdio: "ignore" }); return b; } catch {}
+  }
+  return null;
+}
+function tailnetDnsName(ts) {
+  try {
+    const d = JSON.parse(execSync(`${ts} status --json`, { stdio: ["ignore", "pipe", "ignore"], timeout: 15000 }).toString());
+    return ((d.Self && d.Self.DNSName) || "").replace(/\.$/, "");
+  } catch { return null; }
+}
+function tailscaleServeUrl() {
+  const ts = tailscaleBin(); if (!ts) return null;
+  try {
+    const out = execSync(`${ts} serve status`, { stdio: ["ignore", "pipe", "ignore"], timeout: 10000 }).toString();
+    const m = out.match(/https:\/\/\S+/);
+    return m ? m[0] : null;
+  } catch { return null; }
+}
+
+// Expose the loopback voice on the tailnet over HTTPS via `tailscale serve`, so a
+// phone can use the mic (browsers require a secure context). Provisions the cert,
+// then maps / -> :8770 and /ws -> :8765. Returns { url } or { err } with guidance.
+function tailscaleServeSetup() {
+  const ts = tailscaleBin();
+  if (!ts) return { err: "Tailscale CLI not found — install Tailscale to reach the voice from your phone." };
+  const dns = tailnetDnsName(ts);
+  if (!dns) return { err: "couldn't read the tailnet name (is Tailscale connected?)." };
+  console.log(C.dim("  setting up HTTPS via tailscale serve (first cert can take ~30s)…"));
+  try { execSync(`${ts} cert ${dns}`, { stdio: ["ignore", "ignore", "pipe"], timeout: 120000 }); }
+  catch (e) {
+    const err = ((e.stderr && e.stderr.toString()) || "") + (e.message || "");
+    if (/does not support|HTTPS is not enabled|not enabled/i.test(err))
+      return { err: "HTTPS certs aren't enabled for your tailnet. Enable them at https://login.tailscale.com/admin/dns (HTTPS Certificates), then re-run `seldon up --tailnet`." };
+    if (/timed out|ETIMEDOUT/i.test(err))
+      return { err: "Tailscale is still provisioning the cert — re-run `seldon up --tailnet` in a moment." };
+    // otherwise the cert probably already exists — carry on
+  }
+  try {
+    execSync(`${ts} serve --bg http://127.0.0.1:8770`, { stdio: "ignore", timeout: 30000 });
+    execSync(`${ts} serve --bg --set-path=/ws http://127.0.0.1:8765`, { stdio: "ignore", timeout: 30000 });
+  } catch (e) {
+    return { err: "tailscale serve failed: " + ((e.stderr || e.message || "").toString().split("\n")[0]) };
+  }
+  return { url: `https://${dns}` };
+}
+
 // Fetch demerzel's model set (~25 GB) — offered, never silent. Respects the
 // chosen LLM (DEMERZEL_LLM) so `seldon install demerzel` / `seldon up` pull the
 // model you'll actually run. --models forces yes, --no-models forces skip.
@@ -512,19 +561,22 @@ async function up() {
           }
         }
         if (brain === "qwen") go.push(`${C.bold("Brain")}  Qwen 3.6-35B ${C.dim("(in-process)")}`);
-        // --- tailnet exposure (phone). Default loopback (this machine only) ---
+        // The voice always binds loopback; --tailnet fronts it with HTTPS via
+        // `tailscale serve` so a phone can use the mic (needs a secure context).
+        env.DEMERZEL_HOST = "127.0.0.1";
+        let phoneUrl = null;
         const wantTailnet = process.argv.includes("--tailnet") || process.argv.includes("--phone");
-        let host = null;
-        if (wantTailnet) { host = tailnetIp(); if (!host) later.push("--tailnet: no Tailscale IP found (is Tailscale running?) — started the voice on localhost instead."); }
-        if (host) env.DEMERZEL_HOST = host;
-        // (Re)start the voice only when it isn't running, or when an explicit
-        // change was requested (--brain / --tailnet) — otherwise leave it be.
-        const explicit = process.argv.some((a) => a.startsWith("--brain=")) || wantTailnet;
+        if (wantTailnet) {
+          const s = tailscaleServeSetup();
+          if (s.url) { phoneUrl = s.url; later.push(C.dim("Phone: anyone on your tailnet can talk to Demerzel (it can act on this Mac). Use DEMERZEL_READONLY=1 to share safely.")); }
+          else later.push("Phone (--tailnet): " + s.err);
+        }
+        // (Re)start the voice only when it isn't running, or when --brain changed.
+        const explicit = process.argv.some((a) => a.startsWith("--brain="));
         if (explicit && daemonUp("demerzel")) stopDaemon("demerzel");
         const r = startDaemon("demerzel", path.join(home, ".venv/bin/python"), ["-m", "demerzel.server"], { cwd: home, env });
-        const url = host ? `http://${host}:8770` : "http://localhost:8770";
-        go.push(`${C.bold("Voice")}   ${C.cyan(url)}   ${C.dim(host ? "(open on your phone — tailnet)" : (r.already ? "(already up)" : "(starting — models load, ~30s)"))}`);
-        if (host) later.push(C.dim("Voice is on your tailnet — anyone on it can talk to Demerzel (and it can act on this Mac). Run with DEMERZEL_READONLY=1 to share it safely."));
+        go.push(`${C.bold("Voice")}   ${C.cyan("http://localhost:8770")}   ${C.dim(r.already ? "(already up)" : "(starting — models load, ~30s)")}`);
+        if (phoneUrl) go.push(`${C.bold("Phone")}   ${C.cyan(phoneUrl)}   ${C.dim("(HTTPS — mic works from your phone, on your tailnet)")}`);
       } else {
         later.push("Voice (demerzel): models not fetched yet — run `seldon up` again when you're ready to pull them.");
       }
@@ -633,6 +685,8 @@ function statusCmd() {
       ? (daemonUp("bonsai") || bonsaiHealthy() ? C.green("server up") : C.dim("server down"))
       : C.dim("in-process");
     console.log(C.dim(`\n  voice brain: `) + C.bold(brain) + "  " + bstate + C.dim("   · switch: seldon up --brain=qwen|bonsai"));
+    const phone = tailscaleServeUrl();
+    if (phone) console.log(C.dim("  phone (HTTPS): ") + C.cyan(phone));
   }
   console.log(C.dim(`\n  start: seldon up   ·   stop: seldon down   ·   logs: ${RUN_DIR}/\n`));
 }
@@ -717,7 +771,7 @@ ${C.bold("seldon")} — install the Seldon stack, pick what you use.
 
   ${C.bold("seldon")}                 open the checklist (space to pick, enter to install)
   ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
-  ${C.bold("seldon up --tailnet")}    also expose the voice on your tailnet (reach it from your phone)
+  ${C.bold("seldon up --tailnet")}    expose the voice over HTTPS (tailscale serve) so the mic works on your phone
   ${C.bold("seldon up --brain=X")}    pick the voice brain: qwen (in-process) | bonsai (local server); remembered
   ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
   ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules
