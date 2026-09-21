@@ -11,8 +11,9 @@
 // be rotated, because that realm can no longer decrypt anything, old copies
 // included (its key never changes what the current ciphertext is encrypted to).
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { combHome, storePath, keyPath } from "./backends/sops.mjs";
 
 export const recipientsDir = (home = combHome()) => join(home, "recipients");
@@ -54,11 +55,20 @@ export function rekeyStore(home = combHome()) {
   // Decrypt to JSON in memory, then re-encrypt to the new recipient set.
   const dec = spawnSync("sops", ["--decrypt", "--output-type", "json", storePath(home)], { encoding: "utf-8", env });
   if (dec.status !== 0) throw new Error(`could not decrypt to re-key: ${dec.stderr?.trim()}`);
-  const enc = spawnSync("sops",
-    ["--encrypt", "--age", recipients.join(","), "--input-type", "json", "--output-type", "yaml", "/dev/stdin"],
-    { input: dec.stdout, encoding: "utf-8", env });
-  if (enc.status !== 0) throw new Error(`could not re-encrypt: ${enc.stderr?.trim()}`);
-  writeFileSync(storePath(home), enc.stdout);
+  // Encrypt from a private temp FILE rather than `/dev/stdin`: /dev/stdin is not
+  // openable in non-interactive contexts (CI, some sandboxes), which broke re-key.
+  const dir = mkdtempSync(join(tmpdir(), "comb-rekey-"));
+  const plain = join(dir, "store.json");
+  try {
+    writeFileSync(plain, dec.stdout, { mode: 0o600 });
+    const enc = spawnSync("sops",
+      ["--encrypt", "--age", recipients.join(","), "--input-type", "json", "--output-type", "yaml", plain],
+      { encoding: "utf-8", env });
+    if (enc.status !== 0) throw new Error(`could not re-encrypt: ${enc.stderr?.trim()}`);
+    writeFileSync(storePath(home), enc.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });   // wipe the plaintext temp
+  }
   return recipients.length;
 }
 
