@@ -1,0 +1,31 @@
+name: deploy seldon-stack (cloudflare)
+
+# Deploy the seldon-stack SPA to Cloudflare Workers (static assets) — no homelab,
+# no k3s, no self-hosted runner. Needs repo secrets CLOUDFLARE_API_TOKEN and
+# CLOUDFLARE_ACCOUNT_ID (Workers Scripts:Edit token).
+on:
+  push:
+    branches: [main]
+    paths: ["apps/seldon-stack/**"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: build
+        working-directory: apps/seldon-stack
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+      - name: deploy to cloudflare workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/seldon-stack
+          command: deploy

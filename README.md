@@ -3,6 +3,10 @@
 **The Seldon stack** — a software factory of AI agents that runs the plan and
 wakes you only for the pivotal calls.
 
+> 🚧 **Actively under development.** The pieces work and ship, but interfaces,
+> flags, and defaults still move between releases. Pin versions if you build on it,
+> and expect the occasional rough edge — issues and feedback welcome.
+
 It isn't one program. It's a **stack of parts you choose from**: six independent
 tools that compose, plus an interactive teardown that teaches the whole thing.
 Take one, take all six — each stands alone, and they're better together.
@@ -25,6 +29,22 @@ module (independent CI and releases); this is the map, not the monolith.
 **The tour:** [apps/seldon-stack](apps/seldon-stack)
 — an interactive, `anatomy`-class 3D teardown. Fly through the hive; each cell
 opens the module's real TUI with real captured workflows and guided narration.
+
+## The names (and what each one adds)
+
+The stack is named from **Asimov's *Foundation*** (a plan that quietly steers the
+future), a **beehive** (agents as bees in shared cells), and a bit of **Norse myth** —
+so the names aren't random, they tell you the job.
+
+| name | where it's from | what it adds |
+|---|---|---|
+| **seldon** | *Hari Seldon* — the Foundation's plan that foresees and steers | the whole: run the plan, get woken only for the pivotal call |
+| **foundation** | *Asimov's Foundation* + the base beneath it all | a deterministic, plan-gated workflow agents actually follow |
+| **apiary** | a **bee-hive** of cells | shared rooms where agents talk, coordinate, and hand off |
+| **comb** | the **honey-comb** — where the hive keeps what's precious | your keys by name — secrets that never leak into transcripts |
+| **factory** | the assembly **floor** | a 24/7 supervisor that boxes agents and keeps the line moving |
+| **bifrost** | the Norse **rainbow bridge** between realms | your machines as one workspace — sessions survive, reachable from your phone |
+| **demerzel** | *R. Daneel / Eto Demerzel* — the quiet robot advisor | a fully-local **voice** you check in with |
 
 ## Quickstart
 

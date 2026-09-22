@@ -52,7 +52,24 @@ chapters. Honours `prefers-reduced-motion` (everything settles at rest, no fligh
 
 ## Deploy
 
-`npm run build` emits a fully static `dist/` — drop it on any static host
-(Pages, a bucket, the home cluster). No server, no env vars at runtime; the
-narration mp3s ship in the bundle. CI/deploy isn't wired yet — it's dev-server
-and manual `dist/` today.
+`npm run build` emits a fully static `dist/` — no server, no runtime env vars;
+the narration mp3s ship in the bundle. So it runs on any static host.
+
+**Cloudflare Workers (primary).** `wrangler.jsonc` serves `dist/` as static
+assets (SPA fallback on). Deploy manually:
+
+```bash
+npm run deploy            # = npm run build && wrangler deploy
+# first time: `wrangler login`, or set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
+```
+
+Or automatically: **`.github/workflows/deploy-seldon-stack-cf.yml`** builds and
+`wrangler deploy`s on every push to `main` under `apps/seldon-stack/**`. It needs
+two repo secrets — `CLOUDFLARE_API_TOKEN` (a *Workers Scripts: Edit* token) and
+`CLOUDFLARE_ACCOUNT_ID`. Lands at `https://seldon-stack.<account>.workers.dev`;
+add a custom domain in the Cloudflare dashboard (or a `routes` entry) for
+`seldon.gorlitzerpark.com`.
+
+<sub>The old Docker → nginx → home-k3s path (`Dockerfile`, `k8s/`,
+`deploy-seldon-stack.yml`) still exists but is legacy now that this is on
+Cloudflare.</sub>
