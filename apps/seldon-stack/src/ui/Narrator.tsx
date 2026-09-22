@@ -45,7 +45,9 @@ export function Narrator() {
       setCue(Object.keys(cue).length ? cue : null);
       setCaption(line.text);
 
-      const advance = () => { if (!cancelled) { i++; playLine(); } };
+      // advance exactly once per line, whichever signal arrives first
+      let stepped = false;
+      const advance = () => { if (cancelled || stepped) return; stepped = true; i++; playLine(); };
       const paced = Math.min(4600, Math.max(2100, line.text.length * 52));
       const a = new Audio(`vo/${voice}/${chap.id}-${beat.id}-${i}.mp3`);
       a.preservesPitch = false;
@@ -53,7 +55,11 @@ export function Narrator() {
       audioRef.current = a;
       a.onended = advance;
       a.onerror = () => at(paced, advance); // no clip yet -> pace by timer so the walk still animates
-      a.play().catch(() => {});
+      // If play() is REJECTED (mobile Safari blocks audio started outside a tap),
+      // pace forward instead of freezing. Plus a hard backstop so a clip that
+      // loads but never fires 'ended' (buffer stall) can't wedge the whole reel.
+      a.play().catch(() => at(paced, advance));
+      at(14000, advance);
     };
     at(700, playLine); // lead-in: let the camera arrive before she speaks
     return () => { cancelled = true; timers.forEach(clearTimeout); stop(); setCue(null); };
