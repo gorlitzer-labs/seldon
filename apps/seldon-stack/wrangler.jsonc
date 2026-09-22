@@ -1,0 +1,11 @@
+{
+  // seldon-stack as a Cloudflare Worker serving the Vite build as static assets.
+  // No Worker script — assets-only. `npm run build` first, then `wrangler deploy`.
+  "name": "seldon-stack",
+  "compatibility_date": "2026-09-22",
+  "assets": {
+    "directory": "./dist",
+    // SPA: unknown paths fall back to index.html (harmless even with hash routing).
+    "not_found_handling": "single-page-application"
+  }
+}
