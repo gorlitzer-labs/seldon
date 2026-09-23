@@ -165,6 +165,17 @@ secrets from **comb**, following **foundation**'s workflow, while you check in b
 - **How one run flows through every part** → [docs/end-to-end.md](docs/end-to-end.md)
 - **Each tool** → its repo (table above); every one has its own README + ONBOARDING
 
+## Credits — what we got inspired by
+
+Parts of the stack started from, or were inspired by, other people's work:
+
+| module | inspired by | what we took |
+|---|---|---|
+| **apiary** | [stoops-cli](https://github.com/stoops-io/stoops-cli) | forked from it — shared rooms for agents, then de-bloated |
+| **foundation** | [groundwork](https://www.npmjs.com/package/@davidbalzan/groundwork) and [agent-coord-mcp](https://github.com/davidbalzan/agent-coord-mcp) / [`groundwork-seam`](https://www.npmjs.com/package/@davidbalzan/groundwork-seam) by David Balzan | the writer-split seam, the ADR tripwire, tool-stamped facts (ideas only; no code) |
+| **comb** | [SOPS](https://github.com/getsops/sops) + [age](https://github.com/FiloSottile/age) | the encryption underneath; comb is a front-end over them |
+| **Demerzel** | a local voice-assistant build shared on Reddit | the overall shape, since reworked (see its README) |
+
 ## Conventions across the stack
 
 - **Secrets by reference.** Keys never live in code, transcripts, or a command

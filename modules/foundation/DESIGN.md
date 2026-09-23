@@ -5,7 +5,10 @@
 > (the transport) and the **Hive Manifest** (the protocol): apiary moves messages, the Manifest
 > says how agents behave, Foundation is the **project substrate they coordinate over**.
 >
-> It is *not* a copy of David's `groundwork`. It's the coherent system groundwork points at but
+> Inspired by David Balzan's [groundwork](https://www.npmjs.com/package/@davidbalzan/groundwork)
+> and [agent-coord-mcp](https://github.com/davidbalzan/agent-coord-mcp) (whose seam grammar lives
+> in [`@davidbalzan/groundwork-seam`](https://www.npmjs.com/package/@davidbalzan/groundwork-seam)).
+> It is *not* a copy of groundwork. It's the coherent system groundwork points at but
 > deliberately isn't — with a deterministic core, a multi-agent-native seam, and the gaps groundwork
 > leaves open (verify, git, intake) filled in.
 
@@ -121,7 +124,7 @@ per-phase README "Quick Stats" (fabricated line counts / coverage nobody reads),
 status-restated-in-4-places redundancy — status is computed once by `foundation status`, everything
 else links to it.
 
-### 4a. Seam grammar — the interop contract (from the coord-mcp 0.19→0.26 diff)
+### 4a. Seam grammar — the interop contract (from the [coord-mcp](https://github.com/davidbalzan/agent-coord-mcp) 0.19→0.26 diff)
 
 The seam grammar is now a **standalone package `@davidbalzan/groundwork-seam`** (coord-mcp 0.26
 depends on `0.1.4`; groundwork vendors `0.1.0`). Foundation must produce files that **round-trip**
