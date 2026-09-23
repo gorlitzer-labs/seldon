@@ -4,8 +4,13 @@
 
 It runs standalone — solo or under any orchestrator — and pairs with **apiary** when agents coordinate over it. Nothing here imports apiary.
 
-It is *not* groundwork. Its center of gravity is the **deterministic spine**: every state mutation
-goes through a concurrency-safe, atomic, ASCII-validated command — the model never hand-edits state.
+Foundation is inspired by David Balzan's [groundwork](https://www.npmjs.com/package/@davidbalzan/groundwork)
+(an installable AI development workflow of skills + doc methodology) and by the writer-split seam of
+[agent-coord-mcp](https://github.com/davidbalzan/agent-coord-mcp) /
+[`@davidbalzan/groundwork-seam`](https://www.npmjs.com/package/@davidbalzan/groundwork-seam). We took
+the ideas, not the code: Foundation's center of gravity is the **deterministic spine** — every state
+mutation goes through a concurrency-safe, atomic, ASCII-validated command, and the model never
+hand-edits state. See [Credits](#credits) for what came from where.
 
 Lives in the [`gorlitzer-labs/seldon`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/foundation)
 monorepo at `modules/foundation`, published to npm as `@gorlitzer-labs/foundation`.
@@ -48,7 +53,7 @@ above own every state mutation.
 
 `/kickstart` · `/prd` · `/intake` · `/plan-phase` · `/orient` · `/branch` · `/verify` · `/decision` · `/glossary`
 
-## Why it's better than the thing it learned from
+## What we changed from groundwork
 
 - **No load-bearing invisible Unicode.** The grammar is ASCII and *validated at write time* — a
   forbidden glyph fails loudly at authoring, not silently at parse.
@@ -63,3 +68,18 @@ above own every state mutation.
 
 Status: **spine + skill layer complete** (v0.1). Next: the apiary `room create` hook (nothing here
 imports apiary yet). See `DESIGN.md`.
+
+## Credits
+
+Foundation was inspired by, and deliberately diverges from:
+
+- **[groundwork](https://www.npmjs.com/package/@davidbalzan/groundwork)** by David Balzan — the
+  writer-split seam (QUEUE / WORKSTREAMS / DONE / FACTS), the ADR-reversal tripwire, the version
+  single-source-of-truth and tool-stamped facts all come from here.
+- **[agent-coord-mcp](https://github.com/davidbalzan/agent-coord-mcp)** and
+  **[`@davidbalzan/groundwork-seam`](https://www.npmjs.com/package/@davidbalzan/groundwork-seam)** —
+  header-driven schema detection, loud-on-unknown grammar, malformed rows preserved verbatim, and the
+  library-twin-of-script pattern.
+
+No code is vendored or imported from either; Foundation owns its own ASCII seam format. The full
+adopt / diverge rationale is in [`DESIGN.md`](DESIGN.md) §3, §4a and §7.
