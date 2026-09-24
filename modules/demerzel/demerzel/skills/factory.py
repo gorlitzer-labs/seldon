@@ -120,7 +120,6 @@ register(
 # agents on this machine. Naming it here rather than burying it means the
 # cloud-versus-local decision stays visible.
 AGENT_HARNESS = os.environ.get("DEMERZEL_AGENT_HARNESS", "claude")
-APIARY = "apiary"
 
 
 def _factory(args: list[str], cwd: str | None = None) -> str:
@@ -162,21 +161,23 @@ def start_coordinator(project: str) -> str:
 
     Confirmed before running, because this starts a real agent session that
     writes code and, on a cloud harness, costs money.
+
+    Goes through `factory staff`, which writes the room invite before launching.
+    Launching `apiary <harness> Coordinator` directly started an agent that never
+    joined the hive -- it only auto-joins when an invite is waiting for it.
     """
     d = resolve_project(project)
     if d is None:
         return f"I could not find a project called {project}."
-    if not shutil.which(APIARY):
-        return "Apiary is not installed, so I cannot staff a hive."
-    try:
-        # Detached: the agent must outlive this turn.
-        subprocess.Popen([APIARY, AGENT_HARNESS, "Coordinator", "--admin"],
-                         cwd=str(d), stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
-    except OSError as e:
-        return f"I could not start it: {type(e).__name__}."
-    return (f"Started a {AGENT_HARNESS} coordinator on {project}. "
-            "It will plan the queue and dispatch. I will tell you when it needs you.")
+    if not shutil.which("factory"):
+        return "The factory is not installed, so I cannot staff a hive."
+    out = _factory(["staff", str(d), "--agent", AGENT_HARNESS, "--no-wait"])
+    if "already running" in out:
+        return f"A coordinator is already working on {project}."
+    if "started" in out:
+        return (f"Started a {AGENT_HARNESS} coordinator on {project}. "
+                "It will plan the queue and dispatch. I will tell you when it needs you.")
+    return out.splitlines()[-1][:200] if out else "I could not tell if that worked."
 
 
 register(

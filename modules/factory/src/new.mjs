@@ -60,7 +60,7 @@ export async function factoryNew(idea, flags) {
   // 5. Next steps
   say(`\n${c.honey("line is warm.")} next:`);
   say(`  ${c.dim("cd")} ${dir}`);
-  say(`  ${c.cyan("apiary claude")} Coordinator --admin   ${c.dim("# it runs /prd + /plan-phase, then dispatches")}`);
+  say(`  ${c.cyan(`factory staff ${name}`)}   ${c.dim("# a coordinator joins the hive, runs /prd + /plan-phase, then dispatches")}`);
   say(`  ${c.dim("join url:")} ${hive.joinUrl}`);
   say(`  ${c.dim("supervise (Phase 2):")} factory watch ${name}\n`);
   return { name, dir, hive };
