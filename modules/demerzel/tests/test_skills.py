@@ -48,6 +48,28 @@ class FoundationCommand(unittest.TestCase):
         self.assertFalse(any("github:" in c for c in cmd))
 
 
+class StartCoordinator(unittest.TestCase):
+    def test_goes_through_factory_staff_so_the_agent_joins(self):
+        seen = {}
+        def fake_factory(args, cwd=None):
+            seen["args"] = args
+            return "✓ started Coordinator (claude) in /p"
+        with mock.patch.object(fskill, "resolve_project", return_value=pathlib.Path("/p")), \
+             mock.patch.object(fskill.shutil, "which", return_value="/x/factory"), \
+             mock.patch.object(fskill, "_factory", side_effect=fake_factory), \
+             mock.patch.object(fskill.subprocess, "Popen", side_effect=AssertionError("launched apiary directly")):
+            out = fskill.start_coordinator("stranded")
+        self.assertEqual(seen["args"][:2], ["staff", "/p"])
+        self.assertIn("--no-wait", seen["args"])
+        self.assertIn("Started", out)
+
+    def test_already_running_is_said_plainly(self):
+        with mock.patch.object(fskill, "resolve_project", return_value=pathlib.Path("/p")), \
+             mock.patch.object(fskill.shutil, "which", return_value="/x/factory"), \
+             mock.patch.object(fskill, "_factory", return_value="✓ Coordinator is already running"):
+            self.assertIn("already working", fskill.start_coordinator("stranded"))
+
+
 class Speech(unittest.TestCase):
     def test_clean_subject(self):
         self.assertEqual(shipped.clean_subject("feat(hud): a crosshair (#12)"), "a crosshair")

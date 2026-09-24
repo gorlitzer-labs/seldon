@@ -111,7 +111,7 @@ export async function factoryAdopt(target, flags = {}) {
   }
   say("");
   if (hive) {
-    say(`  ${c.bold("put an agent on it")}  ${c.dim("cd")} ${dir} ${c.dim("&&")} ${c.cyan("apiary claude Coordinator --admin")}`);
+    say(`  ${c.bold("put an agent on it")}  ${c.cyan(`factory staff ${name}`)}   ${c.dim("(a coordinator that joins this hive)")}`);
     say(`  ${c.bold("join the room")}       ${c.dim(hive.joinUrl)}`);
   }
   say(`  ${c.bold("watch it")}            ${c.cyan("factory board")}   ${c.dim("· the supervisor (seldon up) heals and nudges agents")}\n`);

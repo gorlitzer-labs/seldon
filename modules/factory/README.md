@@ -46,6 +46,7 @@ or `seldon install factory`, which includes both).
 ```
 factory new "<idea>"          create a line: repo · Foundation · plan · hive
 factory adopt [dir]           put an EXISTING repo on the line (keeps your docs; safe to re-run)
+factory staff <project>       put a coordinator (or --agent codex) in the hive — it actually joins
 factory watch <project>       supervise one hive (24/7)   ·   watch --all  supervise every hive
 factory board                 live control panel + decisions pending your call
 factory state                 everything board shows, as JSON (read-only)
@@ -74,7 +75,7 @@ The agent-driven half is handed to the hive — add a coordinator and it runs `/
 and dispatches:
 
 ```bash
-cd <project> && apiary claude Coordinator --admin
+factory staff <project>     # writes the room invite, then starts the agent — so it really joins
 ```
 
 ## `factory adopt` — the front door for a repo you already have
