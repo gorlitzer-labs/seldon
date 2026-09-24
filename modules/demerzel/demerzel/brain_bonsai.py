@@ -22,9 +22,10 @@ from typing import Iterator
 
 
 def _system() -> str:
+    from .identity import as_prompt as identity
     from .memory import as_prompt
     from .models import SYSTEM
-    return SYSTEM + as_prompt()
+    return SYSTEM + identity() + as_prompt()
 
 
 def _tools() -> list:

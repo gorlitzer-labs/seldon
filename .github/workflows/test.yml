@@ -40,3 +40,17 @@ jobs:
       - name: test
         working-directory: ${{ matrix.pkg }}
         run: npm test
+
+  demerzel:
+    # The skills that need no voice models (self-knowledge, what shipped, the
+    # foundation call). Stdlib unittest, so no ML stack is installed here.
+    name: modules/demerzel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: test
+        working-directory: modules/demerzel
+        run: python -m unittest discover tests -v

@@ -212,13 +212,14 @@ closed would silently mute her before you could enrol. The UI shows an
 
 ## Tools
 
-19, across six skills. Each declares a **spoken present-tense intent said before
+21, across seven skills. Each declares a **spoken present-tense intent said before
 it runs**, plus a 30 s heartbeat while it runs, because some of them shell out
 through `npx` and take 5+ seconds — silence for five seconds reads as a hang.
 
 ```
 factory    board · projects · project_status · queue_work · new_project · start_coordinator
 files      read_file · find_files
+shipped    what_shipped · stack_versions      (local git + installed versions; never fetches)
 system     time_now · battery · now_playing · get_volume · set_volume · open_app · lock_screen
 timers     set_timer · list_timers · cancel_timers
 attention  stop_listening
@@ -236,6 +237,14 @@ Guards that exist because they had to:
 - **Never break generation at `<tool_call>`.** Truncating there means the call
   never parses and she says nothing at all. Stop *speaking* when a call starts,
   keep *generating*.
+- **She knows what she is.** `demerzel/identity.py` adds a paragraph to the system
+  prompt: the Seldon stack, where her own source is (found locally — `DEMERZEL_SOURCE`,
+  the factory registry, or a shallow look under the file roots), and the rule that she
+  never changes code herself: work on her or the stack is queued, and agents ship it
+  through PRs. Before this she could read her own code and never did.
+- **"What shipped" stays offline.** It reads the clones already on disk and says how
+  old that picture is ("as of the last fetch, 7 minutes ago"). Live CI and deploy
+  status would need the network, so she does not have them.
 - **Check a GUI app is alive before asking it questions.** `osascript` against a
   non-running app measured 8 seconds, because macOS may try to launch it.
   `pgrep` first costs 35 ms.

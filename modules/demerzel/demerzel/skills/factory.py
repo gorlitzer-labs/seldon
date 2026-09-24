@@ -10,7 +10,11 @@ import subprocess
 from ..factory import board_spoken, board_state
 from ..tools import TIMEOUT_S, Tool, register
 
-FOUNDATION = ["npx", "-y", "github:gorlitzer-labs/foundation"]
+def _foundation_cmd() -> list[str]:
+    """The installed `foundation`, else npx it from npm. Resolved per call, so installing
+    it later is picked up. (It used to be `npx github:gorlitzer-labs/foundation` -- that
+    standalone repo was retired into the monorepo, so every queue/status call failed.)"""
+    return ["foundation"] if shutil.which("foundation") else ["npx", "-y", "@gorlitzer-labs/foundation"]
 ROOTS = [pathlib.Path(p).expanduser().resolve() for p in
          os.environ.get("DEMERZEL_FILE_ROOTS",
                         str(pathlib.Path.home() / "Desktop")).split(":")]
@@ -18,7 +22,7 @@ ROOTS = [pathlib.Path(p).expanduser().resolve() for p in
 
 def _foundation(args: list[str], cwd: str | None = None) -> str:
     try:
-        out = subprocess.run(FOUNDATION + args, capture_output=True, text=True,
+        out = subprocess.run(_foundation_cmd() + args, capture_output=True, text=True,
                              timeout=TIMEOUT_S, cwd=cwd)
     except subprocess.TimeoutExpired:
         return "That took too long and I gave up."
