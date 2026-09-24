@@ -7,5 +7,10 @@
     "directory": "./dist",
     // SPA: unknown paths fall back to index.html (harmless even with hash routing).
     "not_found_handling": "single-page-application"
-  }
+  },
+  // Serve at the canonical host (a specific custom domain overrides the
+  // *.gorlitzerpark.com wildcard tunnel that used to point at the homelab).
+  "routes": [
+    { "pattern": "seldon.gorlitzerpark.com", "custom_domain": true }
+  ]
 }

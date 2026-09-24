@@ -67,9 +67,9 @@ Or automatically: **`.github/workflows/deploy-seldon-stack-cf.yml`** builds and
 `wrangler deploy`s on every push to `main` under `apps/seldon-stack/**`. It needs
 two repo secrets — `CLOUDFLARE_API_TOKEN` (a *Workers Scripts: Edit* token) and
 `CLOUDFLARE_ACCOUNT_ID`. Lands at `https://seldon-stack.<account>.workers.dev`;
-add a custom domain in the Cloudflare dashboard (or a `routes` entry) for
-`seldon.gorlitzerpark.com`.
+`wrangler.jsonc` carries a `routes` custom-domain entry for
+`seldon.gorlitzerpark.com`, so each deploy keeps the canonical host attached.
 
 <sub>The old Docker → nginx → home-k3s path (`Dockerfile`, `k8s/`,
 `deploy-seldon-stack.yml`) still exists but is legacy now that this is on
-Cloudflare.</sub>
+Cloudflare; its workflow is manual-only (`workflow_dispatch`) and no longer runs on push.</sub>

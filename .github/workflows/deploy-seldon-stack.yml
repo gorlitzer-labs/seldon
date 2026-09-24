@@ -1,10 +1,8 @@
 name: deploy-seldon-stack
+# LEGACY (home-k3s). The live site deploys via deploy-seldon-stack-cf.yml; this one
+# no longer runs on push — it failed on every merge once the homelab path was retired.
+# Kept runnable by hand in case the k3s path is ever revived.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/seldon-stack/**"
-      - ".github/workflows/deploy-seldon-stack.yml"
   workflow_dispatch:
 permissions:
   contents: read
