@@ -42,8 +42,10 @@ const portFree = (port) => new Promise((res) => {
   s.once("listening", () => s.close(() => res(true)));
   s.listen(port, "127.0.0.1");
 });
-export async function freePort(start = 7920, span = 50) {
-  for (let p = start; p < start + span; p++) if (await portFree(p)) return p;
+// `taken`: ports other registered hives claim. A hive that is down leaves its port free on the
+// OS, but reusing it would make the registry send that hive's traffic to this one.
+export async function freePort(start = 7920, span = 50, taken = new Set()) {
+  for (let p = start; p < start + span; p++) if (!taken.has(p) && await portFree(p)) return p;
   throw new Error(`no free port in ${start}-${start + span - 1} for the hive`);
 }
 
@@ -80,7 +82,9 @@ export async function factoryAdopt(target, flags = {}) {
   } else if (!has("apiary")) {
     warn("apiary not on PATH — skipping the hive. Install it (seldon install apiary), then re-run adopt.");
   } else {
-    const port = flags.port ? parseInt(flags.port, 10) : await freePort();
+    const taken = new Set(readRegistry().filter((e) => e.dir !== dir)
+      .map((e) => { try { return parseInt(new URL(e.hive.serverUrl).port, 10); } catch { return 0; } }));
+    const port = flags.port ? parseInt(flags.port, 10) : await freePort(7920, 50, taken);
     hive = await openHive(name, port);
     ok(`hive ${c.bold(name)} up on ${c.dim(hive.serverUrl)} ${c.dim("(room history resumes if it existed)")}`);
   }

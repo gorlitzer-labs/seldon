@@ -9,10 +9,15 @@ const REG = join(homedir(), ".factory", "hives.json");
 export function readRegistry() {
   try { return JSON.parse(readFileSync(REG, "utf8")); } catch { return []; }
 }
-// Drop entries whose folder no longer exists (renamed, deleted, scratch dirs). Returns their names.
+// A hive is live only while its folder is still a git repo — `new` and `adopt` both guarantee
+// one. Folder-exists is not enough: `watch` writes .factory/digest.log into every registered
+// dir, so it kept re-creating the folders of deleted projects and they never looked dead.
+export const isLiveHive = (e) => !!e?.dir && existsSync(join(e.dir, ".git"));
+
+// Drop entries that are no longer live (renamed, deleted, scratch dirs). Returns their names.
 export function pruneRegistry() {
   const all = readRegistry();
-  const keep = all.filter((e) => e.dir && existsSync(e.dir));
+  const keep = all.filter(isLiveHive);
   if (keep.length === all.length) return [];
   writeFileSync(REG, JSON.stringify(keep, null, 2));
   return all.filter((e) => !keep.includes(e)).map((e) => e.name);

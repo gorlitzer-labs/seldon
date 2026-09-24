@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { c, say, ok, warn } from "./lib/log.mjs";
 import { notify, brief } from "./lib/notify.mjs";
 import { fileDecision } from "./lib/decisions.mjs";
-import { readRegistry } from "./lib/hive.mjs";
+import { readRegistry, isLiveHive } from "./lib/hive.mjs";
 import { resolveRealm, runnerArgv } from "./lib/realm.mjs";
 import { shOut, readSafe, count } from "./lib/util.mjs";
 
@@ -23,14 +23,32 @@ const mtime = (p) => (existsSync(p) ? Math.floor(statSync(p).mtimeMs) : 0);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function factoryWatch(project, flags) {
-  const entries = flags.all ? readRegistry() : [singleEntry(project)];
-  if (!entries.length) throw new Error(flags.all ? "no hives registered — run `factory new` first" : "no .factory.json here — pass a project or use --all");
+  // --all skips dead entries: supervising them re-created their folders and respawned agents there.
+  // It also re-reads the registry every tick (below), so an empty registry is a wait, not an error.
+  const entries = flags.all ? readRegistry().filter(isLiveHive) : [singleEntry(project)];
+  if (!flags.all && !entries[0]) throw new Error("no .factory.json here — pass a project or use --all");
   const interval = parseInt(flags.interval || "30", 10) * 1000;
   const roster = (flags.agents ? String(flags.agents).split(",") : []).map((s) => s.trim()).filter(Boolean);
 
-  say(`${c.honey("🏭 supervisor")} watching ${c.bold(entries.length === 1 ? entries[0].name : `${entries.length} hives`)}  ${c.dim(`· interval ${interval / 1000}s · stall ${parseInt(flags.stall || "15", 10)}m`)}`);
-  const sups = [];
-  for (const e of entries) sups.push(await makeSupervisor(e, flags, roster));
+  say(`${c.honey("🏭 supervisor")} watching ${c.bold(entries.length === 1 ? entries[0].name : `${entries.length} hives`)}${flags.all ? c.dim(" (and any adopted later)") : ""}  ${c.dim(`· interval ${interval / 1000}s · stall ${parseInt(flags.stall || "15", 10)}m`)}`);
+  let sups = [];
+  for (const e of entries) sups.push({ dir: e.dir, ...(await makeSupervisor(e, flags, roster)) });
+
+  // --all: pick up hives adopted/created after start, drop ones that died. Without this a
+  // `factory adopt` after `seldon up` was silently unsupervised until the next restart.
+  const refresh = async () => {
+    if (!flags.all) return;
+    const live = readRegistry().filter(isLiveHive);
+    const dirs = new Set(live.map((e) => e.dir));
+    const dropped = sups.filter((s) => !dirs.has(s.dir));
+    sups = sups.filter((s) => dirs.has(s.dir));
+    for (const s of dropped) say(c.dim(`supervisor: ${s.name} is gone — no longer watching`));
+    for (const e of live) {
+      if (sups.some((s) => s.dir === e.dir)) continue;
+      try { sups.push({ dir: e.dir, ...(await makeSupervisor(e, flags, roster)) }); ok(`supervisor: now watching ${e.name}`); }
+      catch (err) { warn(`${e.name}: could not start supervising — ${err.message}`); }
+    }
+  };
 
   const once = !!flags.once;
   let stop = false;
@@ -40,7 +58,7 @@ export async function factoryWatch(project, flags) {
 
   await tickAll();
   if (once) { ok(`single tick complete (--once) · ${sups.length} hive(s)`); return; }
-  while (!stop) { await sleep(interval); if (stop) break; await tickAll(); }
+  while (!stop) { await sleep(interval); if (stop) break; await refresh(); await tickAll(); }
   say(c.dim("supervisor stopped."));
 }
 

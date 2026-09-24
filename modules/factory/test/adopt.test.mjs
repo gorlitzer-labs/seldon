@@ -141,6 +141,18 @@ describe("factory adopt — end to end", () => {
     assert.deepEqual(registry().map((e) => e.name), ["stranded"]);
   });
 
+  test("a folder the supervisor kept alive (only .factory/, no .git) counts as dead", () => {
+    const zombie = join(root, "zombie"); mkdirSync(join(zombie, ".factory"), { recursive: true });
+    writeFileSync(join(zombie, ".factory", "digest.log"), "[old] digest\n");
+    const reg = registry();
+    reg.push({ name: "zombie", dir: zombie, hive: { serverUrl: "http://127.0.0.1:7999" }, added: null });
+    writeFileSync(join(HOME, ".factory", "hives.json"), JSON.stringify(reg));
+    const r = adopt(game);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /dropped 1 hive.*zombie/);
+    assert.deepEqual(registry().map((e) => e.name), ["stranded"]);
+  });
+
   test("an empty queue says how to fill it instead of going quiet", () => {
     const d = gitRepo("blank");
     const r = adopt(d);
@@ -148,6 +160,43 @@ describe("factory adopt — end to end", () => {
     assert.match(r.out, /queue is empty/);
     assert.match(r.out, /foundation queue/);
     pids.push(JSON.parse(readFileSync(join(d, ".factory.json"), "utf8")).hive.pid);
+  });
+});
+
+describe("factory watch --all", () => {
+  test("does not supervise — or re-create the folder of — a project that is gone", () => {
+    const H = mkdtempSync(join(root, "watchhome-"));
+    const gone = join(root, "deleted-project");
+    mkdirSync(join(H, ".factory"), { recursive: true });
+    writeFileSync(join(H, ".factory", "hives.json"), JSON.stringify([{ name: "gone", dir: gone, hive: null, added: null }]));
+    const r = spawnSync("node", [CLI, "watch", "--all", "--once"], {
+      encoding: "utf8", timeout: 30000,
+      env: { ...process.env, HOME: H, PATH: `${BIN}:${process.env.PATH}`, NO_COLOR: "1" },
+    });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(existsSync(gone), false, "watch re-created the deleted project's folder");
+  });
+});
+
+describe("factory watch --all picks up hives adopted after it started", () => {
+  test("empty registry → waits; a repo registered later is watched on the next tick", async () => {
+    const H = mkdtempSync(join(root, "watchhome2-"));
+    mkdirSync(join(H, ".factory"), { recursive: true });
+    writeFileSync(join(H, ".factory", "hives.json"), "[]");
+    const { spawn } = await import("node:child_process");
+    const w = spawn("node", [CLI, "watch", "--all", "--interval", "1"], {
+      env: { ...process.env, HOME: H, PATH: `${BIN}:${process.env.PATH}`, NO_COLOR: "1" },
+    });
+    let out = "";
+    w.stdout.on("data", (d) => (out += d)); w.stderr.on("data", (d) => (out += d));
+    try {
+      await new Promise((r) => setTimeout(r, 800));
+      assert.equal(w.exitCode, null, "supervisor exited on an empty registry:\n" + out);
+      const late = gitRepo("adopted-late");
+      writeFileSync(join(H, ".factory", "hives.json"), JSON.stringify([{ name: "adopted-late", dir: late, hive: null, added: null }]));
+      for (let i = 0; i < 40 && !/now watching adopted-late/.test(out); i++) await new Promise((r) => setTimeout(r, 100));
+      assert.match(out, /now watching adopted-late/);
+    } finally { w.kill("SIGKILL"); }
   });
 });
 
@@ -166,6 +215,11 @@ describe("factory new --here on a repo that already has a PRD", () => {
 });
 
 describe("adopt helpers", () => {
+  test("freePort skips ports another registered hive claims, even when the OS says free", async () => {
+    const start = 20000 + Math.floor(Math.random() * 20000);
+    const p = await freePort(start, 20, new Set([start, start + 1]));
+    assert.ok(p >= start + 2, `got ${p}, expected to skip ${start} and ${start + 1}`);
+  });
   test("slugName", () => {
     assert.equal(slugName("Stranded Game!"), "stranded-game");
     assert.equal(slugName("---"), "project");
