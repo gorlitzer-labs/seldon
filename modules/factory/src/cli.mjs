@@ -4,6 +4,7 @@
 // `box` (sandboxed agent), `realms`, `decide`/`briefing` (escalation loop).
 import { c, say, err } from "./lib/log.mjs";
 import { factoryNew } from "./new.mjs";
+import { factoryAdopt } from "./adopt.mjs";
 import { factoryWatch } from "./watch.mjs";
 import { factoryBoard, factoryLs } from "./board.mjs";
 import { factoryDecide, factoryBriefing } from "./decide.mjs";
@@ -41,6 +42,10 @@ function help() {
     `  ${c.cyan("new")} "<idea>" [--name <n>] [--dir <p>] [--here] [--port <p>]`,
     `        Run the front of the line: repo -> Foundation -> seed -> apiary hive`,
     "",
+    `  ${c.cyan("adopt")} [dir] [--name <n>] [--port <p>]`,
+    `        Bring an EXISTING repo onto the line: Foundation (keeps your docs) -> hive -> register.`,
+    `        Safe to re-run; reuses a hive that is still up.`,
+    "",
     `  ${c.cyan("watch")} [project] [--agents A,B] [--interval 30] [--stall 15] [--once]`,
     `        The 24/7 supervisor: heal dead agents, run doctor, detect stalls,`,
     `        nudge idle agents, and post an escalation digest to the hive.`,
@@ -67,6 +72,7 @@ const { flags, pos } = parse(rest);
 try {
   switch (cmd) {
     case "new": await factoryNew(pos.join(" ").trim(), flags); break;
+    case "adopt": await factoryAdopt(pos[0], flags); break;
     case "watch": await factoryWatch(pos[0], flags); break;
     case "board": await factoryBoard(flags); break;
     case "state": await factoryState(flags); break;

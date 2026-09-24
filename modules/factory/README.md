@@ -45,6 +45,7 @@ or `seldon install factory`, which includes both).
 
 ```
 factory new "<idea>"          create a line: repo · Foundation · plan · hive
+factory adopt [dir]           put an EXISTING repo on the line (keeps your docs; safe to re-run)
 factory watch <project>       supervise one hive (24/7)   ·   watch --all  supervise every hive
 factory board                 live control panel + decisions pending your call
 factory state                 everything board shows, as JSON (read-only)
@@ -75,6 +76,25 @@ and dispatches:
 ```bash
 cd <project> && apiary claude Coordinator --admin
 ```
+
+## `factory adopt` — the front door for a repo you already have
+
+`factory new` starts from a blank idea. `adopt` is for the project that already exists:
+
+```bash
+factory adopt ~/Desktop/stranded
+#  [1] foundation   foundation init — creates only missing docs, never overwrites yours
+#  [2] hive         reuses this repo's hive if it still answers, else opens one
+#                   (an apiary room of the same name resumes its history)
+#  [3] register     so `factory board` / `factory watch --all` see it
+#  → then prints the top of docs/QUEUE.md: what's next, and how to put an agent on it
+```
+
+Safe to re-run: nothing is overwritten and a live hive is never duplicated. It also drops
+registry entries whose folder is gone, so the supervisor stops watching deleted projects.
+`.factory.json` (which holds the hive token) is added to `.git/info/exclude`, not your
+`.gitignore`. Flags: `--name <n>` (default: folder name) · `--port <p>` (default: first free
+from 7920).
 
 ## `factory watch` — the 24/7 supervisor (Phase 2)
 
