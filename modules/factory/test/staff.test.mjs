@@ -25,9 +25,14 @@ inv="$HOME/.apiary/invites/$2"
 printf '%s|%s|%s|%s\\n' "$*" "$(pwd -P)" "$(cat "$inv" 2>/dev/null)" > '${log}'
 sleep 0.5; rm -f "$inv"
 `);
+  // running: [{ name, dir }] — has-session / ls / display answer like tmux would.
+  const rows = running.map((r) => (typeof r === "string" ? { name: r, dir: "/elsewhere" } : r));
   writeFileSync(join(bin, "tmux"), `#!/bin/sh
-for r in ${running.join(" ")}; do [ "$3" = "apiary_$r" ] && exit 0; done
-exit 1
+case "$1" in
+  has-session) for r in ${rows.map((r) => r.name).join(" ")}; do [ "$3" = "apiary_$r" ] && exit 0; done; exit 1 ;;
+  ls) ${rows.length ? rows.map((r) => `echo apiary_${r.name}`).join("; ") : "exit 1"} ;;
+  display) case "$4" in ${rows.map((r) => `apiary_${r.name}) echo '${r.dir}' ;;`).join(" ")} *) exit 1 ;; esac ;;
+esac
 `);
   chmodSync(join(bin, "apiary"), 0o755); chmodSync(join(bin, "tmux"), 0o755);
   const dir = join(root, `proj-${Math.random().toString(36).slice(2)}`);
@@ -76,6 +81,24 @@ describe("factory staff", () => {
     const s = setup();
     assert.match(s.run("nope").stderr, /no hive for nope/);
     assert.match(s.run("stranded", "--agent", "gpt").stderr, /--agent must be claude or codex/);
+  });
+
+  test("a project that already has an agent working in it is not staffed again, whatever its name", () => {
+    const s = setup();
+    const s2 = setup({ running: [{ name: "Coordinator", dir: s.dir }] });
+    // point s2's registry/hive at s.dir so the running Coordinator is in THIS project
+    writeFileSync(join(s2.home, ".factory", "hives.json"), JSON.stringify([{ name: "stranded", dir: s.dir, hive: { serverUrl: "http://127.0.0.1:7920", adminToken: "A" } }]));
+    const r = s2.run("stranded");
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /already has Coordinator working/);
+    assert.equal(s2.launched(), null, "started a second coordinator on the same project");
+  });
+
+  test("Coordinator busy on ANOTHER project: this one gets <project>-coordinator", () => {
+    const s = setup({ running: [{ name: "Coordinator", dir: "/some/other/project" }] });
+    const r = s.run("stranded", "--wait", "10");
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(s.launched()[0], /^claude stranded-coordinator --admin --background$/);
   });
 
   test("the default name steps aside when Coordinator is taken by another project", () => {

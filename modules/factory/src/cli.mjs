@@ -47,7 +47,7 @@ function help() {
     `        Bring an EXISTING repo onto the line: Foundation (keeps your docs) -> hive -> register.`,
     `        Safe to re-run; reuses a hive that is still up.`,
     "",
-    `  ${c.cyan("staff")} [project|dir] [--agent claude|codex] [--name <n>] [--no-wait]`,
+    `  ${c.cyan("staff")} [project|dir] [--agent claude|codex] [--name <n>] [--another] [--no-wait]`,
     `        Put an agent (default: a Claude coordinator) in the project's hive — it actually joins.`,
     "",
     `  ${c.cyan("watch")} [project] [--agents A,B] [--interval 30] [--stall 15] [--once]`,
