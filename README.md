@@ -95,6 +95,7 @@ $ seldon up
    • Voice   http://localhost:8770          (talk to Demerzel)
    • Supervisor  running — heals agents, catches stalls   · live view: factory board
    • Put agents to work  factory new "<your idea>"   → repo · foundation · apiary hive
+   • An existing repo  seldon adopt [dir]   → foundation (keeps your docs) · hive · supervised
    • Agent rooms  apiary ps
    • Across machines / phone  bifrost sessions
 
@@ -127,6 +128,12 @@ $ seldon status
 
 ```bash
 factory new "build me a CLI that shows the weather"
+```
+
+**Already have the project?** Put it on the line instead — nothing in it is overwritten:
+
+```bash
+cd ~/Desktop/my-game && seldon adopt
 ```
 
 That's it. `seldon down` stops everything; `seldon uninstall --all` removes it.

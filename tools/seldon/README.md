@@ -37,7 +37,9 @@ seldon up            # starts the voice (demerzel) + the supervisor (factory wat
                      # then prints: Voice → http://localhost:8770, how to put agents
                      # to work, rooms, phone access
 seldon up --tailnet  # also expose the voice on your tailnet → reach it from your phone
-seldon status        # what's running (pids)
+seldon status        # what's running (pids) — and warns if docker's daemon is down
+seldon adopt [dir]   # put an existing repo on the line (foundation · hive · supervised)
+                     # and print what's next from its queue. Safe to re-run.
 seldon down          # stop everything
 ```
 

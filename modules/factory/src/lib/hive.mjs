@@ -9,6 +9,14 @@ const REG = join(homedir(), ".factory", "hives.json");
 export function readRegistry() {
   try { return JSON.parse(readFileSync(REG, "utf8")); } catch { return []; }
 }
+// Drop entries whose folder no longer exists (renamed, deleted, scratch dirs). Returns their names.
+export function pruneRegistry() {
+  const all = readRegistry();
+  const keep = all.filter((e) => e.dir && existsSync(e.dir));
+  if (keep.length === all.length) return [];
+  writeFileSync(REG, JSON.stringify(keep, null, 2));
+  return all.filter((e) => !keep.includes(e)).map((e) => e.name);
+}
 export function addToRegistry(entry) {
   const all = readRegistry().filter((e) => e.dir !== entry.dir);
   all.push({ name: entry.name, dir: entry.dir, hive: entry.hive, added: entry.added || null });

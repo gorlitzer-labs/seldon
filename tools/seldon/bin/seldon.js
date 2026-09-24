@@ -330,7 +330,9 @@ function startDaemon(name, cmd, args, opts = {}) {
   if (daemonUp(name)) return { already: true, pid: readPid(name) };
   fs.mkdirSync(RUN_DIR, { recursive: true });
   const log = fs.openSync(path.join(RUN_DIR, name + ".log"), "a");
-  const child = spawn(cmd, args, { detached: true, stdio: ["ignore", log, log], ...opts });
+  // cwd defaults to SELDON_HOME: a long-lived daemon must not pin whatever folder
+  // `seldon up` was typed in (it did — the supervisor held a project dir open).
+  const child = spawn(cmd, args, { detached: true, stdio: ["ignore", log, log], cwd: SELDON_HOME, ...opts });
   fs.writeFileSync(pidFile(name), String(child.pid));
   child.unref();
   return { pid: child.pid };
@@ -593,6 +595,7 @@ async function up() {
 
   // The rest are on-demand, not daemons — point at the command.
   if (has("factory")) go.push(`${C.bold("Put agents to work")}  ${C.cyan('factory new "<your idea>"')}   ${C.dim("→ repo · foundation · apiary hive")}`);
+  if (has("factory")) go.push(`${C.bold("An existing repo")}  ${C.cyan("seldon adopt [dir]")}   ${C.dim("→ foundation (keeps your docs) · hive · supervised")}`);
   if (has("apiary"))  go.push(`${C.bold("Agent rooms")}  ${C.cyan("apiary ps")}   ${C.dim("(active rooms + join links)")}`);
   if (has("bifrost")) go.push(`${C.bold("Across machines / phone")}  ${C.cyan("bifrost sessions")}`);
 
@@ -690,7 +693,29 @@ function statusCmd() {
     const phone = tailscaleServeUrl();
     if (phone) console.log(C.dim("  phone (HTTPS): ") + C.cyan(phone));
   }
+  const dk = dockerState();
+  if (dk === "down") console.log(C.gold("\n  ⚠ docker: installed but the daemon is not running") + C.dim(" — factory box and containerised gates need it (open Docker Desktop)"));
+  else if (dk === "up") console.log(C.dim("\n  docker: ") + C.green("up"));
   console.log(C.dim(`\n  start: seldon up   ·   stop: seldon down   ·   logs: ${RUN_DIR}/\n`));
+}
+
+// "none" (no docker CLI) | "down" (CLI but no daemon) | "up". Only shown when docker exists.
+function dockerState() {
+  if (!has("docker")) return "none";
+  try { execSync("docker info", { stdio: "ignore", timeout: 8000 }); return "up"; } catch { return "down"; }
+}
+
+// ---- adopt: bring an existing repo onto the line ----------------------------
+// factory owns the registry + hive, so this is a front door onto `factory adopt`.
+function adopt(target) {
+  if (!has("factory")) {
+    console.log(C.red("  adopt needs factory — install it: ") + C.cyan("seldon install factory"));
+    process.exitCode = 1; return;
+  }
+  const passthru = process.argv.slice(3).filter((a) => a !== "--dev");
+  const r = spawnSync("factory", ["adopt", ...passthru], { stdio: "inherit" });
+  if (r.status !== 0) { process.exitCode = r.status || 1; return; }
+  if (!daemonUp("factory-watch")) console.log(C.gold("  the supervisor is not running — ") + C.cyan("seldon up") + C.dim(" starts it, so agents here get healed and nudged.") + "\n");
 }
 
 // ---- the checklist TUI ------------------------------------------------------
@@ -776,6 +801,8 @@ ${C.bold("seldon")} — install the Seldon stack, pick what you use.
   ${C.bold("seldon up --tailnet")}    expose the voice over HTTPS (tailscale serve) so the mic works on your phone
   ${C.bold("seldon up --brain=X")}    pick the voice brain: qwen (in-process) | bonsai (local server); remembered
   ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
+  ${C.bold("seldon adopt")} [dir]     put an existing repo on the line: foundation docs (never overwritten),
+                         an apiary hive, supervised by factory — and print what's next. Safe to re-run.
   ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules
   ${C.bold("seldon uninstall")} ids…  remove the named modules (global CLI / isolated venv)
   ${C.bold("seldon uninstall --all")} remove the whole stack (also drops ~/.seldon)
@@ -817,6 +844,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "up") return up();
   if (cmd === "down") return down();
   if (cmd === "status") return statusCmd();
+  if (cmd === "adopt") return adopt(tokens[0]);
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
   // interactive
   if (!process.stdin.isTTY) { console.log(C.red("no TTY — use: seldon install <ids…>")); process.exitCode = 1; return; }

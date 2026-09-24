@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -80,4 +80,63 @@ test("status reports the remembered brain from a sandboxed SELDON_HOME (read-onl
     assert.equal(code, 0);
     assert.match(out, /voice brain:\s*bonsai/i, "status reflects the saved brain");
   } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+// ---- adopt / daemon cwd / docker: fake `factory` + `docker` on a restricted PATH ----
+// PATH is only the fakes + node + the system dirs, so the real factory (if installed) is
+// never reached, and SELDON_HOME is a temp dir so no real pidfile or daemon is touched.
+function sandbox() {
+  const root = mkdtempSync(path.join(tmpdir(), "seldon-adopt-"));
+  const bin = path.join(root, "bin"), home = path.join(root, "home");
+  mkdirSync(bin); mkdirSync(home);
+  const PATH = [bin, path.dirname(process.execPath), "/usr/bin", "/bin"].join(":");
+  const fake = (name, body) => { const f = path.join(bin, name); writeFileSync(f, "#!/bin/sh\n" + body + "\n"); execFileSync("chmod", ["+x", f]); };
+  return { root, bin, home, PATH, fake, env: { PATH, SELDON_HOME: home } };
+}
+
+test("`adopt` without factory installed says how to get it, exit 1", () => {
+  const s = sandbox();
+  try {
+    const { code, out } = run(["adopt", "."], s.env);
+    assert.equal(code, 1);
+    assert.match(out, /seldon install factory/);
+  } finally { rmSync(s.root, { recursive: true, force: true }); }
+});
+
+test("`adopt` hands the dir and flags to `factory adopt`, and propagates its exit code", () => {
+  const s = sandbox();
+  try {
+    const log = path.join(s.root, "args");
+    s.fake("factory", `printf '%s\\n' "$@" > '${log}'; exit \${FAKE_EXIT:-0}`);
+    let r = run(["adopt", "/some/repo", "--name", "stranded"], s.env);
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), ["adopt", "/some/repo", "--name", "stranded"]);
+    assert.match(r.out, /supervisor is not running/);   // nudges toward `seldon up`
+    r = run(["adopt", "/x"], { ...s.env, FAKE_EXIT: "3" });
+    assert.equal(r.code, 3);
+  } finally { rmSync(s.root, { recursive: true, force: true }); }
+});
+
+test("`up` starts daemons from SELDON_HOME, not the folder it was typed in", () => {
+  const s = sandbox();
+  try {
+    const where = path.join(s.root, "cwd");
+    s.fake("factory", `pwd -P > '${where}'`);
+    const project = path.join(s.root, "some-project"); mkdirSync(project);
+    execFileSync("node", [BIN, "up"], { cwd: project, env: { ...process.env, ...s.env }, stdio: "ignore" });
+    for (let i = 0; i < 50 && !existsSync(where); i++) execFileSync("sleep", ["0.1"]);
+    assert.equal(readFileSync(where, "utf8").trim(), realpathSync(s.home));
+  } finally { rmSync(s.root, { recursive: true, force: true }); }
+});
+
+test("`status` warns when docker is installed but its daemon is down", () => {
+  const s = sandbox();
+  try {
+    s.fake("docker", "exit 1");
+    assert.match(run(["status"], s.env).out, /docker: installed but the daemon is not running/);
+    s.fake("docker", "exit 0");
+    const up = run(["status"], s.env).out;
+    assert.doesNotMatch(up, /daemon is not running/);
+    assert.match(up, /docker: up/);
+  } finally { rmSync(s.root, { recursive: true, force: true }); }
 });

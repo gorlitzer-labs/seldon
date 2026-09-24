@@ -41,7 +41,8 @@ export async function factoryNew(idea, flags) {
 
   // 3. Seed the line: a PRD stub from the idea + a planning item in the QUEUE
   step(3, "seed");
-  writeFileSync(join(dir, "docs", "PRD.md"),
+  // --here points at a repo that may already have a PRD — never overwrite it.
+  if (!existsSync(join(dir, "docs", "PRD.md"))) writeFileSync(join(dir, "docs", "PRD.md"),
     `# PRD — ${name}\n\n## Problem\n${idea}\n\n_Seed only. Run \`/prd\` to turn this into a full PRD, then \`/kickstart\` + \`/plan-phase\`._\n\n## Goals\n- _TBD (run /prd)_\n\n## Non-goals\n- _TBD_\n`);
   const fbin = fcmd[0] === "foundation" ? "foundation" : "npx";
   const fargs = (a) => fcmd[0] === "foundation" ? a : ["--yes", "github:gorlitzer-labs/foundation", ...a];
@@ -66,7 +67,7 @@ export async function factoryNew(idea, flags) {
 }
 
 // Spawn `apiary serve --room <name> --headless` detached; read the one JSON info line; unref.
-function openHive(name, port) {
+export function openHive(name, port) {
   return new Promise((res, rej) => {
     const child = spawn("apiary", ["serve", "--room", name, "--headless", "--port", String(port)], {
       detached: true, stdio: ["ignore", "pipe", "ignore"],
