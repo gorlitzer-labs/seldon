@@ -105,6 +105,10 @@ describe("factory adopt — end to end", () => {
     assert.match(ex, /^\/\.factory\.json$/m);
     const st = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: game, encoding: "utf8" });
     assert.doesNotMatch(st, /\.factory\.json/);
+    mkdirSync(join(game, ".factory"), { recursive: true });
+    writeFileSync(join(game, ".factory", "digest.log"), "x\n");
+    const st2 = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: game, encoding: "utf8" });
+    assert.doesNotMatch(st2, /\.factory\//, "the supervisor's digest dir shows up as untracked");
   });
 
   test("second run reuses the live hive — no second server, no duplicate entry", () => {
