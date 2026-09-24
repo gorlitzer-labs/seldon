@@ -18,10 +18,11 @@ export function foundationInit(cwd: string): FoundationResult {
   const dir = cwd.replace(/^~/, homedir());
   if (!existsSync(dir)) return { ok: false, how: "no-dir" };
   if (existsSync(join(dir, "docs", "QUEUE.md"))) return { ok: true, how: "already" };
-  // Prefer a locally-installed `foundation`; otherwise npx the (private) GitHub repo.
+  // Prefer a locally-installed `foundation`; otherwise npx it from npm. (The standalone
+  // github:gorlitzer-labs/foundation repo was retired into the monorepo — that address 404s.)
   const attempts: Array<{ cmd: string; args: string[]; how: FoundationResult["how"] }> = [
     { cmd: "foundation", args: ["init", dir], how: "local" },
-    { cmd: "npx", args: ["--yes", "github:gorlitzer-labs/foundation", "init", dir], how: "npx" },
+    { cmd: "npx", args: ["--yes", "@gorlitzer-labs/foundation", "init", dir], how: "npx" },
   ];
   for (const a of attempts) {
     try {

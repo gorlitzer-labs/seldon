@@ -38,6 +38,7 @@ HOTWORDS = [
     "Demerzel", "netreach", "apiary", "foundation", "factory", "gorlitzer",
     "Postgres", "SQLite", "Cloudflare", "wrangler", "worktree", "PR",
     "coordinator", "hive", "queue", "blocker", "netwatch", "bifrost",
+    "Seldon", "comb", "Stranded", "npm", "merged",
 ]
 
 # DEMERZEL_STT=parakeet falls back to the faster, less accent-robust model.
@@ -257,8 +258,9 @@ class Brain:
         This is prefilled into the KV cache at boot, so memories cost no
         per-turn latency -- only a slightly longer one-off prefill.
         """
+        from .identity import as_prompt as identity
         from .memory import as_prompt
-        return SYSTEM + as_prompt()
+        return SYSTEM + identity() + as_prompt()
 
     def _tools(self):
         """Tool schemas, rendered into the system block by the chat template.

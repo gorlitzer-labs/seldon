@@ -35,7 +35,7 @@ export async function factoryNew(idea, flags) {
 
   // 2. Foundation
   step(2, "foundation");
-  const fcmd = has("foundation") ? ["foundation", ["init", dir]] : ["npx", ["--yes", "github:gorlitzer-labs/foundation", "init", dir]];
+  const fcmd = has("foundation") ? ["foundation", ["init", dir]] : ["npx", ["--yes", "@gorlitzer-labs/foundation", "init", dir]];
   sh(fcmd[0], fcmd[1], { stdio: "ignore" });
   ok(`Foundation installed ${c.dim(`(${fcmd[0]})`)}`);
 
@@ -45,7 +45,7 @@ export async function factoryNew(idea, flags) {
   if (!existsSync(join(dir, "docs", "PRD.md"))) writeFileSync(join(dir, "docs", "PRD.md"),
     `# PRD — ${name}\n\n## Problem\n${idea}\n\n_Seed only. Run \`/prd\` to turn this into a full PRD, then \`/kickstart\` + \`/plan-phase\`._\n\n## Goals\n- _TBD (run /prd)_\n\n## Non-goals\n- _TBD_\n`);
   const fbin = fcmd[0] === "foundation" ? "foundation" : "npx";
-  const fargs = (a) => fcmd[0] === "foundation" ? a : ["--yes", "github:gorlitzer-labs/foundation", ...a];
+  const fargs = (a) => fcmd[0] === "foundation" ? a : ["--yes", "@gorlitzer-labs/foundation", ...a];
   try { sh(fbin, fargs(["queue", `(P1) plan ${name}: run /prd then /plan-phase, then dispatch build tasks`, "--dir", dir]), { stdio: "ignore" }); } catch { /* seed queue best-effort */ }
   ok("PRD seed written + planning item queued");
 
