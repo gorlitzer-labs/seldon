@@ -94,6 +94,7 @@ export async function factoryAdopt(target, flags = {}) {
   if (hive) {
     writeFileSync(join(dir, ".factory.json"), JSON.stringify({ name, hive }, null, 2));
     if (excludeLocally(dir, ".factory.json")) ok(`.factory.json kept out of git ${c.dim("(.git/info/exclude — it holds the hive token)")}`);
+    excludeLocally(dir, ".factory/");   // the supervisor's digest log lives here
     addToRegistry({ name, dir, hive, added: prev?.added || new Date().toISOString() });
     ok("registered with the supervisor");
   } else warn("not registered (no hive)");

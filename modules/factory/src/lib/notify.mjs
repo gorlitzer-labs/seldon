@@ -9,7 +9,7 @@ const BRIEF = join(homedir(), ".factory", "briefing.md");
 
 // Fire a macOS notification. No-op (silent) on other platforms or if osascript is unavailable.
 export function notify(title, message) {
-  if (process.platform !== "darwin") return;
+  if (process.platform !== "darwin" || process.env.FACTORY_NO_NOTIFY) return;
   const esc = (s) => String(s).replace(/["\\]/g, "\\$&").slice(0, 240);
   execFile("osascript", ["-e", `display notification "${esc(message)}" with title "${esc(title)}" sound name "Submarine"`], () => {});
 }

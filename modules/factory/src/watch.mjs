@@ -79,6 +79,10 @@ async function makeSupervisor(entry, flags, roster) {
   mkdirSync(join(dir, ".factory"), { recursive: true });
   const stok = hive ? await join_(hive) : null;
   let lastFp = null, lastProgressAt = Date.now(), lastDigestAt = 0, nudged = false;
+  // What was last escalated, minus the numbers ("STALL", "DRIFT"). An escalation fires when
+  // this changes, not on every tick it stays true: a stalled hive used to post a digest, a
+  // briefing line and a macOS notification with sound every 30s, for as long as it stalled.
+  let lastEscalated = "";
 
   const tick = async () => {
     const events = [];
@@ -107,13 +111,20 @@ async function makeSupervisor(entry, flags, roster) {
       if (!nudged) { await postMsg(hive, stok, `FYI: ${queueOpen} item(s) in the QUEUE and no active lanes. Run /orient, claim one, register your lane.`); events.push("nudged idle agents toward the queue"); nudged = true; }
     } else if (wsRows > 0) nudged = false;
     const fp = `${doneCount}|${queueOpen}|${wsRows}|${mtime(join(dir, "docs", "WORKSTREAMS.md"))}`;
-    if (fp !== lastFp) { lastFp = fp; lastProgressAt = Date.now(); }
+    // No work waiting (empty queue, no lanes) is idle, not stalled — nothing to make progress on.
+    const hasWork = queueOpen > 0 || wsRows > 0;
+    if (fp !== lastFp || !hasWork) { lastFp = fp; lastProgressAt = Date.now(); }
     const stalledMin = Math.floor((Date.now() - lastProgressAt) / 60000);
-    const stalled = Date.now() - lastProgressAt >= stallMs;
+    const stalled = hasWork && Date.now() - lastProgressAt >= stallMs;
     if (stalled) events.push(`STALL: no progress in ${stalledMin}m — needs you`);
     if (drift !== "0" && drift !== "?") events.push(`DRIFT: ${drift} doc↔reality issue(s)`);
 
-    const escalate = events.some((e) => /STALL|DRIFT|BLOCKER|DECISION/.test(e));
+    // BLOCKER/DECISION events come from new room messages, so they are already one-off.
+    // STALL/DRIFT are states; escalate them only when the state set changes.
+    const oneOff = events.some((e) => /BLOCKER|DECISION/.test(e));
+    const stateKey = events.filter((e) => /STALL|DRIFT/.test(e)).map((e) => e.split(":")[0]).sort().join("+");
+    const escalate = oneOff || (stateKey !== "" && stateKey !== lastEscalated);
+    lastEscalated = stateKey;
     const line = `[${nowHM()}] ${name}: queue ${queueOpen} · ${doneCount} done · ${wsRows} lanes · ${online.length} online · drift ${drift}${stalled ? ` · STALLED ${stalledMin}m` : ""}`;
     say(`  ${stalled || escalate ? c.yellow(line) : c.dim(line)}`);
     for (const e of events) say(`    ${c.honey("→")} ${e}`);
