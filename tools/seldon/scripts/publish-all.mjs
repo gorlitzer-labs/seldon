@@ -12,6 +12,7 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { classifyPublishError } from "./publish-lib.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const ORDER = ["modules/apiary", "modules/foundation", "modules/comb", "modules/factory", "tools/seldon"];
@@ -29,7 +30,7 @@ const isPublished = (name, version) => {
   catch { return false; }
 };
 
-const published = [], skipped = [];
+const published = [], skipped = [], staged = [];
 for (const dir of ORDER) {
   const abs = path.join(ROOT, dir);
   const pj = JSON.parse(readFileSync(path.join(abs, "package.json")));
@@ -41,8 +42,21 @@ for (const dir of ORDER) {
   console.log(`\n▸ ${pj.name}@${pj.version}`);
   if (pj.scripts?.build && !existsSync(path.join(abs, "dist")))
     execSync(`npm run build -w ${dir}`, { cwd: ROOT, stdio: "inherit" });
-  execSync(`npm publish -w ${dir} --access public${dry ? " --dry-run" : ""}`, { cwd: ROOT, stdio: "inherit" });
-  published.push(`${pj.name}@${pj.version}`);
+  try {
+    // stderr is captured (and echoed) so a staged-version 409 can be told apart from a real failure.
+    execSync(`npm publish -w ${dir} --access public${dry ? " --dry-run" : ""}`, { cwd: ROOT, stdio: ["inherit", "inherit", "pipe"] });
+    published.push(`${pj.name}@${pj.version}`);
+  } catch (e) {
+    const err = (e.stderr || "").toString();
+    process.stderr.write(err);
+    if (classifyPublishError(err) !== "staged") process.exit(1);
+    console.log(`  ~ ${pj.name}@${pj.version} is already staged on npm (an earlier publish took it) — waiting on the registry, not failed`);
+    staged.push(`${pj.name}@${pj.version}`);
+  }
 }
 console.log(`\nDone.${dry ? " (dry run)" : ""} Published: ${published.join(", ") || "none"}` +
+  (staged.length ? `  ·  already staged: ${staged.join(", ")}` : "") +
   (skipped.length ? `  ·  ${skipped.length} already current` : ""));
+if ((published.length || staged.length) && !dry)
+  console.log("npm can take ~20 min to show a new version (npm view / install). Verify with:\n" +
+    [...published, ...staged].map((v) => `  npm view ${v} version`).join("\n"));
