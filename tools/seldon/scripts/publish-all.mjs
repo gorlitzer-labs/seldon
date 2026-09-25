@@ -12,7 +12,7 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { classifyPublishError } from "./publish-lib.mjs";
+import { classifyPublishError, staleBuild } from "./publish-lib.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const ORDER = ["modules/apiary", "modules/foundation", "modules/comb", "modules/factory", "tools/seldon"];
@@ -40,8 +40,12 @@ for (const dir of ORDER) {
     continue;
   }
   console.log(`\n▸ ${pj.name}@${pj.version}`);
-  if (pj.scripts?.build && !existsSync(path.join(abs, "dist")))
+  if (pj.scripts?.build) {
+    // Always build: an existing dist/ may be days old (see staleBuild in publish-lib.mjs).
     execSync(`npm run build -w ${dir}`, { cwd: ROOT, stdio: "inherit" });
+    const st = staleBuild(abs);
+    if (st.stale) { console.error(`✗ ${pj.name}: refusing to publish a stale build — ${st.reason}`); process.exit(1); }
+  }
   try {
     // stderr is captured (and echoed) so a staged-version 409 can be told apart from a real failure.
     execSync(`npm publish -w ${dir} --access public${dry ? " --dry-run" : ""}`, { cwd: ROOT, stdio: ["inherit", "inherit", "pipe"] });
