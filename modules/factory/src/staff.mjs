@@ -12,6 +12,24 @@ import { c, say, ok, warn } from "./lib/log.mjs";
 import { readRegistry } from "./lib/hive.mjs";
 
 const HARNESSES = new Set(["claude", "codex"]);
+// apiary joins these into a shell command in the agent's tmux pane, so they are checked
+// against a strict shape here: a model id or an effort level, never shell syntax.
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\-\[\]]{0,79}$/;
+const EFFORT_RE = /^(minimal|low|medium|high|xhigh|max)$/;
+
+// The per-harness spelling of "run on this model at this effort".
+//   claude: claude --model M --effort E      (apiary forwards unknown --flags as-is)
+//   codex:  codex --model M -c model_reasoning_effort=E   (-c is a short flag, so it has to
+//           ride after apiary's `--` separator or apiary would drop it)
+export function modelArgs(harness, { model, effort } = {}) {
+  if (model !== undefined && (typeof model !== "string" || !MODEL_RE.test(model))) throw new Error(`--model: not a model id: ${JSON.stringify(model)}`);
+  if (effort !== undefined && (typeof effort !== "string" || !EFFORT_RE.test(effort))) throw new Error(`--effort must be one of minimal|low|medium|high|xhigh|max (got ${JSON.stringify(effort)})`);
+  const args = [];
+  if (model) args.push("--model", model);
+  if (harness === "claude" && effort) args.push("--effort", effort);
+  if (harness === "codex" && effort) args.push("--", "-c", `model_reasoning_effort=${effort}`);
+  return args;
+}
 const invitePath = (name) => join(homedir(), ".apiary", "invites", name);
 
 // apiary keys agents by name, machine-wide (tmux session apiary_<name>).
@@ -61,6 +79,7 @@ export async function factoryStaff(target, flags = {}) {
     ok(`${c.bold(h.name)} already has ${here.map((n) => c.bold(n)).join(", ")} working ${c.dim(`(tmux attach -t apiary_${here[0]}; --another to add one more)`)}`);
     return { name: here[0], already: true };
   }
+  const extra = modelArgs(harness, { model: flags.model, effort: flags.effort });
   const name = pickAgentName(h.name, flags.name);
   if (agentRunning(name)) {
     ok(`${c.bold(name)} is already running ${c.dim(`(tmux attach -t apiary_${name})`)}`);
@@ -69,8 +88,9 @@ export async function factoryStaff(target, flags = {}) {
 
   mkdirSync(join(homedir(), ".apiary", "invites"), { recursive: true });
   writeFileSync(invitePath(name), `${h.hive.serverUrl}/?token=${h.hive.adminToken}`);
-  spawn("apiary", [harness, name, "--admin", "--background"], { cwd: h.dir, detached: true, stdio: "ignore" }).unref();
-  ok(`started ${c.bold(name)} ${c.dim(`(${harness})`)} in ${c.dim(h.dir)}`);
+  spawn("apiary", [harness, name, "--admin", "--background", ...extra], { cwd: h.dir, detached: true, stdio: "ignore" }).unref();
+  const how = [harness, flags.model, flags.effort && `${flags.effort} effort`].filter(Boolean).join(" · ");
+  ok(`started ${c.bold(name)} ${c.dim(`(${how})`)} in ${c.dim(h.dir)}`);
 
   // The runtime deletes the invite once the agent is really in the room.
   if (!flags["no-wait"]) {

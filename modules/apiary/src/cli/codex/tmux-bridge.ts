@@ -80,6 +80,10 @@ const BLOCKED_PATTERNS: Array<string | RegExp> = [
   // does not cross a newline, so the original pattern never matched.
   /You are running Codex in [\s\S]+Do you want to allow/,
   "Do you trust the files in this folder",
+  // Codex 0.156 reworded the trust prompt; the old string above no longer appears.
+  "Trust this folder?",
+  // The startup update menu ("Update now / Skip") sits in front of the composer too.
+  /Update available[\s\S]+Update now/,
 ];
 
 // Patterns that indicate the agent is actively working

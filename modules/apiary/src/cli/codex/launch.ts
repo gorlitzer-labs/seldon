@@ -27,8 +27,8 @@
  * trust all intact) and the launch command stays one short line.
  */
 
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
 import { RUNTIME_TOOL_NAMES } from "../../agent/mcp/runtime.js";
@@ -87,11 +87,20 @@ function tomlString(value: string): string {
  *
  * Scoped deliberately: shell commands, file writes and every other MCP server
  * still go through Codex's normal approval flow.
+ *
+ * Unattended, it also clears the two screens Codex shows BEFORE its composer,
+ * each of which is a permanent stall in a pane nobody watches:
+ *   - "Trust this folder?" — answered by a `[projects."<dir>"]` trust entry for the
+ *     agent's own working directory. It lives in this profile, so the user's real
+ *     config.toml is never edited and the grant goes away with the agent. Same
+ *     reading of intent as the Claude trust pre-accept: the user pointed an agent here.
+ *   - "Update available · Update now?" — `check_for_update_on_startup = false`.
  */
 export function renderCodexProfile(
   mcpUrl: string,
   approvalMode: string = codexToolApprovalMode(),
   unattended: boolean = wantsUnattendedAgents(),
+  trustDirs: string[] = [],
 ): string {
   const blocks = [
     // Top-level keys must precede every table header, or TOML parses them as
@@ -103,6 +112,8 @@ export function renderCodexProfile(
       "# permanent stall. Commands still run inside Codex's sandbox — anything",
       "# it will not allow returns a failure to the model instead of asking.",
       'approval_policy = "never"',
+      "# The update prompt is a menu in front of the composer: another stall.",
+      "check_for_update_on_startup = false",
     ].join("\n")] : []),
     [
       ...(unattended ? [] : ["# Written by apiary. Layered over your own config; deleted when the agent stops."]),
@@ -115,6 +126,10 @@ export function renderCodexProfile(
       `[mcp_servers.apiary.tools.${tool}]`,
       `approval_mode = ${tomlString(approvalMode)}`,
     ].join("\n")),
+    ...(unattended ? [...new Set(trustDirs)].map((dir) => [
+      `[projects.${tomlString(dir)}]`,
+      'trust_level = "trusted"',
+    ].join("\n")) : []),
   ];
 
   return blocks.join("\n\n") + "\n";
@@ -136,11 +151,12 @@ export function prepareCodexLaunch(
   mcpUrl: string,
   extraArgs: string[] = [],
   codexHome: string = userCodexHome(),
+  cwd: string = process.cwd(),
 ): { command: string; profilePath: string } {
   mkdirSync(codexHome, { recursive: true });
 
   const profilePath = codexProfilePath(agentName, codexHome);
-  writeFileSync(profilePath, renderCodexProfile(mcpUrl), { mode: 0o600 });
+  writeFileSync(profilePath, renderCodexProfile(mcpUrl, undefined, undefined, trustDirsFor(cwd)), { mode: 0o600 });
 
   const command = ["codex", "--profile", codexProfileName(agentName), ...extraArgs].join(" ");
   return { command, profilePath };
@@ -185,4 +201,11 @@ export function pruneCodexProfiles(
   }
 
   return removed;
+}
+
+/** The spellings Codex may key a directory's trust by: as given, and with symlinks resolved. */
+export function trustDirsFor(cwd: string): string[] {
+  const dirs = [resolve(cwd)];
+  try { dirs.push(realpathSync(cwd)); } catch { /* keep the resolved form */ }
+  return [...new Set(dirs)];
 }

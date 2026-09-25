@@ -10,7 +10,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { pickAgentName } from "../src/staff.mjs";
+import { pickAgentName, modelArgs } from "../src/staff.mjs";
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.mjs");
 const root = mkdtempSync(join(tmpdir(), "factory-staff-"));
@@ -99,6 +99,34 @@ describe("factory staff", () => {
     const r = s.run("stranded", "--wait", "10");
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.match(s.launched()[0], /^claude stranded-coordinator --admin --background$/);
+  });
+
+  test("--model/--effort reach apiary in each harness's own spelling", () => {
+    const s = setup();
+    let r = s.run("stranded", "--model", "claude-fable-5-1", "--effort", "high", "--name", "fable-alt", "--wait", "10");
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(s.launched()[0], "claude fable-alt --admin --background --model claude-fable-5-1 --effort high");
+    assert.match(r.stdout, /claude · claude-fable-5-1 · high effort/);
+    const s2 = setup();
+    r = s2.run("stranded", "--agent", "codex", "--model", "gpt-6-astra", "--effort", "high", "--name", "astra-alt", "--wait", "10");
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(s2.launched()[0], "codex astra-alt --admin --background --model gpt-6-astra -- -c model_reasoning_effort=high");
+  });
+
+  test("model and effort are checked before they can reach a shell", () => {
+    for (const bad of ["x; rm -rf ~", "$(id)", "a b", "`x`", "m|n", ""]) {
+      if (bad === "") continue;
+      assert.throws(() => modelArgs("claude", { model: bad }), /not a model id/, bad);
+    }
+    assert.throws(() => modelArgs("codex", { effort: "high;id" }), /--effort must be/);
+    assert.throws(() => modelArgs("claude", { effort: "turbo" }), /--effort must be/);
+    assert.deepEqual(modelArgs("claude", { model: "opus[1m]" }), ["--model", "opus[1m]"]);
+    assert.deepEqual(modelArgs("claude", {}), []);
+    const s = setup();
+    const r = s.run("stranded", "--model", "x;id", "--no-wait");
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /not a model id/);
+    assert.equal(s.launched(), null, "a rejected model still launched an agent");
   });
 
   test("the default name steps aside when Coordinator is taken by another project", () => {
