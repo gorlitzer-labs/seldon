@@ -388,7 +388,13 @@ async function connect() {
     setState('offline');
     if (wantConnection) scheduleReconnect();
   };
-  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+  // onerror hands over an Event, not an Error -- rejecting with it put
+  // "Could not start: undefined" on screen. Say what actually failed.
+  await new Promise((res, rej) => {
+    ws.onopen = res;
+    ws.onerror = () => rej(new Error(
+      `could not reach the voice server (${wsUrl}) -- if she was just started, the models take about a minute to load; try again`));
+  });
   el('go').textContent = 'listening';
   el('go').disabled = true;
   setState('idle');

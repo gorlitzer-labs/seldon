@@ -108,6 +108,23 @@ test("status names a missing voiceprint model even when the HF models are cached
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("status: a stopped service gets a yellow dot, never a green one", () => {
+  // A green dot beside "voice down" read as "working", and `seldon down` saying
+  // "nothing was running" then looked like a bug. Raw output: the colour IS the claim.
+  const home = mkdtempSync(path.join(tmpdir(), "seldon-home-"));
+  try {
+    mkdirSync(path.join(home, "demerzel", ".venv", "bin"), { recursive: true });
+    writeFileSync(path.join(home, "demerzel", ".venv", "bin", "python"), "");
+    writeFileSync(path.join(home, "brain"), "qwen");   // in-process: no host bonsai server can leak in
+    const raw = execFileSync("node", [BIN, "status"], { encoding: "utf8", env: { ...process.env, SELDON_HOME: home } });
+    const line = raw.split("\n").find((l) => /demerzel/.test(l));
+    assert.ok(line.includes("\x1b[33m●"), "stopped demerzel has a yellow dot: " + JSON.stringify(line));
+    assert.ok(!line.includes("\x1b[32m●"), "and not a green one");
+    assert.match(strip(raw), /voice down/);
+    assert.match(strip(raw), /nothing is running — start: seldon up/);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
 // ---- adopt / daemon cwd / docker: fake `factory` + `docker` on a restricted PATH ----
 // PATH is only the fakes + node + the system dirs, so the real factory (if installed) is
 // never reached, and SELDON_HOME is a temp dir so no real pidfile or daemon is touched.
