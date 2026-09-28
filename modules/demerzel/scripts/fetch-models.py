@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pull Demerzel's model set into the HF cache. Safe to re-run: resumes, skips complete files."""
-import os, pathlib, sys, time, urllib.request
+import os, pathlib, shutil, ssl, sys, time, urllib.request
+import certifi
 os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
 from huggingface_hub import snapshot_download
 
@@ -31,7 +32,20 @@ if dest.exists():
 else:
     print(f"\n=== speaker verification (29.6 MB)  CAM++ en_voxceleb ===", flush=True)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(SPEAKER_URL, dest)
+    # certifi, not the interpreter's default store: a python.org framework build has
+    # no CA bundle until "Install Certificates.command" is run, and every HTTPS
+    # request fails CERTIFICATE_VERIFY_FAILED. huggingface_hub already uses certifi,
+    # which is why only this download ever broke.
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    part = dest.with_suffix(".onnx.part")  # never leave a truncated file at `dest`: exists() would bless it
+    try:
+        with urllib.request.urlopen(SPEAKER_URL, context=ctx, timeout=60) as r, open(part, "wb") as f:
+            shutil.copyfileobj(r, f)
+        part.replace(dest)
+    except Exception as e:
+        part.unlink(missing_ok=True)
+        print(f"FAIL speaker voiceprint model: {type(e).__name__}: {e}", flush=True)
+        sys.exit(1)
     print(f"OK  -> {dest}", flush=True)
 
 print("\nall models present", flush=True)

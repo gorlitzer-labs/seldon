@@ -82,6 +82,32 @@ test("status reports the remembered brain from a sandboxed SELDON_HOME (read-onl
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+test("status names a missing voiceprint model even when the HF models are cached", () => {
+  // The state a fetch left behind when it died on its last download: every HF
+  // snapshot present, models/campplus_en.onnx absent. "Any models-- dir" called
+  // that ready, so nothing ever offered the fetch again.
+  const root = mkdtempSync(path.join(tmpdir(), "seldon-models-"));
+  const home = path.join(root, "seldon"), HOME = path.join(root, "user");
+  try {
+    mkdirSync(path.join(home, "demerzel", ".venv", "bin"), { recursive: true });
+    writeFileSync(path.join(home, "demerzel", ".venv", "bin", "python"), "");
+    for (const repo of ["mlx-community--Qwen3-ASR-1.7B-8bit", "hexgrad--Kokoro-82M"]) {
+      const snap = path.join(HOME, ".cache", "huggingface", "hub", "models--" + repo, "snapshots", "abc");
+      mkdirSync(snap, { recursive: true });
+      writeFileSync(path.join(snap, "config.json"), "{}");
+    }
+    let { code, out } = run(["status"], { SELDON_HOME: home, HOME });
+    assert.equal(code, 0);
+    assert.match(out, /missing voiceprint \(CAM\+\+\)/, "names the one model that is absent");
+    assert.doesNotMatch(out, /models ✓/);
+
+    mkdirSync(path.join(home, "demerzel", "models"), { recursive: true });
+    writeFileSync(path.join(home, "demerzel", "models", "campplus_en.onnx"), "x");
+    ({ code, out } = run(["status"], { SELDON_HOME: home, HOME }));
+    assert.match(out, /venv \+ models ✓/, "ready once it is there");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 // ---- adopt / daemon cwd / docker: fake `factory` + `docker` on a restricted PATH ----
 // PATH is only the fakes + node + the system dirs, so the real factory (if installed) is
 // never reached, and SELDON_HOME is a temp dir so no real pidfile or daemon is touched.
