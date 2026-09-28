@@ -328,6 +328,7 @@ const RUN_DIR = path.join(SELDON_HOME, "run");
 const pidFile = (name) => path.join(RUN_DIR, name + ".pid");
 const readPid = (name) => { try { return parseInt(fs.readFileSync(pidFile(name), "utf8").trim(), 10) || 0; } catch { return 0; } };
 const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const portListening = (port) => { try { return !!execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch { return false; } };
 const daemonUp = (name) => { const p = readPid(name); return p && isAlive(p) ? p : 0; };
 
 function startDaemon(name, cmd, args, opts = {}) {
@@ -684,9 +685,17 @@ function moduleInstalled(m) {
 
 function statusCmd() {
   console.log(C.bold("\n  seldon — stack status\n"));
+  // The dot answers "is it working?". For a CLI tool that is "installed"; for a
+  // SERVICE it is "running" — a green dot next to "voice down" read as up, and
+  // `seldon down` saying "nothing was running" then looked like a lie.
+  const up = [], starting = [], stopped = [];
+  const svcState = (label, pid, upText) => {
+    (pid ? up : stopped).push(label);
+    return pid ? "   " + C.green(upText) : "   " + C.gold(label + " down");
+  };
+  const brain = demerzelInstalled() ? (savedBrain() || "qwen") : null;
   for (const m of MODULES) {
     const inst = moduleInstalled(m);
-    const dot = inst ? C.green("●") : C.dim("○");
     let detail;
     if (!inst) detail = platformOk(m) ? C.dim(`not installed   ${C.dim("· seldon install " + m.id)}`) : C.dim("not supported on this machine");
     else if (m.method === "npm") detail = C.dim("v" + (npmGlobalVersion(m.pkg) || "?"));
@@ -695,20 +704,38 @@ function statusCmd() {
     else detail = C.dim("installed");
 
     // service state for the two daemons
-    let svc = "";
-    if (m.id === "factory") { const p = daemonUp("factory-watch"); svc = p ? "   " + C.green("supervisor up") + C.dim(` (pid ${p})`) : "   " + C.dim("supervisor down"); }
-    if (m.id === "demerzel" && inst) { const p = daemonUp("demerzel"); svc = p ? "   " + C.green("voice up") + " " + C.cyan("http://localhost:8770") : "   " + C.dim("voice down"); }
-
+    let svc = "", running = true;
+    if (m.id === "factory" && inst) {
+      const p = daemonUp("factory-watch"); running = !!p;
+      svc = svcState("supervisor", p, "supervisor up") + (p ? C.dim(` (pid ${p})`) : "");
+    }
+    if (m.id === "demerzel" && inst) {
+      const p = daemonUp("demerzel"), b = brain !== "bonsai" || daemonUp("bonsai") || bonsaiHealthy();
+      // A live pid is not a working voice: models load for ~30-90s before :8770
+      // listens, and "voice up" there sent you to a page that would not open.
+      const serving = p && portListening(8770);
+      running = !!serving && !!b;   // the voice without its brain server cannot answer
+      if (p && !serving) { starting.push("voice"); svc = "   " + C.gold("voice starting") + C.dim(" — models loading, give it a minute"); }
+      else svc = svcState("voice", p, "voice up") + (p ? " " + C.cyan("http://localhost:8770") : "");
+    }
+    const dot = !inst ? C.dim("○") : running ? C.green("●") : C.gold("●");
     console.log(`  ${dot} ${C.bold(m.id.padEnd(11))} ${detail}${svc}`);
   }
-  if (demerzelInstalled()) {
-    const brain = savedBrain() || "qwen";
+  if (brain) {
     const bstate = brain === "bonsai"
-      ? (daemonUp("bonsai") || bonsaiHealthy() ? C.green("server up") : C.dim("server down"))
+      ? ((daemonUp("bonsai") || bonsaiHealthy()) ? (up.push("brain"), C.green("server up")) : (stopped.push("brain"), C.gold("server down")))
       : C.dim("in-process");
     console.log(C.dim(`\n  voice brain: `) + C.bold(brain) + "  " + bstate + C.dim("   · switch: seldon up --brain=qwen|bonsai"));
     const phone = tailscaleServeUrl();
     if (phone) console.log(C.dim("  phone (HTTPS): ") + C.cyan(phone));
+  }
+  if (up.length || starting.length || stopped.length) {
+    const parts = [];
+    if (up.length) parts.push(C.green("● running: " + up.join(", ")));
+    if (starting.length) parts.push(C.gold("● starting: " + starting.join(", ")));
+    if (stopped.length) parts.push(C.gold("● stopped: " + stopped.join(", ")) + C.dim(" — start: ") + C.cyan("seldon up"));
+    if (!up.length && !starting.length) parts[0] = C.gold("● nothing is running") + C.dim(" — start: ") + C.cyan("seldon up");
+    console.log("\n  " + parts.join("   "));
   }
   const dk = dockerState();
   if (dk === "down") console.log(C.gold("\n  ⚠ docker: installed but the daemon is not running") + C.dim(" — factory box and containerised gates need it (open Docker Desktop)"));
