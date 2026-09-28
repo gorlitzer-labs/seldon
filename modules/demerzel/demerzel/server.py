@@ -398,7 +398,8 @@ def load_speaker():
     answers everyone, which is the right default for something opt-in."""
     global speaker
     if not speaker_available():
-        print("speaker: model absent, voice checks disabled", flush=True)
+        print("speaker: model absent (models/campplus_en.onnx), voice checks disabled"
+              " -- fetch it: python scripts/fetch-models.py", flush=True)
         return
     speaker = Speaker()
     # `enrolled` is a bool now, not a nullable array -- `is not None` was always

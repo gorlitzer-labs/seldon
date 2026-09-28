@@ -158,7 +158,11 @@ function installPython(m, dev) {
     const venvArgs = ["venv", venv, "--seed"]; // --seed puts pip in the venv:
     // kokoro/misaki/spaCy shells out to pip at runtime to load its model, and a
     // bare uv venv has none (crashes the voice on start otherwise).
-    if (m.pyVersion) venvArgs.push("--python", m.pyVersion); // uv fetches a standalone CPython
+    // uv fetches a standalone CPython — but only if told to. By default it PREFERS
+    // a matching system interpreter, and a python.org framework build ships with
+    // no CA bundle, so the venv's urllib failed every HTTPS download (the CAM++
+    // voiceprint model silently never arrived). only-managed makes the comment true.
+    if (m.pyVersion) venvArgs.push("--python", m.pyVersion, "--python-preference", "only-managed");
     if (!run(uv, venvArgs)) return false;
     ok = run(uv, ["pip", "install", "--python", path.join(venv, "bin", "python"), "-r", req]);
   } else {
@@ -344,11 +348,24 @@ function stopDaemon(name) {
   try { fs.rmSync(pidFile(name), { force: true }); } catch {}
   return true;
 }
-// demerzel needs its model set in the HF cache before it can serve.
-function demerzelModelsReady() {
+// demerzel needs its model set before it can serve. Check each model it loads by
+// name — "any models-- dir in the HF cache" was true after a fetch died halfway,
+// so the one it died on (the CAM++ voiceprint, the last download) was never
+// offered again. The LLM is not listed: which one depends on the brain, and
+// bonsai brings its own. Returns the missing labels; [] means ready.
+function demerzelModelsMissing() {
   const hub = path.join(process.env.HOME, ".cache", "huggingface", "hub");
-  try { return fs.existsSync(hub) && fs.readdirSync(hub).some((d) => d.startsWith("models--")); } catch { return false; }
+  const snapshotOk = (repo) => {
+    const snaps = path.join(hub, "models--" + repo.replace("/", "--"), "snapshots");
+    try { return fs.readdirSync(snaps).some((d) => fs.readdirSync(path.join(snaps, d)).length > 0); } catch { return false; }
+  };
+  const missing = [];
+  if (!snapshotOk("mlx-community/Qwen3-ASR-1.7B-8bit")) missing.push("ears (Qwen3-ASR)");
+  if (!snapshotOk("hexgrad/Kokoro-82M")) missing.push("voice (Kokoro)");
+  if (!fs.existsSync(path.join(SELDON_HOME, "demerzel", "models", "campplus_en.onnx"))) missing.push("voiceprint (CAM++)");
+  return missing;
 }
+const demerzelModelsReady = () => demerzelModelsMissing().length === 0;
 const demerzelInstalled = () => fs.existsSync(path.join(SELDON_HOME, "demerzel", ".venv", "bin", "python"));
 
 // This machine's Tailscale IPv4 (100.64.0.0/10), or null. Tries PATH then the
@@ -674,7 +691,7 @@ function statusCmd() {
     if (!inst) detail = platformOk(m) ? C.dim(`not installed   ${C.dim("· seldon install " + m.id)}`) : C.dim("not supported on this machine");
     else if (m.method === "npm") detail = C.dim("v" + (npmGlobalVersion(m.pkg) || "?"));
     else if (m.id === "bifrost") detail = C.dim("v" + (bifrostVersion() || "?"));
-    else if (m.id === "demerzel") detail = demerzelModelsReady() ? C.dim("venv + models ✓") : C.gold("venv ok · models not fetched (seldon up)");
+    else if (m.id === "demerzel") detail = demerzelModelsReady() ? C.dim("venv + models ✓") : C.gold(`venv ok · missing ${demerzelModelsMissing().join(", ")} (seldon up)`);
     else detail = C.dim("installed");
 
     // service state for the two daemons
