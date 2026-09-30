@@ -86,9 +86,14 @@ seldon uninstall --all           # remove the whole stack (also drops ~/.seldon)
 seldon uninstall <ids> --yes     # skip the confirm prompt
 ```
 
-Node tools are removed from the global store; demerzel's isolated venv and
-bifrost's binary + config are deleted. Your system Python, tmux, tailscale,
-sops/age are never touched.
+Node tools are removed from **every** global store that has them (npm, each pnpm
+on PATH — Homebrew's and corepack's can both be there — bun, and a copy loose
+next to node), one package at a time. Each is checked afterwards: "removed"
+means the files are gone, not that a command exited 0. Already gone counts as
+success; anything still there is named with its path and the command exits 1.
+demerzel's isolated venv and bifrost's binary + config are deleted. Your system
+Python, tmux, tailscale, sops/age, and your comb vault (`~/.comb`) are never
+touched. seldon itself stays; the last line tells you how to remove it too.
 
 ## The stack
 
@@ -113,9 +118,14 @@ It's a stack, not a bundle — install only what you use:
 
 ## Package managers
 
-Node tools install with **pnpm** when it can global-install (much faster than npm),
-else **npm**. **bun** is supported but opt-in — `seldon install --pm=bun` (also
-`--pm=pnpm|npm` to force any of them).
+Node tools install with **the package manager that installed seldon itself**, so
+`npm i -g @gorlitzer-labs/seldon` gives you an all-npm stack and `pnpm add -g …`
+an all-pnpm one. Force one with `--pm=pnpm|npm|bun`.
+
+Install leaves **exactly one copy** of each tool: if an older one sits under a
+different package manager (a second pnpm, npm, or loose next to node), it is
+removed, and the installer says so. Two copies is how a stale tool keeps
+answering after you upgraded.
 
 demerzel (Python) always installs into its **own isolated venv** — never your
 system or active Python. It pins **CPython 3.12** (its `kokoro` pin caps Python at
