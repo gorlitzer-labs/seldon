@@ -65,6 +65,40 @@ Values are never printed, never passed as command-line arguments, never logged.
 `comb get NAME --reveal` exists for when you genuinely need to read one, and
 refuses without the flag.
 
+## Tokens in MCP configs
+
+An HTTP MCP server with a bearer token tends to end up as a plaintext
+`"headers": {"Authorization": "Bearer …"}` in `~/.claude.json` — a file every
+agent session reads, and that gets pasted into conversations. Claude Code can
+fetch headers from a command instead (`headersHelper`), so the token can stay
+in comb:
+
+```bash
+comb set AGENT_COORD_REMOTE_TOKEN --url "http://my-box:8765 (agent-coord-remote)"
+```
+
+```sh
+#!/bin/sh
+# ~/.claude/bin/agent-coord-remote-headers.sh  (chmod +x)
+export PATH="$HOME/Library/pnpm:/opt/homebrew/bin:/usr/bin:/bin"   # Claude may not have your shell PATH
+exec comb run --with AGENT_COORD_REMOTE_TOKEN -- \
+  sh -c 'printf "{\"Authorization\":\"Bearer %s\"}" "$AGENT_COORD_REMOTE_TOKEN"'
+```
+
+```jsonc
+// ~/.claude.json → mcpServers
+"agent-coord-remote": {
+  "type": "http",
+  "url": "http://my-box:8765/mcp",
+  "headersHelper": "/Users/you/.claude/bin/agent-coord-remote-headers.sh"
+}
+```
+
+The helper prints the headers as JSON and Claude reads them at connect time. The
+token never sits in the config, and `comb run` keeps it out of argv. Moving a token
+that was already in plaintext is not the same as rotating it: run `comb audit`,
+and if it shows up as LEAKED, rotate it.
+
 ## `comb audit`
 
 This is the half no vault does, and the half that makes manual rotation

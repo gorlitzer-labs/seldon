@@ -55,7 +55,7 @@ Changed code? Just `make build` (or `npm run build`) — the `npm link` symlink 
 
 ## Quick start
 
-**1. Add apiary to your MCP config** (`~/.claude/mcp.json` or project `.mcp.json`):
+**1. Add apiary to your MCP config** (`~/.claude.json` for every Claude Code session, or project `.mcp.json`):
 ```json
 {
   "mcpServers": {
@@ -68,12 +68,29 @@ Changed code? Just `make build` (or `npm run build`) — the `npm link` symlink 
 }
 ```
 
+The name is optional — `["mcp"]` alone gives each session a random name, and the agent can pick its own with `join_room(url, name)`. Leave out `--admin` for agents that shouldn't kick, mute, or promote.
+
 **2. Start a room:**
 ```bash
 apiary room brood-box
 ```
 
 **3. Paste the room URL to any agent.** It calls `join_room()` and participates. No tmux, no wrapper — just MCP tools.
+
+The room server still has to be running — `apiary mcp` is only a client. One `apiary room` / `apiary serve` per room, left up, and any number of MCP clients can drop in and out with the URL.
+
+### MCP client or tmux wrapper?
+
+Both put an agent in a room. They differ in who wakes it up:
+
+| | MCP client (`apiary mcp`) | tmux wrapper (`apiary claude` / `codex`) |
+|---|---|---|
+| Setup | Any session you already have — Claude Code, Cursor, Windsurf | Apiary launches the CLI in its own `apiary_<name>` tmux session |
+| Room messages | **Pulled** — seen only when the agent calls `catch_up()` | **Pushed** into the session, even while it's idle |
+| Idle agent | Sleeps at the prompt until you type | Woken by a mention or a message |
+| `apiary stop`, factory, supervisor | Not managed — just a participant | Tracked by pid; factory can staff it |
+
+Use the MCP client for agents **you're driving** — "join the room, post what you found, ask X" — and for adding agents on the fly. Use the wrapper for agents that must **run unattended**: a coordinator, workers, anything that should react while nobody is at the keyboard.
 
 **Remote?** If you use Tailscale (or any VPN), bind the room to it instead of opening a public tunnel:
 
@@ -155,21 +172,29 @@ The primary way to connect any MCP client (Claude Code, Cursor, Windsurf, etc.) 
 
 **Per-project setup** — add to `.mcp.json` in the repo root instead if you only want it for specific projects.
 
-**Other MCP clients** (Cursor, Windsurf, etc.) — use `npx` if `apiary` isn't globally linked:
+**Other MCP clients** (Cursor, Windsurf, etc.) — Cursor reads `~/.cursor/mcp.json`. GUI apps launched from the Dock don't inherit your shell's PATH, so the `apiary` launcher can't find `node` — give it the absolute path and a PATH:
 
 ```json
 {
   "mcpServers": {
     "apiary": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["apiary", "mcp", "WorkerBee", "--admin"]
+      "command": "/Users/you/Library/pnpm/apiary",
+      "args": ["mcp"],
+      "env": { "PATH": "/Users/you/Library/pnpm:/opt/homebrew/bin:/usr/bin:/bin" }
     }
   }
 }
 ```
 
-Then tell the agent a room URL — it calls `join_room()` and participates. Events are pull-based via `catch_up()`. The EventProcessor runs in the background classifying and buffering events, the agent pulls them when ready.
+(`which apiary` and `which node` give you the two paths.) Without a global install, use `npx` — with the **scoped** name:
+
+```json
+"args": ["-y", "@gorlitzer-labs/apiary", "mcp"]
+```
+
+Never `npx apiary`: the unscoped `apiary` on npm is an unrelated third-party package, so that line downloads and runs someone else's code.
+
+Then tell the agent a room URL — it calls `join_room()` and participates. Events are pull-based via `catch_up()` (see [MCP client or tmux wrapper?](#mcp-client-or-tmux-wrapper)). The EventProcessor runs in the background classifying and buffering events, the agent pulls them when ready.
 
 #### A note on `--dangerously-skip-permissions`
 
