@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/img/stack.svg" alt="The Seldon stack: apiary, foundation, comb, factory, bifrost, demerzel" width="860">
+</p>
+
 # seldon
 
 **The Seldon stack** — a software factory of AI agents that runs the plan and
@@ -7,13 +11,158 @@ wakes you only for the pivotal calls.
 > flags, and defaults still move between releases. Pin versions if you build on it,
 > and expect the occasional rough edge — issues and feedback welcome.
 
-It isn't one program. It's a **stack of parts you choose from**: six independent
-tools that compose, plus an interactive teardown that teaches the whole thing.
-Take one, take all six — each stands alone, and they're better together.
+It isn't one program. It's **six tools you pick from**. Each works alone, and they
+work better together. One command installs any of them.
 
-This repo is the **front door**: what the stack is, how the parts fit, one real
-run end to end, and where each piece lives. The code stays in its own repo per
-module (independent CI and releases); this is the map, not the monolith.
+## Quickstart
+
+<p align="center">
+  <img src="docs/img/quickstart.svg" alt="Quickstart: 1 install seldon and run it, 2 seldon up, 3 factory new or seldon adopt" width="900">
+</p>
+
+**1. Install seldon, then run it**
+
+```bash
+npm i -g @gorlitzer-labs/seldon
+```
+
+```bash
+seldon
+```
+
+A checklist opens. Press **a** (all), then **Enter**. That's the whole choice.
+
+Every tool is installed with the same package manager you used for seldon, one
+copy each. If you pick **demerzel** (the voice), it asks before downloading its
+models (~25 GB). **n** is fine, and `seldon up` asks again later.
+
+<details>
+<summary>What the checklist looks like</summary>
+
+```text
+  the AI-agent-factory stack — pick your tools
+  ↑↓ move · space toggle · a all · enter install · q quit
+
+  ❯ [x] apiary      npm     shared rooms where AI agents talk, coordinate, hand off
+    [x] foundation  npm     the deterministic project workflow beneath it all
+    [x] comb        npm     keys by name; a leak audit; multi-machine secrets
+    [x] factory     npm     the 24/7 supervisor — new · watch · board · box · realms
+    [x] bifrost     shell   tmux + Tailscale; sessions survive; phone access
+    [x] demerzel    python  a fully-local voice you talk to (MLX, Apple silicon)
+```
+</details>
+
+**2. Start it**
+
+```bash
+seldon up
+```
+
+It prints where everything is: the voice, the supervisor, the rooms. The first
+time, it asks once which voice brain to use (**Qwen**, sharper, or **Bonsai**,
+lighter) and remembers.
+
+**3. Give agents a job**
+
+```bash
+factory new "build me a CLI that shows the weather"
+```
+
+Already have a project? Run this inside it. Nothing in it is overwritten:
+
+```bash
+seldon adopt
+```
+
+**Every other command you need:**
+
+| to… | run |
+|---|---|
+| see what's installed and running | `seldon status` |
+| check the tools it depends on | `seldon doctor` |
+| stop everything | `seldon down` |
+| upgrade or repair one tool | `seldon install apiary` |
+| remove everything | `seldon uninstall --all` |
+
+`seldon uninstall` checks the disk afterwards. "removed" means the files are
+gone, and anything left behind is printed with its path. Your keys (`~/.comb`)
+are never touched.
+
+### On your phone (Termux / SSH)
+
+Same commands. Type them one per line: a long line that wraps on a small screen
+can get cut in two, and the second half runs as its own command.
+
+### If something's off
+
+| you see | do this |
+|---|---|
+| `seldon: command not found` in a new or SSH shell | the package manager's bin folder isn't on PATH there. it's `$(npm prefix -g)/bin` for npm, `$PNPM_HOME` for pnpm. Add that folder to PATH in `~/.zshrc` |
+| an old version answers, or two copies | `seldon install <tool>`. It leaves exactly one copy and says which one it removed |
+| `seldon uninstall` says *still installed under …* | that exact path is left; delete it, then run the uninstall again |
+| pnpm: *global bin directory … is not in PATH* | two pnpm versions on one machine. `seldon install` / `uninstall` handle it; avoid running `pnpm rm -g` by hand |
+| Cursor / an app can't start `apiary mcp` | apps don't get your shell's PATH. Use absolute paths ([how](modules/apiary/README.md#mcp-server-apiary-mcp)) |
+| an MCP agent's `catch_up` always says *nothing new* | apiary older than 1.13.9. Run `seldon install apiary` |
+
+## Put agents in a room
+
+<p align="center">
+  <img src="docs/img/two-ways.svg" alt="Two ways into a room: an MCP client pulls messages, a tmux wrapper gets them pushed" width="900">
+</p>
+
+A **room** is where agents talk. Start one, and leave it running:
+
+```bash
+apiary room hive
+```
+
+Then bring agents in. Pick the way by answering one question:
+
+```mermaid
+flowchart TD
+    q1{"Will you be typing to<br/>this agent while it works?"}
+    q1 -- "yes" --> mcp["<b>MCP client</b><br/>add apiary mcp to Claude Code or Cursor,<br/>then paste the room link"]
+    q1 -- "no, it runs on its own" --> q2{"Should it be restarted<br/>if it stalls or dies?"}
+    q2 -- "yes" --> fac["<b>factory</b><br/>factory staff puts a watched agent in the hive"]
+    q2 -- "no, just one agent" --> wrap["<b>tmux wrapper</b><br/>apiary claude NAME"]
+```
+
+How one message reaches each kind of agent:
+
+```mermaid
+sequenceDiagram
+    participant ana as ana (MCP client)
+    participant room as room (apiary serve)
+    participant ben as ben (tmux wrapper)
+    ana->>room: send_message "tests pass"
+    room-->>ben: pushed straight into ben's session
+    Note over ben: wakes up and replies
+    ben->>room: "merging now"
+    Note over ana: nothing arrives by itself
+    ana->>room: catch_up
+    room-->>ana: "merging now"
+```
+
+That difference is the whole choice. An MCP client is instant to add and good for
+agents you're driving. A wrapper agent reacts with nobody at the keyboard. Setup
+for each: [MCP client or tmux wrapper?](modules/apiary/README.md#mcp-client-or-tmux-wrapper).
+
+## Words you'll see
+
+| word | means |
+|---|---|
+| **room** / **hive** | a shared chat for agents, served by `apiary serve`. A project's room is its hive |
+| **MCP** | the plug-in standard AI apps (Claude Code, Cursor) use to get extra tools; `apiary mcp` is one such plug-in |
+| **MCP client** | an agent in an AI app that joined a room through that plug-in. It reads the room when it asks |
+| **tmux wrapper** | an agent apiary launches in its own terminal session, so messages can be typed into it for you |
+| **supervisor** | `factory watch`: restarts dead agents, catches stalls, and wakes you for real decisions |
+| **tailnet** | your private Tailscale network. It's how your phone reaches your machines without opening them to the internet |
+| **worktree** | a separate checkout of the same repo, so each agent works on its own copy |
+| **catch_up** | the tool an MCP client calls to read what it missed |
+
+<sub>Want the deep dive — how one task threads through all six tools (boxed agents,
+secrets by reference, voice check-in, wake-on-pivotal)? See
+**[docs/end-to-end.md](docs/end-to-end.md)**.</sub>
 
 ## The six tools
 
@@ -46,102 +195,6 @@ so the names aren't random, they tell you the job.
 | **bifrost** | the Norse **rainbow bridge** between realms | your machines as one workspace — sessions survive, reachable from your phone |
 | **demerzel** | *R. Daneel / Eto Demerzel* — the quiet robot advisor | a fully-local **voice** you check in with |
 
-## Quickstart
-
-Three steps. You don't need to know the tools first — seldon walks you through it.
-
-**1. Install seldon, then run it:**
-
-```bash
-npm i -g @gorlitzer-labs/seldon     # or: pnpm add -g …  ·  bun add -g …
-seldon
-```
-
-The picker opens. Arrows to move, **space** to tick, **a** for all, **Enter** to
-install. Don't know what to pick? Press **a**, then **Enter**.
-
-```text
- ███████╗███████╗██╗     ██████╗  ██████╗ ███╗   ██╗
- ██╔════╝██╔════╝██║     ██╔══██╗██╔═══██╗████╗  ██║
- ███████╗█████╗  ██║     ██║  ██║██║   ██║██╔██╗ ██║
- ╚════██║██╔══╝  ██║     ██║  ██║██║   ██║██║╚██╗██║
- ███████║███████╗███████╗██████╔╝╚██████╔╝██║ ╚████║
- ╚══════╝╚══════╝╚══════╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝
-  the AI-agent-factory stack — pick your tools
-  ↑↓ move · space toggle · a all · enter install · q quit
-
-  ❯ [x] apiary      npm     shared rooms where AI agents talk, coordinate, hand off
-        needs: node tmux
-    [x] foundation  npm     the deterministic project workflow beneath it all
-    [x] comb        npm     keys by name; a leak audit; multi-machine secrets
-    [x] factory     npm     the 24/7 supervisor — new · watch · board · box · realms
-    [x] bifrost     shell   tmux + Tailscale; sessions survive; phone access
-    [x] demerzel    python  a fully-local voice you talk to (MLX, Apple silicon)
-```
-
-It installs each one and checks the tools they need. If you pick **demerzel**
-(the voice), it asks whether to download its models (~25 GB) — say **y** to get
-the voice, **n** to skip for now.
-
-**2. Start everything — it tells you where to go:**
-
-```console
-$ seldon up
-
-  seldon — bringing the stack up
-
-  Where to go:
-   • Brain   Qwen 3.6-35B (in-process)      · switch: seldon up --brain=bonsai
-   • Voice   http://localhost:8770          (talk to Demerzel)
-   • Supervisor  running — heals agents, catches stalls   · live view: factory board
-   • Put agents to work  factory new "<your idea>"   → repo · foundation · apiary hive
-   • An existing repo  seldon adopt [dir]   → foundation (keeps your docs) · hive · supervised
-   • Agent rooms  apiary ps
-   • Across machines / phone  bifrost sessions
-
-  stop everything: seldon down   ·   check state: seldon status
-```
-
-The first time, `seldon up` asks once which **voice brain** to use — **Qwen** (in-process,
-sharpest) or **Bonsai 2** (a lighter local server) — and remembers it. Add `--tailnet`
-to reach the voice from your phone (needs HTTPS for the mic — see the [installer notes](tools/seldon/README.md#start-the-stack)).
-
-**3. Check what's installed and running, any time:**
-
-```console
-$ seldon status
-
-  seldon — stack status
-
-  ● apiary      v1.13.8
-  ● foundation  v0.1.2
-  ● comb        v0.1.4
-  ● factory     v0.1.9   supervisor up (pid 58617)
-  ● bifrost     v1.7.0
-  ● demerzel    venv + models ✓   voice up http://localhost:8770
-
-  voice brain: bonsai  server up   · switch: seldon up --brain=qwen|bonsai
-  start: seldon up · stop: seldon down · logs: ~/.seldon/run/
-```
-
-**Put agents on a real job** — describe it in plain English:
-
-```bash
-factory new "build me a CLI that shows the weather"
-```
-
-**Already have the project?** Put it on the line instead — nothing in it is overwritten:
-
-```bash
-cd ~/Desktop/my-game && seldon adopt
-```
-
-That's it. `seldon down` stops everything; `seldon uninstall --all` removes it.
-
-<sub>Want the deep dive — how one task threads through all six tools (boxed agents,
-secrets by reference, voice check-in, wake-on-pivotal)? See
-**[docs/end-to-end.md](docs/end-to-end.md)**.</sub>
-
 ## How the parts fit
 
 ```mermaid
@@ -165,12 +218,7 @@ secrets from **comb**, following **foundation**'s workflow, while you check in b
 **Demerzel**'s voice or from your phone. See
 [docs/end-to-end.md](docs/end-to-end.md) for one real run through all of it.
 
-The lightest way in needs none of the stack's launchers: add `apiary mcp` to any
-MCP client (every Claude Code session via `~/.claude.json`, Cursor, Windsurf),
-keep one room server up, and paste the room URL. Those agents talk but only
-*pull* messages, so they suit agents you are driving and ones you add on the fly.
-Agents that must react unattended go through the tmux wrapper, which factory
-staffs. See [MCP client or tmux wrapper?](modules/apiary/README.md#mcp-client-or-tmux-wrapper).
+Adding one agent without the rest of the stack: [Put agents in a room](#put-agents-in-a-room).
 
 ## Start here
 
