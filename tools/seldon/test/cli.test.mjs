@@ -305,3 +305,26 @@ test("install leaves exactly one copy — the older one under another package ma
     assert.match(out, /removing the older copy under npm/);
   } finally { s.done(); }
 });
+
+test("modules install with the package manager seldon itself lives under — pnpm's .pnpm symlink layout included", () => {
+  const s = pmSandbox();
+  try {
+    const a = s.fakePM("a", "pnpm"), n = s.fakePM("n", "npm");
+    // seldon lives under the fake pnpm the way real pnpm lays it out:
+    // <root>/@gorlitzer-labs/seldon -> <root>/../.pnpm/…/node_modules/@gorlitzer-labs/seldon
+    const store = path.join(a.root, "..", ".pnpm", "seldon@x", "node_modules", "@gorlitzer-labs", "seldon");
+    mkdirSync(path.join(store, "bin"), { recursive: true });
+    const src = path.dirname(path.dirname(BIN));
+    for (const f of ["package.json", "modules.mjs"]) writeFileSync(path.join(store, f), readFileSync(path.join(src, f)));
+    writeFileSync(path.join(store, "bin", "seldon.js"), readFileSync(BIN));
+    mkdirSync(path.join(a.root, "@gorlitzer-labs"), { recursive: true });
+    symlinkSync(store, path.join(a.root, "@gorlitzer-labs", "seldon"));
+    const out = strip((() => {
+      try { return execFileSync("node", [path.join(a.root, "@gorlitzer-labs", "seldon", "bin", "seldon.js"), "install", "apiary"], { encoding: "utf8", env: s.env() }); }
+      catch (e) { return (e.stdout || "") + (e.stderr || ""); }
+    })());
+    assert.ok(has(a.root), "installed under the pnpm seldon lives in:\n" + out);
+    assert.ok(!has(n.root), "not under npm");
+    assert.match(out, new RegExp(`\\$ ${path.join(a.bin, "pnpm").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} add -g`), "used that exact pnpm binary");
+  } finally { s.done(); }
+});
