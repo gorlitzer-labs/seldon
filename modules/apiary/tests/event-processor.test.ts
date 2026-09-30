@@ -10,6 +10,7 @@ import type {
   RoomEvent,
 } from "../src/core/events.js";
 import { EventProcessor } from "../src/agent/event-processor.js";
+import { buildCatchUpLines } from "../src/agent/tool-handlers.js";
 import type { ContentPart } from "../src/agent/types.js";
 import type { EngagementMode } from "../src/agent/engagement.js";
 
@@ -827,6 +828,63 @@ describe("seen-event cache", () => {
     expect(proc.isEventSeen("evt-1")).toBe(true);
     expect(proc.isEventSeen("evt-2")).toBe(true);
     expect(proc.isEventSeen("evt-3")).toBe(false);
+  });
+});
+
+// ── Pull-only (standalone `apiary mcp`) ─────────────────────────────────────
+
+describe("pullOnly", () => {
+  // Standalone MCP delivers nothing (the agent pulls with catch_up), so the
+  // event loop must leave arriving messages unread. It used to mark them
+  // delivered on arrival and catch_up answered "(nothing new)" forever.
+  async function catchUpAfterLiveMessage(pullOnly: boolean): Promise<string[]> {
+    const proc = new EventProcessor("agent-id", "Agent", { defaultMode: "everyone", pullOnly });
+    const room = makeRoom();
+    const humanCh = await addHuman(room, "human-1", "Alice");
+    await proc.connectRoom(room, "lobby");
+    const runPromise = proc.run(async () => {});
+    await tick(50);
+    const opts = { isEventSeen: (id: string) => proc.isEventSeen(id), markEventsSeen: (ids: string[]) => proc.markEventsSeen(ids) };
+    const conn = proc.resolve("lobby")!;
+    // join_room shows (and marks read) the history first — do the same, so
+    // what's left is only what arrived live.
+    await buildCatchUpLines(conn, opts);
+
+    await humanCh.sendMessage("are you there?");
+    await tick(100);
+
+    const { lines } = await buildCatchUpLines(conn, opts);
+    await proc.stop();
+    await runPromise;
+    return lines;
+  }
+
+  test("a message that arrives while nobody is pulling is still there for catch_up", async () => {
+    const lines = await catchUpAfterLiveMessage(true);
+    expect(lines.join("\n")).toContain("are you there?");
+  });
+
+  test("and catch_up marks it read, so the next one is empty", async () => {
+    const proc = new EventProcessor("agent-id", "Agent", { defaultMode: "everyone", pullOnly: true });
+    const room = makeRoom();
+    const humanCh = await addHuman(room, "human-1", "Alice");
+    await proc.connectRoom(room, "lobby");
+    const runPromise = proc.run(async () => {});
+    await tick(50);
+    const opts = { isEventSeen: (id: string) => proc.isEventSeen(id), markEventsSeen: (ids: string[]) => proc.markEventsSeen(ids) };
+    const conn = proc.resolve("lobby")!;
+    await buildCatchUpLines(conn, opts);
+    await humanCh.sendMessage("once");
+    await tick(100);
+    expect((await buildCatchUpLines(conn, opts)).lines.join("\n")).toContain("once");
+    expect((await buildCatchUpLines(conn, opts)).lines).toEqual([]);
+    await proc.stop();
+    await runPromise;
+  });
+
+  test("pushed delivery (the tmux runtimes) still counts a live message as delivered", async () => {
+    const lines = await catchUpAfterLiveMessage(false);
+    expect(lines).toEqual([]);
   });
 });
 

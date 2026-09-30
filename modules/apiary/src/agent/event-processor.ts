@@ -45,6 +45,13 @@ export interface EventProcessorOptions {
   onModeChange?: (roomId: string, roomName: string, mode: EngagementMode) => void;
   /** Called before each delivery. Return false to skip. */
   preQuery?: () => Promise<boolean>;
+  /**
+   * Nothing is pushed to the agent — it pulls with catch_up() (standalone
+   * `apiary mcp`). Arriving events are classified and buffered but NOT marked
+   * delivered: delivery there is a no-op, so marking them would hide every
+   * message from catch_up(), which only returns what hasn't been delivered.
+   */
+  pullOnly?: boolean;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
@@ -528,7 +535,7 @@ export class EventProcessor implements RoomResolver {
 
     if (disposition === "drop") return;
 
-    this._tracker.markDelivered(event.id);
+    if (!this._options.pullOnly) this._tracker.markDelivered(event.id);
 
     if (disposition === "content") {
       this._buffer.push(roomId, { event, roomId, roomName: labeled.roomName });
