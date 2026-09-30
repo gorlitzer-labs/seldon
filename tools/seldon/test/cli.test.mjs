@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -128,11 +128,15 @@ test("status: a stopped service gets a yellow dot, never a green one", () => {
 // ---- adopt / daemon cwd / docker: fake `factory` + `docker` on a restricted PATH ----
 // PATH is only the fakes + node + the system dirs, so the real factory (if installed) is
 // never reached, and SELDON_HOME is a temp dir so no real pidfile or daemon is touched.
+// node is linked in, not reached through its own dir: `npm i -g` puts the stack's bins
+// right next to node (e.g. Homebrew's Cellar/node/*/bin), and a stale factory there
+// answered `adopt` with its usage text and exit 2.
 function sandbox() {
   const root = mkdtempSync(path.join(tmpdir(), "seldon-adopt-"));
   const bin = path.join(root, "bin"), home = path.join(root, "home");
   mkdirSync(bin); mkdirSync(home);
-  const PATH = [bin, path.dirname(process.execPath), "/usr/bin", "/bin"].join(":");
+  symlinkSync(process.execPath, path.join(bin, "node"));
+  const PATH = [bin, "/usr/bin", "/bin"].join(":");
   const fake = (name, body) => { const f = path.join(bin, name); writeFileSync(f, "#!/bin/sh\n" + body + "\n"); execFileSync("chmod", ["+x", f]); };
   return { root, bin, home, PATH, fake, env: { PATH, SELDON_HOME: home } };
 }

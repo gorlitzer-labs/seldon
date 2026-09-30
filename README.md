@@ -113,10 +113,10 @@ $ seldon status
 
   seldon — stack status
 
-  ● apiary      v1.13.4
+  ● apiary      v1.13.8
   ● foundation  v0.1.2
-  ● comb        v0.1.2
-  ● factory     v0.1.2   supervisor up (pid 58617)
+  ● comb        v0.1.4
+  ● factory     v0.1.9   supervisor up (pid 58617)
   ● bifrost     v1.7.0
   ● demerzel    venv + models ✓   voice up http://localhost:8770
 
@@ -164,6 +164,13 @@ Pick what you need: run agents in one **apiary** room and nothing else, or let
 secrets from **comb**, following **foundation**'s workflow, while you check in by
 **Demerzel**'s voice or from your phone. See
 [docs/end-to-end.md](docs/end-to-end.md) for one real run through all of it.
+
+The lightest way in needs none of the stack's launchers: add `apiary mcp` to any
+MCP client (every Claude Code session via `~/.claude.json`, Cursor, Windsurf),
+keep one room server up, and paste the room URL. Those agents talk but only
+*pull* messages, so they suit agents you are driving and ones you add on the fly.
+Agents that must react unattended go through the tmux wrapper, which factory
+staffs. See [MCP client or tmux wrapper?](modules/apiary/README.md#mcp-client-or-tmux-wrapper).
 
 ## Start here
 
