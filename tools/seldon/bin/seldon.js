@@ -150,9 +150,16 @@ const installedAt = (pkg) => globalRoots().filter((r) => fs.existsSync(path.join
 
 // The package manager that installed seldon itself — the stack goes there too,
 // so one `npm i -g @gorlitzer-labs/seldon` never ends up split across two.
+// Compare against the RESOLVED package dir, not the root: pnpm's global
+// node_modules/<pkg> is a symlink into a .pnpm store beside it, so the running
+// file's real path is never under the root itself.
 function homePM() {
   const self = realpath(process.argv[1] || "");
-  return globalRoots().find((r) => r.bin && self.startsWith(realpath(r.root) + path.sep)) || null;
+  return globalRoots().find((r) => {
+    if (!r.bin) return false;
+    const dir = pkgDir(r.root, "@gorlitzer-labs/seldon");
+    return fs.existsSync(dir) && self.startsWith(realpath(dir) + path.sep);
+  }) || null;
 }
 
 // Pick the node package manager: --pm=<x> override (pnpm|bun|npm), else the one
