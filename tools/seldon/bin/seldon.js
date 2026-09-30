@@ -88,32 +88,133 @@ const pnpmGlobalReady = () => {
   } catch { return false; }
 };
 
-// Pick the node package manager: --pm=<x> override (pnpm|bun|npm), else pnpm
-// when it can global-install, else npm (the universal fallback). bun is not
-// auto-preferred — opt in with --pm=bun.
+// ---- where the node CLIs actually live --------------------------------------
+// A global package can sit under npm, under pnpm, or under two pnpms at once:
+// Homebrew's pnpm and corepack's are different majors, and pnpm 11 refuses to
+// run unless $PNPM_HOME/bin is on PATH. So everything here answers from the
+// filesystem, never from a package manager's exit code — `npm rm -g` of a
+// package npm never had exits 0, and that used to be printed as "removed".
+
+const realpath = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+const defaultPnpmHome = () => process.env.PNPM_HOME
+  || (process.platform === "darwin" ? path.join(process.env.HOME, "Library", "pnpm") : path.join(process.env.HOME, ".local", "share", "pnpm"));
+
+// Env for running one package-manager binary: its own dir first (so the right
+// node is found), and pnpm's bin dir on PATH (pnpm 11 checks for it, even to rm).
+function pmEnv(bin) {
+  const extra = path.isAbsolute(bin) ? [path.dirname(bin)] : [];
+  if (path.basename(bin) === "pnpm") extra.push(defaultPnpmHome(), path.join(defaultPnpmHome(), "bin"));
+  return { ...process.env, PATH: [...extra, process.env.PATH || ""].join(":") };
+}
+
+// Every distinct executable for a package manager on PATH (realpath-deduped).
+function pmBins(pm) {
+  const seen = new Set(), out = [];
+  let found = "";
+  try { found = execSync(`which -a ${pm}`, { stdio: ["ignore", "pipe", "ignore"] }).toString(); } catch {}
+  for (const p of found.split("\n").map((l) => l.trim()).filter(Boolean)) {
+    const r = realpath(p);
+    if (!seen.has(r)) { seen.add(r); out.push(p); }
+  }
+  return out;
+}
+
+// The global node_modules one package-manager binary installs into.
+function rootOf(bin) {
+  if (path.basename(bin) === "bun") return path.join(process.env.HOME, ".bun", "install", "global", "node_modules");
+  try { return execSync(`"${bin}" root -g`, { stdio: ["ignore", "pipe", "ignore"], env: pmEnv(bin) }).toString().trim().split("\n").pop() || ""; }
+  catch { return ""; }
+}
+
+let rootsCache = null;
+// Every global node_modules this machine has: one per package-manager binary,
+// plus the one next to node itself (`npm i -g` with a node-prefixed npm puts
+// packages there, and no other npm can see them to remove them).
+function globalRoots() {
+  if (rootsCache) return rootsCache;
+  const seen = new Set(), out = [];
+  const push = (r) => { const k = realpath(r.root); if (r.root && !seen.has(k)) { seen.add(k); out.push(r); } };
+  for (const pm of ["pnpm", "npm", "bun"]) {
+    for (const bin of pmBins(pm)) {
+      const root = rootOf(bin);
+      if (root) push({ pm, bin, root });
+    }
+  }
+  const prefix = process.env.SELDON_NODE_PREFIX || path.resolve(path.dirname(process.execPath), "..");
+  push({ pm: "node-prefix", bin: "", root: path.join(prefix, "lib", "node_modules") });
+  return (rootsCache = out);
+}
+
+const pkgDir = (root, pkg) => path.join(root, ...pkg.split("/"));
+const installedAt = (pkg) => globalRoots().filter((r) => fs.existsSync(path.join(pkgDir(r.root, pkg), "package.json")));
+
+// The package manager that installed seldon itself — the stack goes there too,
+// so one `npm i -g @gorlitzer-labs/seldon` never ends up split across two.
+function homePM() {
+  const self = realpath(process.argv[1] || "");
+  return globalRoots().find((r) => r.bin && self.startsWith(realpath(r.root) + path.sep)) || null;
+}
+
+// Pick the node package manager: --pm=<x> override (pnpm|bun|npm), else the one
+// seldon lives under, else pnpm when it can global-install, else npm.
 function nodePM() {
   const ov = (process.argv.find((a) => a.startsWith("--pm=")) || "").split("=")[1];
-  if (ov) return ov;
-  if (has("pnpm") && pnpmGlobalReady()) return "pnpm";
-  return "npm";
+  if (ov) return { pm: ov, bin: ov };
+  const home = homePM();
+  if (home) return { pm: home.pm, bin: home.bin };
+  if (has("pnpm") && pnpmGlobalReady()) return { pm: "pnpm", bin: "pnpm" };
+  return { pm: "npm", bin: "npm" };
+}
+
+// Remove one package from one root. A node-prefix root has no package manager
+// that can see it, so its dir and the bin links pointing into it go directly.
+function removeAt(loc, pkg) {
+  const dir = pkgDir(loc.root, pkg);
+  if (loc.pm === "node-prefix") {
+    const binDir = path.join(loc.root, "..", "..", "bin");
+    try {
+      for (const f of fs.readdirSync(binDir)) {
+        const l = path.join(binDir, f);
+        try { if (fs.lstatSync(l).isSymbolicLink() && realpath(l).startsWith(realpath(dir) + path.sep)) fs.rmSync(l); } catch {}
+      }
+    } catch {}
+    console.log(C.dim(`  $ rm -rf ${dir}`));
+    fs.rmSync(dir, { recursive: true, force: true });
+  } else {
+    run(loc.bin, [loc.pm === "bun" ? "remove" : "rm", "-g", pkg], { env: pmEnv(loc.bin) });
+  }
+  rootsCache = null;
+  return !fs.existsSync(path.join(dir, "package.json"));
 }
 
 function installNpm(m, dev) {
-  const pm = nodePM();
+  const { pm, bin } = nodePM();
   if (dev && IN_CHECKOUT) {
     const dir = path.join(REPO_ROOT, m.dir);
     const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json")));
-    if (pj.scripts?.build) run(pm, ["run", "build"], { cwd: dir });
+    if (pj.scripts?.build) run(bin, ["run", "build"], { cwd: dir, env: pmEnv(bin) });
     const link = pm === "pnpm" ? ["link", "--global"] : ["link"]; // bun/npm: `link`
-    if (run(pm, link, { cwd: dir })) return true;
+    if (run(bin, link, { cwd: dir, env: pmEnv(bin) })) return true;
     if (pm !== "npm") { console.log(C.dim("  falling back to npm link…")); return run("npm", ["link"], { cwd: dir }); }
     return false;
   }
   // pnpm/bun: `add -g` · npm: `install -g` — a global CLI, no project touched
   const add = pm === "npm" ? ["install", "-g", m.pkg] : ["add", "-g", m.pkg];
-  if (run(pm, add)) return true;
-  if (pm !== "npm") { console.log(C.dim(`  ${pm} failed — falling back to npm…`)); return run("npm", ["install", "-g", m.pkg]); }
-  return false;
+  let used = bin;
+  let ok = run(bin, add, { env: pmEnv(bin) });
+  if (!ok && pm !== "npm") { console.log(C.dim(`  ${pm} failed — falling back to npm…`)); used = "npm"; ok = run("npm", ["install", "-g", m.pkg]); }
+  if (!ok) return false;
+  // Exactly one copy: an older one under another package manager would shadow
+  // or outlive this one (that is how a stale factory kept answering).
+  rootsCache = null;
+  const here = rootOf(used);
+  if (!here) return true; // can't tell which copy is the new one — touch nothing
+  for (const loc of installedAt(m.pkg)) {
+    if (realpath(loc.root) === realpath(here)) continue;
+    console.log(C.dim(`  removing the older copy under ${loc.pm}: ${pkgDir(loc.root, m.pkg)}`));
+    removeAt(loc, m.pkg);
+  }
+  return true;
 }
 
 function installShell(m, dev) {
@@ -215,15 +316,17 @@ async function doInstall(ids, { dev } = {}) {
 // npm and bun; try the chosen PM first, then any other present (a tool may have
 // been installed under a different one). Removing an absent package is success.
 function uninstallNpm(m) {
-  const pm = nodePM();
-  const tried = new Set();
-  for (const cand of [pm, "pnpm", "npm", "bun"]) {
-    if (tried.has(cand) || !has(cand)) continue;
-    tried.add(cand);
-    if (run(cand, ["rm", "-g", m.pkg])) return true;
+  const locs = installedAt(m.pkg);
+  if (!locs.length) {
+    const stray = has(m.bin) ? execSync(`command -v ${m.bin}`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() : "";
+    if (stray) { console.log(C.red(`  no package manager has ${m.pkg}, but \`${m.bin}\` is still on PATH: ${stray} — remove it by hand`)); return false; }
+    console.log(C.dim(`  ${m.id} is not installed (already gone)`));
+    return true;
   }
-  console.log(C.dim(`  ${m.id} not found in any global store (already gone)`));
-  return true;
+  for (const loc of locs) removeAt(loc, m.pkg);
+  const left = installedAt(m.pkg);
+  for (const loc of left) console.log(C.red(`  still installed under ${loc.pm}: ${pkgDir(loc.root, m.pkg)}`));
+  return left.length === 0;
 }
 
 // demerzel & co: the isolated venv lives under ~/.seldon/<id>. Just delete it.
@@ -315,6 +418,11 @@ async function doUninstall(ids, { yes = false, all = false } = {}) {
   const good = results.filter(([, r]) => r).map(([i]) => i);
   const bad = results.filter(([, r]) => !r).map(([i]) => i);
   console.log("\n" + C.bold("Done. ") + C.green("removed: " + (good.join(", ") || "—")) + (bad.length ? "  " + C.red("failed: " + bad.join(", ")) : ""));
+  if (bad.length) process.exitCode = 1;
+  if (all) {
+    const self = installedAt("@gorlitzer-labs/seldon")[0];
+    if (self && self.bin) console.log(C.dim(`  seldon itself stays — to remove it too:  ${path.basename(self.bin)} rm -g @gorlitzer-labs/seldon`));
+  }
 }
 
 // ---- up / down / status : the friendly front door ---------------------------
@@ -659,15 +767,10 @@ function down() {
   console.log(parts.length ? C.green(parts.join(" · ")) : C.dim("nothing was running."));
 }
 
-// Version of a globally-installed node package, across pnpm / npm / bun roots.
+// Version of a globally-installed node package, across every global root.
 function npmGlobalVersion(pkg) {
-  const roots = [];
-  for (const c of ["pnpm root -g", "npm root -g"]) {
-    try { roots.push(execSync(c, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim()); } catch {}
-  }
-  roots.push(path.join(process.env.HOME, ".bun/install/global/node_modules"));
-  for (const r of roots) {
-    try { const pj = path.join(r, pkg, "package.json"); if (fs.existsSync(pj)) return JSON.parse(fs.readFileSync(pj, "utf8")).version; } catch {}
+  for (const r of installedAt(pkg)) {
+    try { return JSON.parse(fs.readFileSync(path.join(pkgDir(r.root, pkg), "package.json"), "utf8")).version; } catch {}
   }
   return "";
 }

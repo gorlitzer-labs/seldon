@@ -187,3 +187,121 @@ test("`status` warns when docker is installed but its daemon is down", () => {
     assert.match(up, /docker: up/);
   } finally { rmSync(s.root, { recursive: true, force: true }); }
 });
+
+// ---- uninstall / install across several package managers ---------------------
+// Fake package managers, each with its own global root, on a PATH that holds
+// nothing real. Recreates the machine that broke: two pnpms (Homebrew's and
+// corepack's 11, which refuses to run unless $PNPM_HOME/bin is on PATH), an npm
+// that exits 0 without removing anything, and a copy next to node that no
+// package manager can see. HOME / SELDON_HOME / SELDON_NODE_PREFIX are sandboxed.
+function pmSandbox() {
+  const root = mkdtempSync(path.join(tmpdir(), "seldon-pm-"));
+  const d = (...p) => { const x = path.join(root, ...p); mkdirSync(x, { recursive: true }); return x; };
+  const nodeBin = d("nodebin");
+  symlinkSync(process.execPath, path.join(nodeBin, "node"));
+  const home = d("home"), pnpmHome = d("pnpmhome"), prefix = d("prefix");
+  const pms = {};
+  // mode: "ok" | "v11" (needs $PNPM_HOME/bin on PATH) | "liar" (rm exits 0, does nothing)
+  const fakePM = (key, name, mode = "ok") => {
+    const bin = d("pm-" + key), groot = d("root-" + key);
+    const f = path.join(bin, name);
+    writeFileSync(f, `#!/bin/sh
+${mode === "v11" ? `case ":$PATH:" in *":$PNPM_HOME/bin:"*) ;; *) echo 'The configured global bin directory "'"$PNPM_HOME/bin"'" is not in PATH' >&2; exit 1 ;; esac` : ""}
+cmd="$1"; shift
+[ "$1" = "-g" ] && shift
+case "$cmd" in
+  root) echo '${groot}' ;;
+  rm|remove) ${mode === "liar" ? `echo "up to date"` : `for p in "$@"; do rm -rf '${groot}'/"$p"; done`} ;;
+  add|install) for p in "$@"; do mkdir -p '${groot}'/"$p"; echo '{"name":"'"$p"'","version":"9.9.9"}' > '${groot}'/"$p"/package.json; done ;;
+esac
+exit 0
+`);
+    execFileSync("chmod", ["+x", f]);
+    return (pms[key] = { bin, root: groot });
+  };
+  const put = (groot, pkg) => { const x = path.join(groot, ...pkg.split("/")); mkdirSync(x, { recursive: true }); writeFileSync(path.join(x, "package.json"), '{"version":"0.0.1"}'); return x; };
+  const env = () => ({
+    PATH: [nodeBin, ...Object.values(pms).map((p) => p.bin), "/usr/bin", "/bin"].join(":"),
+    HOME: home, SELDON_HOME: path.join(home, ".seldon"), PNPM_HOME: pnpmHome, SELDON_NODE_PREFIX: prefix,
+  });
+  return { root, prefix, fakePM, put, env, done: () => rmSync(root, { recursive: true, force: true }) };
+}
+const APIARY = "@gorlitzer-labs/apiary";
+const has = (groot) => existsSync(path.join(groot, "@gorlitzer-labs", "apiary", "package.json"));
+
+test("uninstall removes a package from every package manager that has it", () => {
+  const s = pmSandbox();
+  try {
+    const a = s.fakePM("a", "pnpm"), b = s.fakePM("b", "pnpm"), n = s.fakePM("n", "npm");
+    s.put(a.root, APIARY); s.put(b.root, APIARY); s.put(n.root, APIARY);
+    const { code, out } = run(["uninstall", "apiary", "--yes"], s.env());
+    assert.equal(code, 0, out);
+    assert.ok(!has(a.root) && !has(b.root) && !has(n.root), "gone from all three roots");
+    assert.match(out, /✓ apiary removed/);
+  } finally { s.done(); }
+});
+
+test("a package manager that exits 0 without removing anything is a failure, not \"removed\"", () => {
+  const s = pmSandbox();
+  try {
+    const n = s.fakePM("n", "npm", "liar");
+    s.put(n.root, APIARY);
+    const { code, out } = run(["uninstall", "apiary", "--yes"], s.env());
+    assert.equal(code, 1, out);
+    assert.match(out, /still installed under npm/);
+    assert.doesNotMatch(out, /✓ apiary removed/);
+  } finally { s.done(); }
+});
+
+test("already gone counts as success", () => {
+  const s = pmSandbox();
+  try {
+    s.fakePM("a", "pnpm"); s.fakePM("n", "npm");
+    const { code, out } = run(["uninstall", "apiary", "--yes"], s.env());
+    assert.equal(code, 0, out);
+    assert.match(out, /already gone/);
+  } finally { s.done(); }
+});
+
+test("pnpm 11, which needs $PNPM_HOME/bin on PATH, still gets the package removed", () => {
+  const s = pmSandbox();
+  try {
+    const b = s.fakePM("b", "pnpm", "v11");
+    s.put(b.root, APIARY);
+    const { code, out } = run(["uninstall", "apiary", "--yes"], s.env());
+    assert.equal(code, 0, out);
+    assert.ok(!has(b.root));
+  } finally { s.done(); }
+});
+
+test("a copy next to node, which no package manager can see, goes too — with its bin link", () => {
+  const s = pmSandbox();
+  try {
+    s.fakePM("n", "npm");
+    const nm = path.join(s.prefix, "lib", "node_modules");
+    const dir = s.put(nm, APIARY);
+    mkdirSync(path.join(dir, "dist"), { recursive: true });
+    writeFileSync(path.join(dir, "dist", "cli.js"), "");
+    mkdirSync(path.join(s.prefix, "bin"), { recursive: true });
+    symlinkSync(path.join(dir, "dist", "cli.js"), path.join(s.prefix, "bin", "apiary"));
+    symlinkSync(process.execPath, path.join(s.prefix, "bin", "node-unrelated"));
+    const { code, out } = run(["uninstall", "apiary", "--yes"], s.env());
+    assert.equal(code, 0, out);
+    assert.ok(!has(nm), "package dir removed");
+    assert.ok(!existsSync(path.join(s.prefix, "bin", "apiary")), "its bin link removed");
+    assert.ok(existsSync(path.join(s.prefix, "bin", "node-unrelated")), "unrelated links left alone");
+  } finally { s.done(); }
+});
+
+test("install leaves exactly one copy — the older one under another package manager is removed", () => {
+  const s = pmSandbox();
+  try {
+    const a = s.fakePM("a", "pnpm"), n = s.fakePM("n", "npm");
+    s.put(n.root, APIARY);
+    const { code, out } = run(["install", "apiary", "--pm=pnpm"], s.env());
+    assert.equal(code, 0, out);
+    assert.ok(has(a.root), "installed under pnpm");
+    assert.ok(!has(n.root), "npm's older copy removed");
+    assert.match(out, /removing the older copy under npm/);
+  } finally { s.done(); }
+});
