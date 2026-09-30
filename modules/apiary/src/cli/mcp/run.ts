@@ -47,6 +47,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   // ── EventProcessor (selfId set on first join) ─────────────────────────
   const processor = new EventProcessor("", agentName, {
     defaultMode: "everyone",
+    pullOnly: true,
   });
 
   // ── Wrap SSE source for participant cache updates ─────────────────────

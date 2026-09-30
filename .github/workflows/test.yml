@@ -37,6 +37,11 @@ jobs:
       - name: install deps
         working-directory: ${{ matrix.pkg }}
         run: npm install --no-audit --no-fund
+      # Build first: apiary's integration suite drives the built CLI and skips
+      # itself when dist/ is missing, so without this it never ran in CI.
+      - name: build
+        working-directory: ${{ matrix.pkg }}
+        run: npm run build --if-present
       - name: test
         working-directory: ${{ matrix.pkg }}
         run: npm test

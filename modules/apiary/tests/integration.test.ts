@@ -255,6 +255,39 @@ function joinHeadless(
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
+/**
+ * A standalone `apiary mcp` process driven over stdio JSON-RPC, the way an MCP
+ * client (Claude Code, Cursor) drives it. `tool()` returns the text result.
+ */
+async function startMcpClient(): Promise<{ tool: (name: string, args: Record<string, unknown>) => Promise<string>; stop: () => void }> {
+  const child = spawn(NODE, [CLI_PATH, "mcp"], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env } });
+  const pending = new Map<number, (msg: Record<string, unknown>) => void>();
+  const rl = createInterface({ input: child.stdout!, terminal: false });
+  rl.on("line", (line) => {
+    try {
+      const msg = JSON.parse(line);
+      if (typeof msg.id === "number" && pending.has(msg.id)) { pending.get(msg.id)!(msg); pending.delete(msg.id); }
+    } catch { /* not JSON-RPC */ }
+  });
+  let nextId = 0;
+  const call = (method: string, params: Record<string, unknown>) => new Promise<Record<string, unknown>>((res, rej) => {
+    const id = ++nextId;
+    const timer = setTimeout(() => rej(new Error(`mcp ${method} timed out`)), 10_000);
+    pending.set(id, (m) => { clearTimeout(timer); res(m); });
+    child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+  });
+  await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "test", version: "0" } });
+  child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+  return {
+    tool: async (name, args) => {
+      const r = await call("tools/call", { name, arguments: args });
+      const content = (r.result as { content: Array<{ text: string }> }).content;
+      return content.map((c) => c.text).join("\n");
+    },
+    stop: () => { child.stdin!.end(); child.kill("SIGTERM"); },
+  };
+}
+
 describe.skipIf(!HAS_BUILD)("Integration", () => {
   const servers: ServerHandle[] = [];
   const clients: HeadlessClient[] = [];
@@ -1159,6 +1192,35 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
     });
     expect(res.status).toBe(403);
   }, 15_000);
+
+  // ── Standalone MCP (pull-based) ───────────────────────────────────────
+
+  test("an `apiary mcp` agent sees a message another one posted, via catch_up", async () => {
+    // The whole point of the MCP-client path. Delivery there is a no-op, and
+    // the event loop used to mark every arriving message delivered anyway, so
+    // catch_up answered "(nothing new)" while search could see the message.
+    const server = await startServer();
+    servers.push(server);
+    const url = `${server.serverUrl}/?token=${server.memberToken}`;
+    const a = await startMcpClient();
+    const b = await startMcpClient();
+    try {
+      expect(await a.tool("apiary__join_room", { url, name: "Poster" })).toContain("Joined");
+      expect(await b.tool("apiary__join_room", { url, name: "Reader" })).toContain("Joined");
+      await b.tool("apiary__catch_up", { room: server.roomName }); // history: read
+
+      await a.tool("apiary__send_message", { room: server.roomName, content: "ping from the poster" });
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const first = await b.tool("apiary__catch_up", { room: server.roomName });
+      expect(first).toContain("ping from the poster");
+      const second = await b.tool("apiary__catch_up", { room: server.roomName });
+      expect(second).toContain("(nothing new)");
+    } finally {
+      a.stop();
+      b.stop();
+    }
+  }, 30_000);
 
   // ── Headless readiness ────────────────────────────────────────────────
 
