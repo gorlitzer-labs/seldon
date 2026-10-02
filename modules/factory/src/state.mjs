@@ -9,7 +9,7 @@
 //
 // Read-only. Steering still goes through `decide`.
 import { say } from "./lib/log.mjs";
-import { readRegistry, hiveState } from "./lib/hive.mjs";
+import { readRegistry, hiveState, needsYou, attentionReasons } from "./lib/hive.mjs";
 import { pending } from "./lib/decisions.mjs";
 
 export async function factoryState(flags) {
@@ -22,6 +22,7 @@ export async function factoryState(flags) {
     hives: hives.map((h) => ({
       name: h.name,
       dir: h.dir,
+      url: h.url,
       up: h.up,
       queueOpen: h.queueOpen,
       done: h.done,
@@ -29,8 +30,11 @@ export async function factoryState(flags) {
       drift: h.drift,
       blockers: h.blockers,
       lanes: h.lanes,
+      agents: h.agents,
+      next: h.next,
       digest: h.digest,
-      needsYou: !h.up || h.drift > 0 || h.blockers > 0,
+      needsYou: needsYou(h),
+      why: attentionReasons(h) || null,
     })),
     decisions,
     summary: {
@@ -40,8 +44,8 @@ export async function factoryState(flags) {
       drift: hives.reduce((n, h) => n + h.drift, 0),
       queueOpen: hives.reduce((n, h) => n + h.queueOpen, 0),
       pendingDecisions: decisions.length,
-      needsYou: hives.filter((h) => !h.up || h.drift > 0 || h.blockers > 0).length
-                + decisions.length,
+      agents: hives.reduce((n, h) => n + h.agents.length, 0),
+      needsYou: hives.filter(needsYou).length + decisions.length,
     },
   };
 

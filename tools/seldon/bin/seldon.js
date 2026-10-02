@@ -7,6 +7,7 @@ import path from "node:path";
 import fs from "node:fs";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
+import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf } from "../lib/projects.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // The monorepo root when running from a checkout (tools/seldon/bin -> ../../..)
@@ -859,6 +860,267 @@ function dockerState() {
   try { execSync("docker info", { stdio: "ignore", timeout: 8000 }); return "up"; } catch { return "down"; }
 }
 
+
+
+// ---- raw-terminal plumbing, once ---------------------------------------------
+// Both interactive screens (the install picker and the panel) need the same four-step dance,
+// and the pause/unref at the end is load-bearing: emitKeypressEvents resumes stdin, and
+// without releasing it the event loop stays alive and the process hangs after the screen
+// closes. That bug was fixed once in the picker; sharing it means the panel cannot
+// reintroduce it. `suspend` lets a screen hand the terminal to a child process and take it
+// back — the panel does that every time it staffs an agent.
+function rawSession({ draw, onKey }) {
+  let done = null;
+  const listen = () => {
+    readline.emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("keypress", handler);
+  };
+  const release = () => {
+    process.stdin.off("keypress", handler);
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    process.stdin.pause();
+    process.stdin.unref();
+  };
+  const handler = (str, key) => onKey(str, key, api);
+  const api = {
+    draw: () => draw(api),
+    finish: (v) => { release(); readline.cursorTo(process.stdout, 0); readline.clearScreenDown(process.stdout); done(v); },
+    // run something that owns the terminal (a child process), then come back
+    suspend: async (fn) => { release(); try { return await fn(); } finally { listen(); api.draw(); } },
+  };
+  return new Promise((resolve) => { done = resolve; listen(); api.draw(); });
+}
+
+const clearScreen = () => { readline.cursorTo(process.stdout, 0, 0); readline.clearScreenDown(process.stdout); };
+
+// Pad to a COLUMN width, then colour. Padding a string that already carries ANSI escapes
+// counts those invisible bytes as width, which silently knocked every column after a coloured
+// cell out of line.
+const pad = (text, width, color = (x) => x) => color(String(text)) + " ".repeat(Math.max(0, width - String(text).length));
+
+// ---- the panel: everything, manageable ---------------------------------------
+// `seldon` on its own used to be the install checklist — a screen you need once per machine,
+// standing where the screen you need every day belongs. Now bare `seldon` is this: every
+// project on the line, what state it is in, and the key that fixes it. `seldon install` is
+// the picker, named for what it does.
+async function panel() {
+  ensureSiblingPath();
+  if (!needFactory()) return;
+  let state = loadState();
+  let cur = 0;
+  let note = "";
+  const refresh = () => { state = loadState(); if (cur >= (state?.hives.length || 0)) cur = Math.max(0, (state?.hives.length || 1) - 1); };
+
+  const svc = (label, on, extra = "") =>
+    (on ? C.green("●") : C.dim("○")) + " " + label + (extra ? C.dim(" " + extra) : "");
+
+  const draw = () => {
+    const out = [];
+    const hives = state?.hives || [];
+    out.push("");
+    out.push("  " + C.gold(C.bold("SELDON")) + C.dim("   the agent factory — your projects"));
+    out.push("  " + [
+      svc("voice", !!daemonUp("demerzel")),
+      svc("supervisor", !!daemonUp("factory-watch")),
+      svc("docker", dockerState() === "up"),
+    ].join(C.dim("   ")));
+    out.push("");
+    if (!hives.length) {
+      out.push(C.dim("  nothing on the line yet."));
+      out.push("  " + C.cyan('factory new "<your idea>"') + C.dim("   a new project"));
+      out.push("  " + C.cyan("cd <repo> && seldon go") + C.dim("   a repo you already have"));
+    }
+    hives.forEach((h, i) => {
+      const dot = !h.up ? C.red("●") : h.needsYou ? C.gold("●") : C.green("●");
+      const cursor = i === cur ? C.gold("❯") : " ";
+      const name = pad(h.name, 16, i === cur ? C.bold : (x) => x);
+      const who = h.agents?.length
+        ? pad(h.agents.join(", "), 22, C.green)
+        : pad("no agent", 22, C.dim);
+      out.push(`  ${cursor} ${dot} ${name} ${who} ${C.dim(`queue ${h.queueOpen} · ${h.done} done · ${h.lanes.length} lanes`)}`);
+      if (i === cur) {
+        out.push(`        ${C.dim(h.dir)}`);
+        if (h.why) out.push(`        ${C.gold("needs you: ")}${h.why}`);
+        for (const n of (h.next || []).slice(0, 2)) out.push(`        ${C.dim("next: " + n.slice(0, 84) + (n.length > 84 ? "…" : ""))}`);
+      }
+    });
+    const decisions = state?.decisions || [];
+    if (decisions.length) {
+      out.push("");
+      out.push("  " + C.gold(`⚑ ${decisions.length} decision(s) waiting on you`));
+      for (const d of decisions.slice(0, 3)) out.push(`    ${C.gold(d.id)} ${C.dim(`[${d.hive}]`)} ${d.text.replace(/^\w+:\s*/, "").slice(0, 70)}`);
+      out.push("    " + C.dim('answer: factory decide <id> "<your call>"'));
+    }
+    out.push("");
+    out.push("  " + C.dim("↑↓ pick · ⏎ go (fix what's missing, then attach) · s staff · a attach · b board"));
+    out.push("  " + C.dim("U start stack · D stop stack · i install · r refresh · q quit"));
+    if (note) out.push("\n  " + note);
+    clearScreen();
+    process.stdout.write(out.join("\n") + "\n");
+  };
+
+  await rawSession({
+    draw,
+    onKey: async (str, key, api) => {
+      const hives = state?.hives || [];
+      const h = hives[cur];
+      note = "";
+      if (key.name === "up") cur = (cur - 1 + (hives.length || 1)) % (hives.length || 1);
+      else if (key.name === "down") cur = (cur + 1) % (hives.length || 1);
+      else if (key.name === "q" || key.name === "escape" || (key.ctrl && key.name === "c")) return api.finish();
+      else if (key.name === "r") { refresh(); }
+      else if (str === "i") { api.finish(); return install_picker(); }
+      else if (!h) { /* nothing selected — the remaining keys need a project */ }
+      else if (key.name === "return") { api.finish(); return go(h.name); }
+      else if (str === "a") { api.finish(); return fAttach(h.name); }
+      else if (str === "b") { return api.suspend(() => spawnSync("factory", ["board"], { stdio: "inherit" })); }
+      else if (str === "s") {
+        await api.suspend(() => { fStaff(h.dir); });
+        refresh();
+      } else if (str === "U") { await api.suspend(() => up()); refresh(); }
+      else if (str === "D") { await api.suspend(() => down()); refresh(); }
+      api.draw();
+    },
+  });
+}
+
+// ---- go: the one verb that gets you back to work ----------------------------
+// Every other command answered half of "I am in my repo, continue": `seldon up` started
+// daemons, `factory adopt` opened a room, `factory staff` put an agent in it, `apiary room
+// resume` got you a seat. Four commands across three tools, and none of them said which one
+// you needed — so an adopted repo with a stopped room looked identical to a broken install.
+//
+// `go` owns no decisions. It asks `factory state` what is missing and fills the gaps in order,
+// printing ✓ for a step it SKIPPED and → for one it DID, so the output doubles as the
+// explanation of how the pieces fit. Every step is idempotent: safe from a cold boot, safe
+// twice in a row, safe mid-session.
+const sDid  = (t) => console.log("  " + C.gold("→") + " " + t);
+const sSkip = (t) => console.log("  " + C.green("✓") + " " + t);
+const sWarn = (t) => console.log("  " + C.gold("!") + " " + t);
+
+function needFactory() {
+  if (has("factory")) return true;
+  console.log(C.red("\n  this needs factory — install it: ") + C.cyan("seldon install factory") + "\n");
+  process.exitCode = 1;
+  return false;
+}
+
+// `seldon go [name|dir] [--agent claude|codex] [--model X] [--effort E] [--no-staff] [--no-attach]`
+async function go(arg, flags = {}) {
+  ensureSiblingPath();
+  if (!needFactory()) return;
+
+  let state = loadState();
+  if (!state) {
+    console.log(C.red("\n  could not read the hive registry (`factory state` failed).") +
+                C.dim("\n  try: factory state --compact\n"));
+    process.exitCode = 1; return;
+  }
+  let t = resolveProject(arg, state);
+
+  if (t.kind === "unknown") {
+    console.log(C.red(`\n  no project or repo called "${t.arg}" `) + C.dim(`(${t.reason})`));
+    if (state.hives.length) {
+      console.log(C.dim("  on the line: ") + state.hives.map((h) => C.bold(h.name)).join(C.dim(" · ")));
+    }
+    console.log("");
+    process.exitCode = 1; return;
+  }
+  // Not in a repo and no name given: the panel is the right answer to "where was I".
+  if (t.kind === "nowhere") {
+    if (!state.hives.length) {
+      console.log(C.gold("\n  nothing on the line yet.") +
+                  C.dim("\n  a new idea:      ") + C.cyan('factory new "<your idea>"') +
+                  C.dim("\n  a repo you have: ") + C.cyan("cd <repo> && seldon go") + "\n");
+      return;
+    }
+    if (process.stdin.isTTY) return panel();
+    console.log(C.gold("\n  not inside a git repo — name a project:"));
+    for (const h of state.hives) console.log(`   ${C.cyan("seldon go " + h.name)}  ${C.dim(h.dir)}`);
+    console.log("");
+    process.exitCode = 1; return;
+  }
+
+  const dir = t.dir;
+  console.log("\n  " + C.gold(C.bold(path.basename(dir))) + "  " + C.dim(dir));
+
+  // 1. on the line? `factory adopt` is idempotent — it never overwrites docs and reuses a
+  //    reachable hive, so it is both "adopt me" and "reopen my room".
+  let hive = t.kind === "hive" ? t.hive : null;
+  if (!hive) {
+    sDid("not on the line yet — adopting");
+    if (!fAdopt(dir)) { process.exitCode = 1; return; }
+    state = loadState(); hive = hiveOf(state, dir);
+    if (!hive) { sWarn("adopted, but the hive did not register — run: factory adopt " + dir); process.exitCode = 1; return; }
+  } else {
+    sSkip("adopted" + C.dim("  (foundation docs in place)"));
+  }
+
+  // 2. room up? A stopped room is the single most common state after a reboot, and the one
+  //    that used to look like a broken install.
+  if (hive.up) {
+    sSkip("hive up" + C.dim(hive.url ? "  " + hive.url : ""));
+  } else {
+    sDid("hive is down — reopening" + C.dim("  (room history resumes)"));
+    if (!fAdopt(dir)) { process.exitCode = 1; return; }
+    state = loadState(); hive = hiveOf(state, dir) || hive;
+    if (!hive.up) sWarn("the room still is not answering — check: apiary ps");
+  }
+
+  // 3. the supervisor heals dead agents and catches stalls. `go` starts it rather than
+  //    telling you to go and run `seldon up` first.
+  if (daemonUp("factory-watch")) sSkip("supervisor running");
+  else { startDaemon("factory-watch", "factory", ["watch", "--all"]); sDid("supervisor started" + C.dim("  (heals agents, catches stalls)")); }
+
+  // 4. is anyone actually working here? This is the step that was missing: `factory adopt`
+  //    opens an EMPTY room, and nothing said so — you joined and sat there alone.
+  // `agents` is absent from an older factory that cannot report it. Absent is NOT empty:
+  // claiming "nobody is working here" when we simply do not know got printed over a running
+  // Coordinator. Unknown falls through to `factory staff`, which is idempotent and says the
+  // truth either way.
+  const agents = hive.agents;
+  const known = Array.isArray(agents);
+  if (!known) sWarn("this factory is too old to report agents — " + C.cyan("seldon install factory"));
+  if (known && agents.length) {
+    sSkip("working here: " + C.bold(agents.join(", ")));
+  } else if (flags["no-staff"]) {
+    sSkip(C.dim("no agent (--no-staff)"));
+  } else if (!has("apiary")) {
+    sWarn("apiary is not installed — no agent can be staffed: " + C.cyan("seldon install apiary"));
+  } else if (!has("tmux")) {
+    sWarn("tmux is missing — apiary runs each agent in a tmux session: " + C.cyan("brew install tmux"));
+  } else {
+    sDid(known ? "nobody is working here — staffing" : "staffing (if nobody already is)");
+    if (!fStaff(dir, flags)) sWarn("staffing failed — watch it try: factory board");
+    state = loadState(); hive = hiveOf(state, dir) || hive;
+  }
+
+  // 5. where the work stands, from the seam — the answer to "what was I doing".
+  const bits = [`queue ${C.cyan(hive.queueOpen)}`, `${C.green(hive.done)} done`, `${hive.lanes.length} lanes`];
+  if (hive.blockers) bits.push(C.red(`${hive.blockers} blocker`));
+  if (hive.drift) bits.push(C.gold(`drift ${hive.drift}`));
+  console.log("    " + C.dim(bits.join(" · ")));
+  for (const n of (hive.next || []).slice(0, 2)) console.log("    " + C.dim("next: ") + n.slice(0, 96) + (n.length > 96 ? "…" : ""));
+  const mine = (state.decisions || []).filter((d) => d.hive === hive.name);
+  for (const d of mine) console.log("    " + C.gold("⚑ your call: ") + d.text.replace(/^\w+:\s*/, "").slice(0, 80) + C.dim(`  (factory decide ${d.id} "…")`));
+
+  // 6. a seat in the room. `apiary room resume` restarts a stopped room, refreshes the share
+  //    tokens and shows the agent strip — the command nothing ever pointed at.
+  if (flags["no-attach"]) { console.log("\n  " + C.dim("attach when you want it: ") + C.cyan(`apiary room resume ${hive.name}`) + "\n"); return; }
+  if (!has("apiary")) { console.log(""); return; }
+  // Attaching takes over the terminal, so it is gated on having one. `--attach` forces it for
+  // the cases where there IS a terminal we cannot see — a tmux pane, a wrapper script.
+  if (!process.stdin.isTTY && !flags.attach) {
+    console.log("\n  " + C.dim("no TTY — attach from your terminal: ") + C.cyan(`apiary room resume ${hive.name}`) +
+                C.dim("  (or: seldon go --attach)") + "\n");
+    return;
+  }
+  sDid(`attaching to the ${C.bold(hive.name)} room` + C.dim("  (ctrl-c leaves the room; agents keep working)"));
+  fAttach(hive.name);
+}
+
 // ---- adopt: bring an existing repo onto the line ----------------------------
 // factory owns the registry + hive, so this is a front door onto `factory adopt`.
 function adopt(target) {
@@ -882,20 +1144,18 @@ const BANNER = [
   " ╚══════╝╚══════╝╚══════╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝",
 ];
 function tui() {
-  return new Promise((resolve) => {
-    // Pre-check what's already installed so the picker mirrors reality. On a
-    // fresh machine (nothing installed) fall back to the recommended starter set.
-    const anyInstalled = MODULES.some((m) => moduleInstalled(m));
-    const rows = MODULES.map((m) => ({
-      m,
-      installed: moduleInstalled(m),
-      on: platformOk(m) && (anyInstalled ? moduleInstalled(m) : ["apiary", "foundation", "factory"].includes(m.id)),
-    }));
-    let cur = 0;
-    const methodTag = (m) => ({ npm: "npm", shell: "shell", python: "python" }[m.method]);
-    const draw = () => {
-      readline.cursorTo(process.stdout, 0, 0);
-      readline.clearScreenDown(process.stdout);
+  // Pre-check what's already installed so the picker mirrors reality. On a
+  // fresh machine (nothing installed) fall back to the recommended starter set.
+  const anyInstalled = MODULES.some((m) => moduleInstalled(m));
+  const rows = MODULES.map((m) => ({
+    m,
+    installed: moduleInstalled(m),
+    on: platformOk(m) && (anyInstalled ? moduleInstalled(m) : ["apiary", "foundation", "factory"].includes(m.id)),
+  }));
+  let cur = 0;
+  const methodTag = (m) => ({ npm: "npm", shell: "shell", python: "python" }[m.method]);
+  return rawSession({
+    draw: () => {
       const out = [];
       BANNER.forEach((l) => out.push(C.gold(l)));
       out.push(C.dim("  the AI-agent-factory stack — pick your tools  ") + C.green("✓ = installed"));
@@ -911,30 +1171,28 @@ function tui() {
         out.push(`  ${cursor} ${sel} ${mark} ${name} ${C.dim(methodTag(r.m).padEnd(7))} ${C.dim(r.m.blurb)}${platNote}`);
         if (i === cur) out.push(`        ${C.dim("needs: " + (deps || "nothing"))}${r.m.requires.length ? C.dim("  · pulls in: " + r.m.requires.join(", ")) : ""}`);
       });
+      clearScreen();
       process.stdout.write(out.join("\n") + "\n");
-    };
-    readline.emitKeypressEvents(process.stdin);
-    if (process.stdin.isTTY) process.stdin.setRawMode(true);
-    draw();
-    const onKey = (str, key) => {
+    },
+    onKey: (str, key, api) => {
       if (key.name === "up") cur = (cur - 1 + rows.length) % rows.length;
       else if (key.name === "down") cur = (cur + 1) % rows.length;
       else if (key.name === "space") { if (platformOk(rows[cur].m)) rows[cur].on = !rows[cur].on; }
       else if (str === "a") { const all = rows.every((r) => r.on || !platformOk(r.m)); rows.forEach((r) => { if (platformOk(r.m)) r.on = !all; }); }
-      else if (key.name === "return") return finish(rows.filter((r) => r.on).map((r) => r.m.id));
-      else if (key.name === "q" || (key.ctrl && key.name === "c")) return finish(null);
-      draw();
-    };
-    const finish = (ids) => {
-      process.stdin.off("keypress", onKey);
-      if (process.stdin.isTTY) process.stdin.setRawMode(false);
-      process.stdin.pause();   // emitKeypressEvents resumed stdin; without this the
-      process.stdin.unref();   // event loop stays alive and the process hangs after install
-      readline.cursorTo(process.stdout, 0); readline.clearScreenDown(process.stdout);
-      resolve(ids);
-    };
-    process.stdin.on("keypress", onKey);
+      else if (key.name === "return") return api.finish(rows.filter((r) => r.on).map((r) => r.m.id));
+      else if (key.name === "q" || (key.ctrl && key.name === "c")) return api.finish(null);
+      api.draw();
+    },
   });
+}
+
+// The picker plus the install it leads to — `seldon install` with no ids, and `i` in the panel.
+async function install_picker({ dev = false } = {}) {
+  if (!process.stdin.isTTY) { console.log(C.red("no TTY — use: seldon install <ids…>")); process.exitCode = 1; return; }
+  const picked = await tui();
+  if (!picked) { console.log(C.dim("nothing installed.")); return; }
+  if (!picked.length) { console.log(C.dim("nothing selected.")); return; }
+  await doInstall(picked, { dev });
 }
 
 // ---- cli --------------------------------------------------------------------
@@ -948,16 +1206,21 @@ function list() {
 }
 function help() {
   console.log(`
-${C.bold("seldon")} — install the Seldon stack, pick what you use.
+${C.bold("seldon")} — the agent factory: your projects, and the stack that runs them.
 
-  ${C.bold("seldon")}                 open the checklist (space to pick, enter to install)
+  ${C.bold("seldon")}                 ${C.gold("the panel")} — every project, what state it is in, and the key that fixes it
+  ${C.bold("seldon go")} [name|dir]   ${C.gold("get back to work")} — adopt if needed, reopen the room, staff an agent, attach.
+                         Idempotent, and it prints every step it skipped. Run it from inside a repo.
   ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
   ${C.bold("seldon up --tailnet")}    expose the voice over HTTPS (tailscale serve) so the mic works on your phone
   ${C.bold("seldon up --brain=X")}    pick the voice brain: qwen (in-process) | bonsai (local server); remembered
   ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
   ${C.bold("seldon adopt")} [dir]     put an existing repo on the line: foundation docs (never overwritten),
                          an apiary hive, supervised by factory — and print what's next. Safe to re-run.
-  ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules
+  ${C.dim("go takes --agent claude|codex, --model <id>, --effort <lvl>, --name <n>,")}
+  ${C.dim("        --no-staff (do not start an agent), --no-attach (do not open the room) and")}
+  ${C.dim("        --attach (open it even with no terminal detected — inside tmux, or from a script).")}
+  ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules (no ids: the picker)
   ${C.bold("seldon uninstall")} ids…  remove the named modules (global CLI / isolated venv)
   ${C.bold("seldon uninstall --all")} remove the whole stack (also drops ~/.seldon)
   ${C.bold("seldon doctor")} [ids…]   check external deps (tmux, sops, age, tailscale, python…)
@@ -974,9 +1237,29 @@ ${C.bold("seldon")} — install the Seldon stack, pick what you use.
 `);
 }
 
+// ---- argv -------------------------------------------------------------------
+// A flag either carries a value (`--agent claude`, `--agent=claude`) or stands alone
+// (`--no-attach`). The value form has to be CONSUMED: filtering out everything starting with
+// `--` and keeping the rest as positionals read `seldon go --agent claude` as the project
+// named "claude".
+const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir"]);
+function parseArgv(raw) {
+  const flags = {}, positional = [];
+  for (let i = 0; i < raw.length; i++) {
+    const a = raw[i];
+    if (!a.startsWith("--")) { positional.push(a); continue; }
+    const body = a.slice(2);
+    const eq = body.indexOf("=");
+    if (eq !== -1) { flags[body.slice(0, eq)] = body.slice(eq + 1); continue; }
+    if (VALUE_FLAGS.has(body) && raw[i + 1] && !raw[i + 1].startsWith("-")) { flags[body] = raw[++i]; continue; }
+    flags[body] = true;
+  }
+  return { flags, positional };
+}
+
 const argv = process.argv.slice(2);
-const dev = argv.includes("--dev");
-const args = argv.filter((a) => !a.startsWith("--"));
+const { flags, positional: args } = parseArgv(argv);
+const dev = !!flags.dev;
 const cmd = args[0];
 const tokens = args.slice(1);                          // raw names after the command
 const ids = tokens.filter((id) => byId[id]);           // only the valid module ids
@@ -999,11 +1282,29 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "down") return down();
   if (cmd === "status") return statusCmd();
   if (cmd === "adopt") return adopt(tokens[0]);
+  if (cmd === "go") return go(tokens[0], flags);
+  if (cmd === "panel" || cmd === "board") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
-  // interactive
-  if (!process.stdin.isTTY) { console.log(C.red("no TTY — use: seldon install <ids…>")); process.exitCode = 1; return; }
-  const picked = await tui();
-  if (!picked) { console.log(C.dim("nothing installed.")); return; }
-  if (!picked.length) { console.log(C.dim("nothing selected.")); return; }
-  await doInstall(picked, { dev });
+  if (cmd === "install") return install_picker({ dev });   // `install` with no ids
+
+  // ---- bare `seldon` ----------------------------------------------------------
+  // The checklist is a screen you need once per machine; the panel is the one you need every
+  // day. So the default is state-aware, like everything else here: nothing installed yet means
+  // you came to install, anything else means you came to work.
+  const cold = !MODULES.some((m) => moduleInstalled(m));
+  if (cold) return install_picker({ dev });
+  if (!process.stdin.isTTY) {
+    // No terminal to draw on (a script, a hook, an agent's shell) — answer the same question
+    // in text rather than erroring, which is what this used to do.
+    ensureSiblingPath();
+    const st = has("factory") ? loadState() : null;
+    if (!st || !st.hives.length) { console.log(C.dim("no projects on the line — ") + C.cyan('factory new "<your idea>"')); return; }
+    for (const h of st.hives) {
+      const who = h.agents?.length ? h.agents.join(",") : "no agent";
+      console.log(`  ${h.up ? "up  " : "down"}  ${h.name.padEnd(16)} ${who.padEnd(20)} queue ${h.queueOpen}  ${h.why || ""}`);
+    }
+    console.log(C.dim("\n  continue one: ") + C.cyan("seldon go <name>"));
+    return;
+  }
+  return panel();
 })();

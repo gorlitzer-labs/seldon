@@ -32,6 +32,10 @@ seldon
 
 A checklist opens. Press **a** (all), then **Enter**. That's the whole choice.
 
+> On a machine with nothing installed, `seldon` is this checklist. Once the stack is
+> in place, `seldon` is [the panel](#day-two--getting-back-to-work) — the screen you
+> actually use every day. `seldon install` always means the checklist.
+
 Every tool is installed with the same package manager you used for seldon, one
 copy each. If you pick **demerzel** (the voice), it asks before downloading its
 models (~25 GB). **n** is fine, and `seldon up` asks again later.
@@ -71,8 +75,67 @@ factory new "build me a CLI that shows the weather"
 Already have a project? Run this inside it. Nothing in it is overwritten:
 
 ```bash
-seldon adopt
+seldon go
 ```
+
+That puts the repo on the line, opens its room, **puts an agent in it** and gives you a
+seat. `seldon adopt` is the same thing without the agent or the seat — use it when you
+only want the docs and the hive.
+
+## Day two — getting back to work
+
+The stack is a set of long-lived things: rooms that stop when the machine reboots, agents
+that live in tmux, a supervisor daemon. Coming back the next morning, you do not need to
+remember which of those is missing.
+
+```bash
+cd ~/my-project && seldon go
+```
+
+```text
+  stranded  /Users/franco/Desktop/stranded
+  ✓ adopted            (foundation docs in place)
+  ✓ hive up            http://127.0.0.1:7920
+  ✓ supervisor running
+  → nobody is working here — staffing
+  ✓ Coordinator joined the stranded hive
+    queue 5 · 2 done · 2 lanes
+    next: (P1) automate the playtest checklist in the smoke harness…
+  → attaching to the stranded room
+```
+
+`✓` is a step it **skipped** because it was already true; `→` is one it **did**. Every
+step is idempotent, so running it twice is safe and running it on a cold boot does all
+of them. It never asks a question it can answer by looking.
+
+Without arguments, from anywhere, `seldon` shows every project at once:
+
+```text
+  SELDON   the agent factory — your projects
+  ○ voice   ● supervisor   ● docker
+
+  ❯ ● stranded         Coordinator            queue 5 · 2 done · 2 lanes
+        /Users/franco/Desktop/stranded
+    ● anatomy          no agent               queue 0 · 0 done · 0 lanes
+        needs you: hive is down
+
+  ↑↓ pick · ⏎ go (fix what's missing, then attach) · s staff · a attach · b board
+  U start stack · D stop stack · i install · r refresh · q quit
+```
+
+A **red** dot is a stopped room, **amber** needs you, **green** is working. "Needs you"
+includes the state that used to be invisible: *the room is open, there is work queued, and
+nobody is in there* — which is exactly what `factory adopt` leaves behind, since opening a
+room does not staff it.
+
+| to… | run |
+|---|---|
+| get back to work in a repo | `seldon go` (inside it) or `seldon go <name>` |
+| see every project | `seldon` |
+| continue, but don't start an agent | `seldon go --no-staff` |
+| continue, but stay out of the room | `seldon go --no-attach` |
+| put a Codex agent on it instead | `seldon go --agent codex` |
+| pick the model / effort | `seldon go --model <id> --effort high` |
 
 **Every other command you need:**
 
@@ -98,6 +161,8 @@ can get cut in two, and the second half runs as its own command.
 | you see | do this |
 |---|---|
 | `seldon: command not found` in a new or SSH shell | the package manager's bin folder isn't on PATH there. it's `$(npm prefix -g)/bin` for npm, `$PNPM_HOME` for pnpm. Add that folder to PATH in `~/.zshrc` |
+| `factory: command not found`, but `seldon` works | nothing to fix — `seldon go` and the panel prepend their own install folder, so the siblings resolve even in a non-interactive shell |
+| you joined a room and you are alone in it | opening a room never staffs it. `seldon go` does both; or `factory staff <project>` |
 | an old version answers, or two copies | `seldon install <tool>`. It leaves exactly one copy and says which one it removed |
 | `seldon uninstall` says *still installed under …* | that exact path is left; delete it, then run the uninstall again |
 | pnpm: *global bin directory … is not in PATH* | two pnpm versions on one machine. `seldon install` / `uninstall` handle it; avoid running `pnpm rm -g` by hand |
@@ -222,6 +287,7 @@ Adding one agent without the rest of the stack: [Put agents in a room](#put-agen
 
 ## Start here
 
+- **Coming back to a project?** → `seldon go` inside it, or `seldon` for all of them
 - **New to the stack?** → [ONBOARDING.md](ONBOARDING.md)
 - **See it, don't read it** → the [seldon-stack](apps/seldon-stack) teardown
 - **How one run flows through every part** → [docs/end-to-end.md](docs/end-to-end.md)

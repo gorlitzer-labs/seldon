@@ -2,7 +2,8 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { shOut, readSafe, count } from "./util.mjs";
+import { shOut, readSafe, count, openQueueItems } from "./util.mjs";
+import { agentsInProject } from "./tmux.mjs";
 
 const REG = join(homedir(), ".factory", "hives.json");
 
@@ -45,14 +46,17 @@ export async function hiveState(entry) {
   const doctor = shOut("foundation", ["doctor", "--dir", dir]);
   const drift = doctor.includes("no drift") ? 0 : parseInt(doctor.match(/(\d+) drift issue/)?.[1] || "0", 10);
   const lanes = lanesOf(dir);
+  const agents = agentsInProject(dir);
   const q = readSafe(join(dir, "docs", "QUEUE.md"));
+  const next = openQueueItems(dir).top;
   const s = {
     name, dir,
+    url: hive?.serverUrl || null,
     up: false,
     queueOpen: count(q, /^- \[ \] /gm),
     done: count(readSafe(join(dir, "docs", "DONE.md")), /^- \[x\] /gm),
     facts: count(readSafe(join(dir, "docs", "FACTS.md")), /^- `/gm),
-    lanes, drift,
+    lanes, drift, agents, next,
     blockers: lanes.filter((l) => l.blocker && l.blocker !== "-").length,
     digest: lastDigest(dir),
   };
@@ -67,4 +71,23 @@ function lastDigest(dir) {
   if (!existsSync(p)) return null;
   const lines = readSafe(p).trim().split("\n").filter((l) => l.startsWith("["));
   return lines.length ? lines[lines.length - 1] : null;
+}
+
+// ---- "does this need me?" — ONE definition ---------------------------------
+// board, `factory state` and seldon all asked this question separately, and drifted: a hive
+// could be rendered green by one and needsYou by another. They now all call these two.
+//
+// `idle` is the reason that was missing and the one that actually bit: the room is open, the
+// queue has work, and nobody is in there. `factory adopt` opens a room without staffing it,
+// so this was the normal state after every restart — and nothing said so.
+export const isIdle = (s) => s.up && s.queueOpen > 0 && (s.agents?.length ?? 0) === 0;
+export const needsYou = (s) => !s.up || s.drift > 0 || s.blockers > 0 || isIdle(s);
+
+export function attentionReasons(s) {
+  const r = [];
+  if (!s.up) r.push("hive is down");
+  if (isIdle(s)) r.push(`${s.queueOpen} queued, nobody working`);
+  if (s.drift > 0) r.push(`${s.drift} doc\u2194reality drift`);
+  if (s.blockers > 0) r.push(`${s.blockers} blocked lane(s)`);
+  return r.join(", ");
 }

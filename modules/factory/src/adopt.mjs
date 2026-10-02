@@ -8,20 +8,15 @@ import { join, resolve, basename } from "node:path";
 import { createServer } from "node:net";
 import { c, say, step, ok, warn } from "./lib/log.mjs";
 import { readRegistry, addToRegistry, pruneRegistry } from "./lib/hive.mjs";
+import { openQueueItems } from "./lib/util.mjs";
+
+export { openQueueItems };
 import { openHive } from "./new.mjs";
 
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: "utf8", ...opts });
 const has = (cmd) => { try { sh("sh", ["-c", `command -v ${cmd}`]); return true; } catch { return false; } };
 
 export const slugName = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project";
-
-// The open items at the top of docs/QUEUE.md — what "what's next" means for this repo.
-export function openQueueItems(dir, limit = 3) {
-  let q = "";
-  try { q = readFileSync(join(dir, "docs", "QUEUE.md"), "utf8"); } catch { return { total: 0, top: [] }; }
-  const items = q.split("\n").filter((l) => /^- \[ \] /.test(l)).map((l) => l.replace(/^- \[ \] /, "").trim());
-  return { total: items.length, top: items.slice(0, limit) };
-}
 
 // .factory.json carries the hive's admin token. Keep it out of git without touching the
 // repo's own .gitignore: .git/info/exclude is local to this clone.
