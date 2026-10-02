@@ -84,8 +84,11 @@ function sopsEnv(home) {
   return { ...process.env, SOPS_AGE_KEY_FILE: keyPath(home) };
 }
 
-/** The whole store, decrypted in memory. Never written anywhere. */
-export function readAll(home = combHome()) {
+/**
+ * The whole store as it is on disk, decrypted in memory, deletion markers
+ * included. Only `comb sync` needs those; everything else wants readAll.
+ */
+export function readRaw(home = combHome()) {
   if (!initialised(home)) throw new Error("no store yet — run `comb init`");
   const r = spawnSync("sops", ["--decrypt", "--output-type", "json", storePath(home)], {
     encoding: "utf-8",
@@ -93,6 +96,11 @@ export function readAll(home = combHome()) {
   });
   if (r.status !== 0) throw new Error(`could not decrypt the store: ${r.stderr?.trim()}`);
   return JSON.parse(r.stdout || "{}");
+}
+
+/** The live secrets, decrypted in memory. Never written anywhere. */
+export function readAll(home = combHome()) {
+  return Object.fromEntries(Object.entries(readRaw(home)).filter(([, e]) => !e?.deleted));
 }
 
 /**
@@ -120,10 +128,21 @@ export function writeSecret(name, value, meta = {}, home = combHome()) {
   if (r.status !== 0) throw new Error(`could not write ${name}: ${r.stderr?.trim()}`);
 }
 
+/**
+ * Forget one: the value is erased, and a marker — the name and when — stays.
+ *
+ * Unsetting the key outright used to be enough. With more than one machine it
+ * is not: the next `comb sync` would find the secret on the other side, take it
+ * for one this side had never seen, and copy it straight back. The marker is
+ * what lets a deletion travel. It holds no value, and readAll never shows it.
+ */
 export function deleteSecret(name, home = combHome()) {
-  const r = spawnSync("sops", ["unset", storePath(home), `["${name}"]`], {
+  if (!(name in readAll(home))) throw new Error(`no secret called ${name}`);
+  requireValueStdin();
+  const r = spawnSync("sops", ["set", "--value-stdin", storePath(home), `["${name}"]`], {
     encoding: "utf-8",
     env: sopsEnv(home),
+    input: JSON.stringify({ deleted: true, updated: new Date().toISOString() }),
   });
   if (r.status !== 0) throw new Error(`could not remove ${name}: ${r.stderr?.trim()}`);
 }
