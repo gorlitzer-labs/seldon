@@ -5,11 +5,14 @@
 // what the supervisor's respawn does, and what every "put an agent on it" hint skipped —
 // so the documented next step started an agent that never joined its hive.
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { c, say, ok, warn } from "./lib/log.mjs";
 import { readRegistry } from "./lib/hive.mjs";
+import { agentRunning, agentsInProject } from "./lib/tmux.mjs";
+
+export { agentRunning, agentsInProject };
 
 const HARNESSES = new Set(["claude", "codex"]);
 // apiary joins these into a shell command in the agent's tmux pane, so they are checked
@@ -32,28 +35,6 @@ export function modelArgs(harness, { model, effort } = {}) {
 }
 const invitePath = (name) => join(homedir(), ".apiary", "invites", name);
 
-// apiary keys agents by name, machine-wide (tmux session apiary_<name>).
-export function agentRunning(name) {
-  try { execFileSync("tmux", ["has-session", "-t", `apiary_${name}`], { stdio: "ignore" }); return true; } catch { return false; }
-}
-
-// Running apiary agents whose pane is in `dir` — this project's agents, whatever their name.
-// Names are machine-wide, so "is Coordinator running?" says nothing about WHICH project it
-// serves: checking only the name started a second coordinator on a project that had one.
-export function agentsInProject(dir) {
-  let sessions = [];
-  try { sessions = execFileSync("tmux", ["ls", "-F", "#{session_name}"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split("\n").filter((s) => s.startsWith("apiary_")); } catch { return []; }
-  const want = realpathOr(dir);
-  return sessions.filter((s) => {
-    try {
-      const cwd = execFileSync("tmux", ["display", "-p", "-t", s, "#{pane_current_path}"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-      return realpathOr(cwd) === want;
-    } catch { return false; }
-  }).map((s) => s.slice("apiary_".length));
-}
-const realpathOr = (p) => { try { return realpathSync(p); } catch { return p; } };
-
-// "Coordinator" if free, else "<project>-coordinator" — two projects must not share one agent.
 export function pickAgentName(project, wanted, running = agentRunning) {
   if (wanted) return wanted;
   if (!running("Coordinator")) return "Coordinator";

@@ -9,15 +9,21 @@
  ╚══════╝╚══════╝╚══════╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝
 ```
 
-**The installer for the Seldon stack** — a software factory of AI agents.
-Pick the tools you want from a checklist; each installs via its native method
-(npm for the Node tools, a shell installer for bifrost, a venv for demerzel).
+**The front door to the Seldon stack** — a software factory of AI agents.
+
+Two jobs, and `seldon` picks between them by looking at the machine:
+
+- **nothing installed yet** → the install checklist. Each tool installs via its native
+  method (npm for the Node tools, a shell installer for bifrost, a venv for demerzel).
+- **stack in place** → **the panel**: every project on the line, what state it is in, and
+  the key that fixes it.
 
 ## Install
 
 ```bash
 pnpm add -g @gorlitzer-labs/seldon     # or: bun add -g …  ·  npm i -g …
-seldon                 # open the checklist — ↑↓ move · space pick · a all · enter install
+seldon                 # a fresh machine: the checklist — ↑↓ move · space pick · a all · enter
+seldon install         # the checklist, always, whatever is installed
 ```
 
 Or name the modules directly:
@@ -27,6 +33,67 @@ seldon install foundation comb   # install just these
 seldon doctor                    # check external deps (tmux, sops, age, tailscale, python)
 seldon list                      # everything available
 ```
+
+## Get back to work — `seldon go`
+
+The one verb. Run it inside a repo and it fills in whatever is missing, in order, then hands
+you a seat in the room:
+
+```bash
+seldon go                     # this repo
+seldon go stranded            # by project name, from anywhere
+seldon go --agent codex       # a Codex agent rather than Claude
+seldon go --no-staff          # open the room, start nobody
+seldon go --no-attach         # do everything, leave the terminal alone
+seldon go --attach            # attach even with no terminal detected (inside tmux, a script)
+```
+
+```text
+  stranded  /Users/franco/Desktop/stranded
+  ✓ adopted            (foundation docs in place)
+  ✓ hive up            http://127.0.0.1:7920
+  ✓ supervisor running
+  → nobody is working here — staffing
+    queue 5 · 2 done · 2 lanes
+    next: (P1) automate the playtest checklist in the smoke harness…
+  → attaching to the stranded room
+```
+
+`✓` is a step it skipped because it was already true, `→` one it did. The five steps are:
+**adopted?** → **room up?** → **supervisor?** → **anyone working?** → **attach**. Each is
+idempotent, so `go` is safe on a cold boot, twice in a row, or mid-session.
+
+It owns no state of its own: it asks `factory state` what is missing and delegates every
+action to `factory adopt`, `factory staff` and `apiary room resume`. The reason it exists is
+that those four commands live in three tools and **none of them answered the whole question**
+— so an adopted repo whose room had stopped looked exactly like a broken install.
+
+Two things it fixes that bit repeatedly:
+
+- **Opening a room does not staff it.** `factory adopt` leaves an *empty* room, so you joined
+  and sat there alone. `go` staffs before it attaches, and the panel flags "work queued,
+  nobody working" as needing you.
+- **Siblings resolve.** `go` and the panel prepend seldon's own install folder to `PATH`, so
+  `factory: command not found` stops happening in non-interactive shells.
+
+## The panel — `seldon`
+
+```text
+  SELDON   the agent factory — your projects
+  ○ voice   ● supervisor   ● docker
+
+  ❯ ● stranded         Coordinator            queue 5 · 2 done · 2 lanes
+        /Users/franco/Desktop/stranded
+    ● anatomy          no agent               queue 0 · 0 done · 0 lanes
+        needs you: hive is down
+
+  ↑↓ pick · ⏎ go (fix what's missing, then attach) · s staff · a attach · b board
+  U start stack · D stop stack · i install · r refresh · q quit
+```
+
+Red dot = stopped room, amber = needs you, green = working. `⏎` runs `go` on the selected
+project. Without a terminal (a script, a hook, an agent's shell) the same question is
+answered as plain text instead of erroring.
 
 ## Start the stack
 

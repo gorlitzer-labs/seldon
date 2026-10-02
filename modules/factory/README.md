@@ -49,7 +49,7 @@ factory adopt [dir]           put an EXISTING repo on the line (keeps your docs;
 factory staff <project>       put a coordinator (or --agent codex) in the hive — it actually joins
 factory watch <project>       supervise one hive (24/7)   ·   watch --all  supervise every hive
 factory board                 live control panel + decisions pending your call
-factory state                 everything board shows, as JSON (read-only)
+factory state                 everything board shows, as JSON (read-only) — incl. who is working
 factory box <dir>             run an agent with permissions skipped, inside a box
 factory realms                the machines factory can reach (read from bifrost)
 factory decide <id> "<call>"  answer a pending decision (reaches the agents)
@@ -96,6 +96,31 @@ registry entries whose folder is gone, so the supervisor stops watching deleted 
 `.factory.json` (which holds the hive token) is added to `.git/info/exclude`, not your
 `.gitignore`. Flags: `--name <n>` (default: folder name) · `--port <p>` (default: first free
 from 7920).
+
+> **`adopt` opens an EMPTY room.** It does not staff it — `factory staff` does. Joining right
+> after an adopt means sitting in a room alone, which read as a broken install often enough
+> that `seldon go` now does adopt → reopen → staff → attach as one verb, and the board flags
+> *"work queued, nobody working"* as needing you. If you only want the docs and the hive,
+> `adopt` on its own is still the right command.
+
+### What `state` reports per hive
+
+`factory state --compact` is the machine-readable twin of `board`, and the only interface
+other tools should read — `seldon`'s panel is a renderer over it, not a second parser of the
+Foundation seam.
+
+| field | meaning |
+|---|---|
+| `up` | the room answers on `url` |
+| `agents` | the agents whose tmux pane is in this repo — **who is actually working** |
+| `queueOpen` / `done` / `facts` | counted from `docs/QUEUE.md`, `DONE.md`, `FACTS.md` |
+| `next` | the top unclaimed queue items |
+| `lanes` / `blockers` | from the `WORKSTREAMS.md` table |
+| `drift` | `foundation doctor` — docs disagreeing with reality |
+| `needsYou` / `why` | the one attention rule, and the reason in words |
+
+`agents` is asked of tmux by pane cwd, never by agent name: apiary names agents
+machine-wide, so a name alone never says which project one serves.
 
 ## `factory watch` — the 24/7 supervisor (Phase 2)
 

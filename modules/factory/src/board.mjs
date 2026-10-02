@@ -2,7 +2,7 @@
 // read straight from the Foundation seam (no room join). See what needs you at a glance; steer with
 // the CLI. Read-only.
 import { c, say } from "./lib/log.mjs";
-import { readRegistry, hiveState } from "./lib/hive.mjs";
+import { readRegistry, hiveState, needsYou as needs, attentionReasons } from "./lib/hive.mjs";
 import { pending } from "./lib/decisions.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -29,6 +29,7 @@ export async function factoryBoard(flags) {
       if (!s.up) flags2.push(c.red("DOWN"));
       if (s.drift > 0) flags2.push(c.yellow(`drift ${s.drift}`));
       if (s.blockers > 0) flags2.push(c.red(`${s.blockers} blocker`));
+      flags2.push(s.agents.length ? c.green(s.agents.join(", ")) : c.dim("no agent"));
       out.push(`${dot} ${c.bold(s.name.padEnd(22))} ${meter("queue", s.queueOpen)}  ${meter("lanes", s.lanes.length)}  ${meter("done", s.done, c.green)}  ${meter("facts", s.facts)}  ${flags2.join(" ")}`);
       if (s.lanes.length) out.push("   " + s.lanes.map(laneChip).join("  "));
       if (needs(s)) out.push("   " + c.yellow("→ needs you: ") + attentionReasons(s));
@@ -59,14 +60,6 @@ export function factoryLs() {
   for (const e of reg) say(`  ${c.bold(e.name.padEnd(20))} ${c.dim(e.hive?.serverUrl || "-")}  ${c.dim(e.dir)}`);
 }
 
-const needs = (s) => !s.up || s.drift > 0 || s.blockers > 0;
-function attentionReasons(s) {
-  const r = [];
-  if (!s.up) r.push("hive is down");
-  if (s.drift > 0) r.push(`${s.drift} doc↔reality drift`);
-  if (s.blockers > 0) r.push(`${s.blockers} blocked lane(s)`);
-  return r.join(", ");
-}
 function laneChip(l) {
   const col = l.status === "blocked" ? c.red : l.status === "done" ? c.green : l.status === "review" ? c.yellow : c.cyan;
   return `${col("▸")} ${l.stream}${c.dim(":")}${col(l.status)}${l.owner && l.owner !== "-" ? c.dim(`(${l.owner})`) : ""}`;

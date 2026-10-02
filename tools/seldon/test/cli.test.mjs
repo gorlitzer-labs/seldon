@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync, symlinkSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -63,10 +63,20 @@ test("an unknown command prints help and exits 1", () => {
   assert.match(out, /seldon/i);
 });
 
-test("no args without a TTY errors instead of hanging on the picker", () => {
+test("no args without a TTY never hangs on a picker it cannot draw", () => {
+  // Bare `seldon` is the panel now, and a panel needs a terminal. Without one it must answer
+  // the same question in text (covered in go.test.mjs) or say why it cannot — never block on
+  // keypresses that will never arrive.
   const { code, out } = run([]);          // stdin is ignored (not a TTY)
+  assert.notEqual(out.trim(), "", "printed nothing at all");
+  assert.match(out, /no TTY|install|seldon go|no projects|queue/i);
+  assert.ok(code === 0 || code === 1, `unexpected exit ${code}`);
+});
+
+test("`install` with no ids and no TTY refuses instead of hanging — the picker needs a terminal", () => {
+  const { code, out } = run(["install"]);
   assert.equal(code, 1);
-  assert.match(out, /no TTY|install/i);
+  assert.match(out, /no TTY/i);
 });
 
 test("status reports the remembered brain from a sandboxed SELDON_HOME (read-only)", () => {
@@ -315,8 +325,12 @@ test("modules install with the package manager seldon itself lives under — pnp
     const store = path.join(a.root, "..", ".pnpm", "seldon@x", "node_modules", "@gorlitzer-labs", "seldon");
     mkdirSync(path.join(store, "bin"), { recursive: true });
     const src = path.dirname(path.dirname(BIN));
-    for (const f of ["package.json", "modules.mjs"]) writeFileSync(path.join(store, f), readFileSync(path.join(src, f)));
-    writeFileSync(path.join(store, "bin", "seldon.js"), readFileSync(BIN));
+    // Stage whatever package.json SHIPS, not a hand-written list: the list drifted the moment
+    // bin/seldon.js grew an import from lib/, and a hand-copied layout cannot notice that the
+    // published package is missing a file the entrypoint needs.
+    const shipped = JSON.parse(readFileSync(path.join(src, "package.json"), "utf8")).files;
+    writeFileSync(path.join(store, "package.json"), readFileSync(path.join(src, "package.json")));
+    for (const f of shipped) cpSync(path.join(src, f), path.join(store, f), { recursive: true });
     mkdirSync(path.join(a.root, "@gorlitzer-labs"), { recursive: true });
     symlinkSync(store, path.join(a.root, "@gorlitzer-labs", "seldon"));
     const out = strip((() => {
