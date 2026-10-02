@@ -18,7 +18,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const ORDER = ["modules/apiary", "modules/foundation", "modules/comb", "modules/factory", "tools/seldon"];
 const dry = process.argv.includes("--dry-run");
 
-try { execSync("npm whoami", { stdio: "pipe" }); }
+// Every npm call runs from ROOT, because the auth token lives in ROOT/.npmrc
+// (`//registry.npmjs.org/:_authToken=${NPM_TOKEN}`) and npm only reads an .npmrc from its cwd
+// upward. The publish calls below always passed `cwd: ROOT`; this preflight did not, so running
+// the script from anywhere but the repo reported "Not authed to npm" while the publish it was
+// gating would have worked fine. ROOT is derived from this file, so the script is otherwise
+// cwd-independent — the one check that wasn't is what made it look broken.
+try { execSync("npm whoami", { cwd: ROOT, stdio: "pipe" }); }
 catch {
   console.error("Not authed to npm. Provide the token, e.g.:");
   console.error("  comb run --with NPM_TOKEN -- node tools/seldon/scripts/publish-all.mjs");
@@ -26,7 +32,7 @@ catch {
 }
 
 const isPublished = (name, version) => {
-  try { execSync(`npm view ${name}@${version} version`, { stdio: "pipe" }); return true; }
+  try { execSync(`npm view ${name}@${version} version`, { cwd: ROOT, stdio: "pipe" }); return true; }
   catch { return false; }
 };
 

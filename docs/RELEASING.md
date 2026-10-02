@@ -29,8 +29,11 @@ so the token is only ever injected at publish time — never written to disk.
 3. **Publish** — idempotent, so it only ships versions not yet on npm:
 
    ```bash
-   comb run --with NPM_TOKEN -- node tools/seldon/scripts/publish-all.mjs
+   cd <repo> && comb run --with NPM_TOKEN -- node tools/seldon/scripts/publish-all.mjs
    ```
+
+   Runnable from any directory — the script derives the repo from its own path and runs every
+   npm call from the root, where `.npmrc` holds the token.
 
    Add `--dry-run` to rehearse. Packages whose current version is already on
    npm are skipped, so it's always safe to run.
