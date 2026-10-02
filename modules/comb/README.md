@@ -194,6 +194,10 @@ and writes nothing if the two stores are encrypted to different recipients, so
 syncing never adds or revokes a realm. Each sync keeps the timestamps it agreed
 on in `~/.comb/sync/<host>.json`: names and times, never values.
 
+**Upgrade every realm to comb 0.1.6 before relying on it.** An older comb does
+not know the deletion marker: it would list a removed secret as though it were
+still there, with no value.
+
 Why not a private git repo: sops encrypts values, not names, so the repo would
 show which services you use and when you rotated each one, and git keeps every
 old copy of the ciphertext forever. Syncing directly between your own machines
