@@ -17,6 +17,27 @@ export async function doctor(root) {
   for (const w of ws.warnings) f.drift(`WORKSTREAMS.md:${w.line + 1} ${w.why}`);
   const q = seam.parseQueue(docs(root, "QUEUE.md"));
   for (const w of q.warnings) f.note(`QUEUE.md:${w.line + 1} ${w.why}`);
+
+  // 1b. QUEUE provenance. This file is an instruction channel: `/plan-phase` dispatches from
+  // it and a coordinator will put a worker on what it finds. So an item with no recorded
+  // author is DRIFT, not a note — it is work the pipeline would treat as authorized and that
+  // nobody can account for. `foundation queue --stamp` marks the pre-provenance ones
+  // "unverified" so this stays rare and keeps meaning something.
+  for (const it of q.items) {
+    if (it.done) continue;
+    if (!it.provLine) {
+      f.drift(`QUEUE.md:${it.line + 1} no provenance on "${it.text.slice(0, 60)}" - appended outside \`foundation queue\`. Who added it? (\`foundation queue --stamp\` records them as unverified)`);
+      continue;
+    }
+    if (!seam.isIsoStamp(it.added)) {
+      f.drift(`QUEUE.md:${it.provLine + 1} added stamp not ISO minute-Z: "${it.added}"`);
+      continue;
+    }
+    // Staleness is a NOTE: a long-lived P3 is normal here, and making every one of them look
+    // urgent is how an attention signal gets ignored.
+    const age = seam.daysSince(it.added);
+    if (age > seam.QUEUE_STALE_DAYS) f.note(`QUEUE.md: "${it.text.slice(0, 50)}" open ${age}d (>${seam.QUEUE_STALE_DAYS}) - claim it or drop it`);
+  }
   const d = seam.parseDone(docs(root, "DONE.md"));
   for (const w of d.warnings) f.drift(`DONE.md:${w.line + 1} ${w.why}`);
 

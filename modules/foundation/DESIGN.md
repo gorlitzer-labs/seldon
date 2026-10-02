@@ -243,7 +243,7 @@ visible, and validated at write time:
   — arity-checked, ASCII `/` not a middot.
 - **FACTS.md** (`## Facts`): `` - `<kebab-id>`: <claim> `` then indented
   `  verified: <ISO>  by: <who>  method: <how>`  — `label: value` anchors, no em-dash/middot.
-- Every file may carry an optional `<!-- foundation:schema queue.v1 -->` header (detection also works
+- Every file may carry an optional `<!-- foundation:schema queue.v2 -->` header (detection also works
   structurally). Records get **content-hash ids**, never written into the markdown.
 
 **Guarantees the scripts enforce (better than coord's advisory-only):** write-time validation that

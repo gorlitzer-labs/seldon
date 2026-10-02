@@ -39,6 +39,18 @@ export function findSection(lines, heading) {
 
 // ── QUEUE ──────────────────────────────────────────────────────────────────────
 // `- [ ] (P1) text`  under `## Queue`.  `### Sub` headings tag the item's section.
+// An item may carry a provenance continuation line, in the same shape FACTS uses:
+//     - [ ] (P1) do the thing
+//         added: 2026-10-02T10:05Z  by: franco
+// It lives on its own line so the item's text — and therefore its hash id — stays clean.
+// `added`/`by` are null for an item that has none, and that difference is the whole point:
+// an item nobody can account for is the one thing this seam could not previously express.
+export const QUEUE_PROV_RE = /^\s+added:\s*(\S+)\s+by:\s*(.+?)\s*$/;
+export const queueProvLine = (added, by) => `    added: ${added}  by: ${by}`;
+// What `queue --stamp` writes for an item that predates provenance: we do not know who added
+// it, and saying "unverified" out loud is the honest record. Never write a guess here.
+export const PROV_UNVERIFIED = "unverified";
+
 export function parseQueue(text) {
   const lines = (text ?? "").split("\n");
   const sec = findSection(lines, "Queue");
@@ -51,7 +63,14 @@ export function parseQueue(text) {
     const sub = raw.match(/^###\s+(.+?)\s*$/);
     if (sub) { section = sub[1]; continue; }
     const m = raw.match(/^- \[( |x)\] \((P[123])\) (.+)$/);
-    if (m) { items.push({ done: m[1] === "x", priority: m[2], text: m[3], section, line: i, raw, id: hashId("q", m[3]) }); continue; }
+    if (m) {
+      const item = { done: m[1] === "x", priority: m[2], text: m[3], section, line: i, raw, id: hashId("q", m[3]), added: null, by: null, provLine: null };
+      const prov = (lines[i + 1] || "").match(QUEUE_PROV_RE);
+      if (prov) { item.added = prov[1]; item.by = prov[2]; item.provLine = i + 1; }
+      items.push(item);
+      continue;
+    }
+    if (QUEUE_PROV_RE.test(raw)) continue;            // consumed by the item above
     if (raw.trim() && !raw.trim().startsWith("<!--")) warnings.push({ line: i, raw, why: "not a queue item" });
   }
   return { items, warnings };
@@ -121,6 +140,9 @@ export function upsertStreamRow(text, row) {
 // - `kebab-id`: claim
 //     verified: <ISO>  by: <who>  method: <how>
 export const FACT_STALE_DAYS = 14;
+// An unclaimed queue item older than this is reported — not as drift, which would make every
+// long-lived P3 look like an emergency and teach you to ignore the signal, but as a note.
+export const QUEUE_STALE_DAYS = 7;
 export function parseFacts(text) {
   const lines = (text ?? "").split("\n");
   const sec = findSection(lines, "Facts");
