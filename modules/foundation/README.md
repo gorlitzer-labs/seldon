@@ -25,6 +25,7 @@ foundation init                       # install the seam + doc scaffold + skills
 | File | Holds | Writer | Grammar (all ASCII) |
 |------|-------|--------|---------------------|
 | `docs/QUEUE.md` | inbound work | `/plan-phase` / human | `- [ ] (P1) <text>` |
+| `docs/QUEUE.md` | inbound work, not yet claimed | `/plan-phase` or a human | `- [ ] (P1) <text>` + `    added: <ISO>  by: <who>` |
 | `docs/WORKSTREAMS.md` | live lane state | each lane owner | 6-col pipe table |
 | `docs/DONE.md` | completion log (append-only) | the executor | `- [x] <task> [owner/repo#N] [YYYY-MM-DD]` |
 | `docs/FACTS.md` | verified world-state | whoever verified | `` - `id`: claim `` + `verified: <ISO> by: <who> method: <how>` |
@@ -33,7 +34,8 @@ foundation init                       # install the seam + doc scaffold + skills
 
 ```
 foundation init [dir]                    install the seam + docs
-foundation queue "(P1) <text>"           append an inbound item
+foundation queue "(P1) <text>"           append an inbound item (stamped: who + when)
+foundation queue --stamp                 backfill provenance on pre-existing items, as "unverified"
 foundation task <phase> <token> --done   flip one checkbox; recompute progress
 foundation stream <id> <status> [note]   upsert your lane's row
 foundation done "<task>" <ref> [date]    append a PR-cited completion line
@@ -43,6 +45,34 @@ foundation status                        computed phase progress + next item
 foundation versions [--all]              polyglot dep freshness (exit≠0 on major drift)
 foundation doctor                        flag doc↔reality drift + ADR reversals (CI, exit≠0)
 ```
+
+## Queue provenance — why `doctor` fails on an unattributed item
+
+`docs/QUEUE.md` is an **instruction channel**, not a notepad. `/plan-phase` dispatches from it
+and a coordinator will put a worker on whatever it finds. So every append records its author:
+
+```
+- [ ] (P1) sail to reefstack and dive the wreck
+    added: 2026-10-02T10:10Z  by: claude-opus-5
+```
+
+The tool writes that line; you never do. Set `FOUNDATION_AGENT` so an agent is recorded under
+its own name rather than the logged-in human's.
+
+An item with **no** `added:`/`by:` line is reported by `foundation doctor` as **drift**, with a
+non-zero exit — it is work the pipeline would treat as authorized and that nobody can account
+for. Staleness (an item open longer than `QUEUE_STALE_DAYS`, 7) is only a *note*, because a
+long-lived P3 is normal and an attention signal you see every day stops being one.
+
+Migrating a repo that predates this: `foundation queue --stamp` marks existing items
+`by: unverified`. That records that the author is **unknown** — it never invents one, and never
+touches an item that already has a stamp.
+
+> This exists because of a real incident. On 2026-09-28 a queue item appeared in a repo that no
+> agent transcript, shell history, editor store or commit could account for. A coordinator
+> noticed and escalated — as prose, into a room nobody was reading — and it sat for four days.
+> `factory watch` now *files* an unaccounted item as a pending decision, so it reaches the human
+> instead of scrolling past.
 
 ## Skills (the thin layer)
 

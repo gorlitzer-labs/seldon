@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,5 +83,70 @@ test("doctor runs on a fresh repo", () => {
   try {
     const r = run(["doctor"], dir);
     assert.ok(r.out.length > 0, "doctor produces output");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── queue provenance ─────────────────────────────────────────────────────────
+// QUEUE.md is an instruction channel: /plan-phase dispatches from it and a coordinator puts a
+// worker on what it finds. On 2026-09-28 a line appeared in the seldon repo's queue that no
+// transcript, shell history or editor store could account for, and nothing reported it for
+// four days. These pin the check that makes that visible.
+
+test("queue records who appended an item and when", () => {
+  const dir = fresh();
+  try {
+    const { code, out } = run(["queue", "(P1) do the thing"], dir);
+    assert.equal(code, 0, out);
+    const q = readFileSync(join(dir, "docs", "QUEUE.md"), "utf8");
+    assert.match(q, /^- \[ \] \(P1\) do the thing$/m);
+    assert.match(q, /^ {4}added: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z {2}by: \S+$/m);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("FOUNDATION_AGENT names the author, so an agent is not recorded as the human", () => {
+  const dir = fresh();
+  try {
+    execFileSync("node", [CLI, "queue", "(P2) agent work", "--dir", dir], {
+      encoding: "utf8", env: { ...process.env, FOUNDATION_AGENT: "seldon-coordinator" },
+    });
+    assert.match(readFileSync(join(dir, "docs", "QUEUE.md"), "utf8"), /by: seldon-coordinator$/m);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("an item appended by hand has no provenance, and doctor calls it DRIFT with exit 1", () => {
+  const dir = fresh();
+  try {
+    const p = join(dir, "docs", "QUEUE.md");
+    writeFileSync(p, readFileSync(p, "utf8").replace(/## Queue\n/, "## Queue\n- [ ] (P3) who wrote me\n"));
+    const { code, out } = run(["doctor"], dir);
+    // the exact wording factory's supervisor matches on — see UNACCOUNTED_RE in watch.mjs
+    assert.match(out, /QUEUE\.md:\d+ no provenance on "who wrote me"/);
+    assert.match(out, /drift issue/);
+    assert.equal(code, 1, "an unaccounted instruction must fail CI");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("queue --stamp backfills pre-existing items as unverified, never inventing an author", () => {
+  const dir = fresh();
+  try {
+    const p = join(dir, "docs", "QUEUE.md");
+    writeFileSync(p, readFileSync(p, "utf8").replace(/## Queue\n/, "## Queue\n- [ ] (P3) legacy item\n"));
+    const { code, out } = run(["queue", "--stamp"], dir);
+    assert.equal(code, 0, out);
+    assert.match(readFileSync(p, "utf8"), /by: unverified$/m);
+    assert.doesNotMatch(readFileSync(p, "utf8"), new RegExp(`by: ${process.env.USER}`), "must not claim the human added it");
+    assert.equal(run(["doctor"], dir).code, 0, "a stamped item is accounted for");
+    // idempotent, and it never overwrites a real author
+    assert.match(run(["queue", "--stamp"], dir).out, /already carries provenance/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a stamped item still parses: status reports it, and the text excludes the stamp", () => {
+  const dir = fresh();
+  try {
+    run(["queue", "(P1) sail to reefstack"], dir);
+    const { out } = run(["status"], dir);
+    assert.match(out, /\(P1\) sail to reefstack/);
+    assert.doesNotMatch(out, /added:/, "the stamp must not leak into the item text");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

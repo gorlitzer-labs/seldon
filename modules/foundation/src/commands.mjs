@@ -42,9 +42,36 @@ export async function queue(root, pos, _flags) {
   if (!sec.found) throw new Error("QUEUE.md has no `## Queue` section — run `foundation init`");
   let insert = sec.bodyStart;
   for (let i = sec.bodyStart; i < sec.end; i++) if (lines[i].trim()) insert = i + 1;
-  lines.splice(insert, 0, `- [ ] (${prio}) ${txt}`);
+  // Every append records WHO and WHEN. QUEUE.md is an instruction channel — `/plan-phase`
+  // dispatches from it and a coordinator will put a worker on what it finds — so an item
+  // nobody can account for is an integrity problem, not an untidy note. On 2026-09-28 a line
+  // appeared in this very file that no transcript, shell history or editor store could
+  // explain; it was four days before anyone asked. An unstamped item is now visible as such.
+  const who = whoami();
+  lines.splice(insert, 0, `- [ ] (${prio}) ${txt}`, seam.queueProvLine(utcStamp(new Date()), who));
   writeAtomic(p, lines.join("\n"));
-  ok(`queued (${prio}) ${txt}`);
+  ok(`queued (${prio}) ${txt}  ${c.dim("by " + who)}`);
+}
+
+// ── queue --stamp: backfill provenance for items that predate it ──────────────
+// Marks them `by: unverified`, which is the truth: we do not know. It never invents an author,
+// and it never touches an item that already has a stamp. One run per repo, then any unstamped
+// item is new and unaccounted for.
+export async function stampQueue(root) {
+  const p = docs(root, "QUEUE.md");
+  const text = read(p);
+  if (!text) throw new Error("QUEUE.md missing — run `foundation init`");
+  const { items } = seam.parseQueue(text);
+  const bare = items.filter((i) => !i.provLine);
+  if (!bare.length) { ok("every queue item already carries provenance"); return; }
+  const lines = text.split("\n");
+  // insert from the bottom up so earlier line numbers stay valid
+  for (const it of [...bare].sort((a, b) => b.line - a.line)) {
+    lines.splice(it.line + 1, 0, seam.queueProvLine(utcStamp(new Date()), seam.PROV_UNVERIFIED));
+  }
+  writeAtomic(p, lines.join("\n"));
+  ok(`stamped ${bare.length} pre-existing item(s) as ${seam.PROV_UNVERIFIED}`);
+  info("that records that the author is UNKNOWN - it does not vouch for them");
 }
 
 // ── stream: upsert one WORKSTREAMS row (your lane) ─────────────────────────────

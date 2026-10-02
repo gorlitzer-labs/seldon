@@ -37,7 +37,8 @@ function help() {
     "",
     c.bold("State (deterministic, concurrency-safe)"),
     `  ${c.cyan("task")} <phase> <token> --done  Flip one checkbox; recompute phase progress`,
-    `  ${c.cyan("queue")} "(P1) <text>"          Append an inbound item to QUEUE.md`,
+    `  ${c.cyan("queue")} "(P1) <text>"          Append an inbound item to QUEUE.md (stamped: who + when)`,
+    `  ${c.cyan("queue")} --stamp                Backfill provenance on items that predate it, as "unverified"`,
     `  ${c.cyan("stream")} <id> <status> [note]  Upsert one WORKSTREAMS row (your lane)`,
     `  ${c.cyan("done")} "<task>" <ref> [date]   Append a PR-cited line to DONE.md`,
     `  ${c.cyan("fact")} <id> "<claim>" [--verify <cmd>] [--by <who>]`,
@@ -60,7 +61,7 @@ try {
   switch (cmd) {
     case "init": await init(pos[0] || dir); break;
     case "task": await ops.task(dir, pos, flags); break;
-    case "queue": await ops.queue(dir, pos, flags); break;
+    case "queue": await (flags.stamp ? ops.stampQueue(dir) : ops.queue(dir, pos, flags)); break;
     case "stream": await ops.stream(dir, pos, flags); break;
     case "done": await ops.done(dir, pos, flags); break;
     case "fact": await ops.fact(dir, pos, flags); break;

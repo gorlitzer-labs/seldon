@@ -122,6 +122,20 @@ Foundation seam.
 `agents` is asked of tmux by pane cwd, never by agent name: apiary names agents
 machine-wide, so a name alone never says which project one serves.
 
+### Decisions the supervisor files on its own
+
+Agents escalate with a `DECISION:` or `BLOCKER:` message, which relies on an agent choosing the
+right prefix. The supervisor also files one **from state**, where no wording can be forgotten:
+
+| condition | filed as |
+|---|---|
+| `foundation doctor` reports a queue item with no recorded author | a pending decision, `from: foundation doctor` |
+
+Answer it with `factory decide <id> "<your call>"`; it is deduped, so it is filed once and not
+re-escalated every tick. This closes a real gap: on 2026-09-28 an unaccounted queue item was
+spotted by a coordinator, escalated as prose into a room nobody was reading, and sat for four
+days. Drift alone only ever became a digest line.
+
 ## `factory watch` — the 24/7 supervisor (Phase 2)
 
 A standalone daemon (independent of any session) that keeps one hive alive + productive:

@@ -12,6 +12,11 @@ import { readRegistry, isLiveHive } from "./lib/hive.mjs";
 import { resolveRealm, runnerArgv } from "./lib/realm.mjs";
 import { shOut, readSafe, count } from "./lib/util.mjs";
 
+// The one string this package shares with foundation's doctor output. Both sides are pinned by
+// a test — foundation asserts its check says "no provenance", factory asserts this matches it —
+// so the coupling cannot rot silently across a release.
+const UNACCOUNTED_RE = /QUEUE\.md:\d+ no provenance on /;
+
 // Is an agent's tmux session alive? Locally when the hive has no realm, else
 // over ssh to the realm — the check is the same, only the machine differs.
 const tmuxAliveOn = (realm, name) => {
@@ -104,6 +109,24 @@ async function makeSupervisor(entry, flags, roster) {
     }
     const doctor = shOut("foundation", ["doctor", "--dir", dir]);
     const drift = doctor.includes("no drift") ? "0" : (doctor.match(/(\d+) drift issue/)?.[1] || "?");
+
+    // A queue item nobody can account for is FILED as a decision, not merely counted as drift.
+    // Drift only ever became a digest line in a room; on 2026-09-28 an unexplained item sat in
+    // docs/QUEUE.md for four days while the coordinator's escalation went unread, because it
+    // was prose in a room rather than something waiting on the human. Deriving this from STATE
+    // (foundation's own check) rather than from an agent's wording is the point: it cannot be
+    // missed by an agent forgetting the DECISION: prefix. fileDecision dedupes, so re-filing
+    // every tick is a no-op until it is answered.
+    for (const line of doctor.split("\n")) {
+      if (!UNACCOUNTED_RE.test(line)) continue;
+      const text = `DECISION: ${line.trim().replace(/^[^A-Za-z]*/, "")}`;
+      const filed = fileDecision({ hive: name, dir, from: "foundation doctor", text, kind: "decision", ts: nowHM() });
+      if (filed) {
+        events.push(`UNACCOUNTED queue item — needs your call (factory decide ${filed.id})`);
+        notify(`Factory · unaccounted queue item in ${name}`, line.trim().slice(0, 120));
+        brief(`[${name}] a QUEUE item has no recorded author: ${line.trim().slice(0, 130)}  (factory decide ${filed.id})`);
+      }
+    }
     const queueOpen = count(readSafe(join(dir, "docs", "QUEUE.md")), /^- \[ \] /gm);
     const doneCount = count(readSafe(join(dir, "docs", "DONE.md")), /^- \[x\] /gm);
     const wsRows = readSafe(join(dir, "docs", "WORKSTREAMS.md")).split("\n").filter((l) => /^\|\s/.test(l) && !/stream\s*\|/i.test(l) && !/^\|\s*-/.test(l)).length;
