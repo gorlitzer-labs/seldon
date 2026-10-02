@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyPublishError } from "../scripts/publish-lib.mjs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, utimesSync, rmSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path, { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { classifyPublishError, staleBuild } from "../scripts/publish-lib.mjs";
 
 test("a staged-version 409 is recognised as already on its way", () => {
   const real = 'npm error code E409\nnpm error 409 Conflict - PUT https://registry.npmjs.org/@gorlitzer-labs%2ffactory - Cannot publish over previously staged version "0.1.3".';
@@ -12,11 +17,6 @@ test("every other failure stays a failure", () => {
   assert.equal(classifyPublishError("npm error code ENEEDAUTH"), "error");
   assert.equal(classifyPublishError(""), "error");
 });
-
-import { staleBuild } from "../scripts/publish-lib.mjs";
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 function pkg({ srcAge, outAge, withOut = true }) {
   const d = mkdtempSync(join(tmpdir(), "stale-"));
@@ -48,4 +48,39 @@ test("a fresh build is not stale; source maps don't count; a missing dist is sta
   const none = pkg({ srcAge: 600, outAge: 0, withOut: false });
   assert.deepEqual(staleBuild(none), { stale: true, reason: "dist/ does not exist" });
   for (const d of [fresh, none]) rmSync(d, { recursive: true, force: true });
+});
+
+// ── the release script must run from anywhere ─────────────────────────────────
+// ROOT is derived from the script's own path and every publish call passes `cwd: ROOT`, but the
+// auth preflight ran `npm whoami` with no cwd. npm reads .npmrc from its cwd upward and the
+// token lives in ROOT/.npmrc, so invoking the script from a home directory reported
+// "Not authed to npm" and refused — while the publish it was gating would have succeeded.
+test("every npm call runs from the repo root, so the token in ROOT/.npmrc is found", () => {
+  const bin = mkdtempSync(path.join(tmpdir(), "seldon-pub-bin-"));
+  const elsewhere = mkdtempSync(path.join(tmpdir(), "seldon-pub-cwd-"));
+  const log = path.join(bin, "npm-calls.log");
+  // `view` succeeds for everything, so each package is "already on npm" and the script skips
+  // the build/publish path entirely. Anything else is a call this test did not expect.
+  writeFileSync(path.join(bin, "npm"), `#!/bin/sh
+echo "$1 $(pwd -P)" >> '${log}'
+case "$1" in whoami|view) exit 0 ;; *) exit 1 ;; esac
+`);
+  chmodSync(path.join(bin, "npm"), 0o755);
+  const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "publish-all.mjs");
+  const ROOT = realpathSync(path.resolve(path.dirname(SCRIPT), "..", "..", ".."));
+  try {
+    const out = execFileSync("node", [SCRIPT, "--dry-run"], {
+      cwd: elsewhere, encoding: "utf8",
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+    const calls = readFileSync(log, "utf8").trim().split("\n").map((l) => l.split(" "));
+    const whoami = calls.find((c) => c[0] === "whoami");
+    assert.ok(whoami, "no auth preflight ran");
+    assert.equal(whoami[1], ROOT, `whoami ran in ${whoami[1]}, not the repo root`);
+    for (const [sub, cwd] of calls) assert.equal(cwd, ROOT, `\`npm ${sub}\` ran in ${cwd}, not the repo root`);
+    assert.doesNotMatch(out, /Not authed/);
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
 });
