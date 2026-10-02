@@ -29,7 +29,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq age tmux
-          SOPS=3.9.4
+          # 3.11+ for `sops set --value-stdin`; comb refuses older.
+          SOPS=3.13.3
           sudo curl -fsSL "https://github.com/getsops/sops/releases/download/v${SOPS}/sops-v${SOPS}.linux.amd64" -o /usr/local/bin/sops
           sudo chmod +x /usr/local/bin/sops
       # npm install (not ci): module lockfiles drift and ci is strict; we just
