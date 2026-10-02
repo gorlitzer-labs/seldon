@@ -60,6 +60,7 @@ matters. Everything else is recoverable; that is not. Back it up somewhere real.
 | `comb rotate <NAME>` | tell you where to go, then take the new value |
 | `comb audit` | which secrets leaked into transcripts and shell history |
 | `comb rm <NAME>` | forget one (does **not** revoke it at the provider) |
+| `comb sync <host>` | merge the store with another realm's, both ways, over ssh |
 
 Values are never printed, never passed as command-line arguments, never logged.
 `comb get NAME --reveal` exists for when you genuinely need to read one, and
@@ -174,9 +175,37 @@ is actually compromised, revoke it here **and** rotate the secrets it held
 (`comb rotate`), exactly as you would for any exposed credential. Revocation
 stops future leaks; rotation closes the ones already out.
 
+## Keeping realms in step — `comb sync`
+
+Each realm holds its own copy of the store. `comb sync bankai` merges this
+machine's copy with bankai's, both ways, and writes the one result to both:
+
+- a secret on one side only is copied to the other
+- on both sides, the newer one wins (a rotation propagates)
+- a removal travels: `comb rm` leaves a marker (the name and when, no value),
+  so the next sync deletes it on the other side instead of copying it back
+- a secret changed on **both** sides since the last sync is named in the
+  output; the newer is kept and the other value is gone
+
+Only ciphertext crosses the wire. The other side's store is fetched over ssh,
+decrypted here with this machine's key, merged, re-encrypted to the same
+recipients and written back. The other machine needs only ssh. The sync refuses
+and writes nothing if the two stores are encrypted to different recipients, so
+syncing never adds or revokes a realm. Each sync keeps the timestamps it agreed
+on in `~/.comb/sync/<host>.json`: names and times, never values.
+
+**Upgrade every realm to comb 0.1.6 before relying on it.** An older comb does
+not know the deletion marker: it would list a removed secret as though it were
+still there, with no value.
+
+Why not a private git repo: sops encrypts values, not names, so the repo would
+show which services you use and when you rotated each one, and git keeps every
+old copy of the ciphertext forever. Syncing directly between your own machines
+keeps no history and puts no copy on anyone else's server.
+
 ## Requires
 
-`sops` and `age` on PATH (`brew install sops age`, or your package manager).
+`sops` 3.11+ and `age` on PATH (`brew install sops age`, or your package manager).
 Node 20+.
 
 MIT.

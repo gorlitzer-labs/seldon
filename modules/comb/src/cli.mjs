@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import * as store from "./backends/sops.mjs";
 import * as realms from "./realms.mjs";
+import { syncWith } from "./sync.mjs";
 import { scan, defaultTargets } from "./audit.mjs";
 import { VERSION, checkAndNotify } from "./update-check.mjs";
 
@@ -72,6 +73,7 @@ function help() {
     `  ${B("comb realm add")} <name> <age1…>   let a realm's key read the store (re-encrypts)`,
     `  ${B("comb realm rm")} <name>             revoke a realm (re-encrypts without it)`,
     `  ${B("comb realm ls")}                    realms that can read the store`,
+    `  ${B("comb sync")} <host>                 merge the store with another realm's, both ways (over ssh)`,
     `  ${B("comb pubkey")}                      print THIS machine's age public key`,
     `  ${B("comb rm")} <NAME>                  forget one`,
     "",
@@ -169,6 +171,23 @@ try {
       if (!name) throw new Error("which one?");
       store.deleteSecret(name);
       say(`${green("✓")} ${name} removed from the store ${dim("(this does NOT revoke it at the provider)")}`);
+      break;
+    }
+
+    case "sync": {
+      const peer = pos[0];
+      if (!peer) throw new Error("with which machine? `comb sync bankai` (any ssh destination)");
+      const r = syncWith(peer, typeof flags["remote-home"] === "string" ? { remoteHome: flags["remote-home"] } : {});
+      if (!r.changedHere && !r.changedThere) {
+        say(`${green("✓")} already in sync with ${B(peer)} ${dim(`(${r.live} secret(s))`)}`);
+        break;
+      }
+      say(`${green("✓")} synced with ${B(peer)} ${dim(`(${r.live} secret(s), only ciphertext crossed the wire)`)}`);
+      if (r.pulled.length) say(`  ${dim("←")} from ${peer}: ${r.pulled.join(", ")}`);
+      if (r.pushed.length) say(`  ${dim("→")} to ${peer}: ${r.pushed.join(", ")}`);
+      for (const c of r.conflicts) {
+        say(yellow(`  ⚠ ${c.name} changed on both sides since the last sync — kept ${c.kept === "theirs" ? peer + "'s" : "this machine's"} (the newer); the other value is gone`));
+      }
       break;
     }
 
