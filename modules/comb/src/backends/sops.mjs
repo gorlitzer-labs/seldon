@@ -62,6 +62,24 @@ export function init(home = combHome()) {
   return { home, recipient: ageRecipient(home) };
 }
 
+// `sops set --value-stdin` arrived in sops 3.11.0. Older sops would need the
+// value as an argument, so refuse rather than fall back to the leak.
+let valueStdinChecked = false;
+export function sopsSupportsValueStdin(versionText) {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(versionText || "");
+  if (!m) return false;
+  const [maj, min] = [Number(m[1]), Number(m[2])];
+  return maj > 3 || (maj === 3 && min >= 11);
+}
+function requireValueStdin() {
+  if (valueStdinChecked) return;
+  const v = spawnSync("sops", ["--version"], { encoding: "utf-8" });
+  if (!sopsSupportsValueStdin(v.stdout)) {
+    throw new Error(`sops 3.11 or newer is needed to store a value without exposing it (found: ${(v.stdout || "none").split("\n")[0].trim()}) — upgrade sops`);
+  }
+  valueStdinChecked = true;
+}
+
 function sopsEnv(home) {
   return { ...process.env, SOPS_AGE_KEY_FILE: keyPath(home) };
 }
@@ -85,12 +103,19 @@ export function readAll(home = combHome()) {
  */
 export function writeSecret(name, value, meta = {}, home = combHome()) {
   const entry = { value, updated: new Date().toISOString(), ...meta };
-  // Subcommand form (`sops set <file> <index> <value>`), not the legacy --set
-  // flag: `unset` only exists as a subcommand, and having the pair disagree is
-  // how you end up with a delete that silently is not one.
-  const r = spawnSync("sops", ["set", storePath(home), `["${name}"]`, JSON.stringify(entry)], {
+  requireValueStdin();
+  // Subcommand form (`sops set <file> <index>`), not the legacy --set flag:
+  // `unset` only exists as a subcommand, and having the pair disagree is how you
+  // end up with a delete that silently is not one.
+  //
+  // The value goes in on stdin, never as an argument. It used to be the last
+  // argument, which put every secret comb stored into the process table for as
+  // long as sops ran — readable by `ps` from any process on the machine, which
+  // is the exact leak comb exists to stop.
+  const r = spawnSync("sops", ["set", "--value-stdin", storePath(home), `["${name}"]`], {
     encoding: "utf-8",
     env: sopsEnv(home),
+    input: JSON.stringify(entry),
   });
   if (r.status !== 0) throw new Error(`could not write ${name}: ${r.stderr?.trim()}`);
 }
