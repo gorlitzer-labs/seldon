@@ -63,6 +63,15 @@ describe("the merge rules", () => {
     assert.deepEqual(a, b);
   });
 
+  test("the same secrets in a different order are not a change", () => {
+    // Found by the first real sync: two byte-identical stores were rewritten,
+    // because the merge sorts names and the comparison minded the order.
+    const a = { Z: v("z", "1"), A: v("a", "1") }, b = { A: v("a", "1"), Z: v("z", "1") };
+    const { merged, report } = mergeStores(a, b);
+    assert.deepEqual(report, { pulled: [], pushed: [], conflicts: [] });
+    assert.deepEqual(merged, { A: v("a", "1"), Z: v("z", "1") });
+  });
+
   test("merging again changes nothing", () => {
     const { merged } = mergeStores({ A: v("a", "1"), K: gone("3") }, { B: v("b", "2"), K: v("k", "2") });
     assert.deepEqual(mergeStores(merged, merged).merged, merged);
@@ -117,6 +126,32 @@ tee -a "${wire}" | sh -c "$cmd" | tee -a "${wire}"
   test("both sides end with the same file, still readable by both keys", () => {
     assert.equal(readFileSync(store.storePath(here), "utf-8"), readFileSync(store.storePath(there), "utf-8"));
     assert.equal(store.readAll(there).FROM_THERE.value, SECRET_THERE);
+  });
+
+  test("identical stores written in a different order: a no-op, nothing written", () => {
+    // Fresh pair, same two secrets set in opposite orders on each side.
+    const h = mkdtempSync(join(tmpdir(), "comb-ord-h-")), t = mkdtempSync(join(tmpdir(), "comb-ord-t-"));
+    store.init(h); store.init(t);
+    addRealm("t", localRecipient(t), h); addRealm("h", localRecipient(h), t);
+    store.writeSecret("ZED", "zed-value-1111111111", {}, h); store.writeSecret("ALPHA", "alpha-value-2222222222", {}, h);
+    writeFileSync(store.storePath(t), readFileSync(store.storePath(h), "utf-8"));   // same file on both
+    const saved = process.env.COMB_SSH;
+    const shim = join(mkdtempSync(join(tmpdir(), "comb-ord-ssh-")), "ssh");
+    writeFileSync(shim, `#!/bin/sh
+for last; do :; done
+sh -c "$(printf '%s' "$last" | sed "s#~/.comb#${t}#g")"
+`);
+    chmodSync(shim, 0o755);
+    process.env.COMB_SSH = shim;
+    try {
+      const before = readFileSync(store.storePath(h), "utf-8");
+      const r = syncWith("peer", { home: h });
+      assert.equal(r.changedHere || r.changedThere, false, "an identical store was treated as changed");
+      assert.equal(readFileSync(store.storePath(h), "utf-8"), before);
+    } finally {
+      process.env.COMB_SSH = saved;
+      for (const d of [h, t]) rmSync(d, { recursive: true, force: true });
+    }
   });
 
   test("a second sync is a no-op and writes nothing", () => {

@@ -44,7 +44,12 @@ export function recipientsOf(ciphertext) {
   return [...new Set([...(ciphertext || "").matchAll(/recipient:\s*(age1[a-z0-9]+)/g)].map((m) => m[1]))].sort();
 }
 
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// Equal as data, whatever order the keys are in. A byte comparison of the JSON
+// minds order, and the merge sorts by name — so two identical stores used to
+// look changed and both files were rewritten on every sync.
+const canonical = (x) => Array.isArray(x) ? x.map(canonical)
+  : x && typeof x === "object" ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, canonical(x[k])])) : x;
+const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 const stamp = (e) => e?.updated ?? "";
 
 /**
