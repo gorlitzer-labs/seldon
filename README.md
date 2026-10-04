@@ -32,6 +32,9 @@ seldon
 You need Node 20+, git, tmux, and at least one agent CLI (`claude`, `codex` or `opencode`).
 Nothing else. The rest of this repo is optional add-ons (below).
 
+**New here?** [ONBOARDING.md](ONBOARDING.md) gets you from nothing to agents working, in ten
+minutes.
+
 ## How you use it
 
 | key | does |

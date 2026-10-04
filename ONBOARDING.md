@@ -1,55 +1,107 @@
-# Onboarding — the Seldon stack
+# Onboarding — ten minutes to your first agents
 
-Welcome to the front door of **Seldon**: a software factory of AI agents made of
-six tools you can pick from, plus an interactive teardown that teaches them. This
-gets you oriented in ~15 minutes. You don't need all six to start — begin with
-one and add the rest as you feel the gaps.
+This takes you from nothing to a few agents working on a repo, with one screen telling you
+which one needs you. Examples use a throwaway **Weather CLI** repo.
 
-## The mental model
+## What you need
 
-- **You** set direction and get woken only for the calls that matter.
-- **factory** is the 24/7 supervisor on the floor — it spins agents, boxes them
-  (permissions skipped *inside a container*, host sealed), and runs the board.
-- **apiary** is where those agents talk — shared rooms, hand-offs, status.
-- **foundation** is the deterministic workflow each agent follows (plan → build → verify).
-- **comb** hands out secrets by name so keys never touch code or transcripts.
-- **bifrost** stretches all of it across machines (tmux + Tailscale) and to your phone.
-- **Demerzel** is the local voice you talk to when you don't want a keyboard.
+- **Node 20+**, **git** and **tmux**
+- At least one agent CLI, signed in: [Claude Code](https://code.claude.com) (`claude`),
+  [Codex](https://developers.openai.com/codex) (`codex`) or [opencode](https://opencode.ai) (`opencode`)
+- macOS or Linux (a phone works too, over ssh)
 
-The gaps each one closes (learned the hard way, don't re-litigate):
-delivery is confirmed, not assumed; you **containerize the work, not the agent**;
-a better tmux was the wrong lever — bifrost *composes* tmux instead of replacing it.
+## 1. Install and open it (1 min)
 
-## Try the stack in the order that teaches it
+```bash
+npm i -g @gorlitzer-labs/seldon
+cd ~/code/weather-cli
+seldon
+```
 
-Every module has its own README + ONBOARDING; the fastest tour is the
-[seldon-stack](apps/seldon-stack) 3D teardown. To
-get hands-on, go module by module:
+You see the panel: this repo, and any agents already running on the machine.
 
-1. **apiary** — spin a room, drop two agents in it, watch them coordinate.
-2. **foundation** — bootstrap a project so agents have a deterministic workflow.
-3. **comb** — `comb init`, add a key, prove `comb run --with NAME` injects it and
-   the transcript audit catches a leak.
-4. **factory** — `factory new` a boxed run, `factory board` to watch it.
-5. **bifrost** — attach from a second machine and from your phone; watch the
-   agent-state glyphs (● idle / ◐ working / ■ needs-you).
-6. **Demerzel** — talk to it locally end to end.
+## 2. Start an agent on a task (1 min)
 
-Then read [docs/end-to-end.md](docs/end-to-end.md) — one real run threaded
-through all six.
+Press **`n`**, type `add a --units flag`, press **⏎**, then pick **`1`** claude, **`2`** codex
+or **`3`** opencode.
 
-## Ground rules (apply everywhere in the stack)
+The agent starts on its own branch, in its own worktree, so it never touches your checkout or
+another agent's. It shows up as a **lane**:
 
-- **Secrets by reference only.** `comb run --with NAME -- <cmd>`. Never paste a
-  key into a file, a command, or a chat. If one leaks, rotate it.
-- **Agnostic examples.** Weather CLI, agents `ana` / `ben`. No real product,
-  room, or customer data in docs or demos.
-- **Git:** never push to `main` — feature branch → `gh pr create` → PR. Merges go
-  through GitHub with the QA gate asserted inline. Two identities on this machine
-  (`gorlitzer` default; `LegendFrancesco-Berardi` only under `~/legend/`).
+```text
+  ❯ weather-cli
+      ● add-a-units-flag           claude    working                                  0s
+```
 
-## Where to go next
+Press **⏎** on it to jump into its session. Detach (`←` on an empty prompt in Claude, or
+`ctrl+b d` in tmux) to come back.
 
-- The interactive teardown: [seldon-stack](apps/seldon-stack)
-- The full run: [docs/end-to-end.md](docs/end-to-end.md)
-- Any single tool: its repo (see the table in [README.md](README.md))
+## 3. Give it a plan (2 min)
+
+```bash
+seldon install foundation
+foundation init
+foundation queue "(P1) add a --units flag"
+foundation queue "(P2) cache the last forecast"
+```
+
+In the panel, **`p`** shows the plan. **⏎** on an item starts a lane on it, and each item
+shows the lane working on it.
+
+## 4. Let it tell you when it needs you (1 min)
+
+```bash
+seldon up       # the watcher: one notification when an agent waits on you, fails or finishes
+seldon setup    # once, if you use Codex or opencode: they report their own state too
+```
+
+Codex runs a new hook only after you trust it: open `codex`, run `/hooks`, trust seldon's.
+
+## 5. Stop agents fighting over the emulator (1 min)
+
+When agents on *different* projects share one emulator, Unreal or GPU, have them take turns:
+
+```bash
+seldon hold emulator     # yours, or "held by stranded/fix-save-crash · 6m" and exit 2
+seldon release emulator
+```
+
+Put the rule in your agents' instructions once (the [README](tools/seldon/README.md#holds--taking-turns-on-shared-things) has the snippet).
+
+## 6. Other machines and your phone (optional)
+
+```bash
+seldon machines add mini you@mini.tailnet.ts.net    # needs seldon there, and ssh keys
+```
+
+The panel now lists mini's agents too, as `project @mini`. From a phone, `ssh` to any machine
+and run `seldon`.
+
+## The keys
+
+| key | does |
+|---|---|
+| `n` | new lane |
+| `p` | plan |
+| `⏎` | open the agent |
+| `x` `x` | stop it |
+| `R` | resume after a reboot |
+| `q` | quit (agents keep running) |
+
+## Add-ons, when you feel the gap
+
+| you want… | add |
+|---|---|
+| agents that talk to each other (hand-offs, reviews) | [apiary](modules/apiary) rooms, and [factory](modules/factory) to run projects through them |
+| API keys that never land in a transcript | [comb](modules/comb) |
+| tmux sessions that survive, across machines | [bifrost](modules/bifrost) |
+| to talk to your machine | [demerzel](modules/demerzel) (Apple silicon) |
+
+## Ground rules
+
+- **Secrets by reference only:** `comb run --with NAME -- <cmd>`. Never paste a key into a
+  file, a command or a chat. If one leaks, rotate it.
+- **Agnostic examples:** Weather CLI, agents `ana` / `ben`. No real product, room or customer
+  data in docs or demos.
+- **Contributing:** never push to `main`. Use a feature branch, then `gh pr create`; checks
+  must pass before merge.

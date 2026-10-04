@@ -19,6 +19,12 @@ comb run --with CF_API_TOKEN -- curl -H "Authorization: Bearer $CF_API_TOKEN" ..
 comb audit
 ```
 
+| | |
+|---|---|
+| **Do you need it?** | Yes if your agents need API keys (Cloudflare, npm, OpenAI…) and you don't want them in transcripts. No otherwise. |
+| **Requires** | Node 20+, [`sops`](https://github.com/getsops/sops) and [`age`](https://github.com/FiloSottile/age) (`brew install sops age`) |
+| **Install** | `npm i -g @gorlitzer-labs/comb` (or `seldon install comb`) |
+
 ## Install
 
 ```bash

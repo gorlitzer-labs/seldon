@@ -1,9 +1,22 @@
 # factory
 
-**the floor** — the 24/7 supervisor for a software factory of AI agents: **create · manage · maintain** under supervised autonomy.
+**Projects run through rooms.** `factory new "<idea>"` makes a repo with a plan and an
+[apiary](../apiary) room, and puts an agent in it. `factory board` shows every project, and
+`factory decide` answers what an agent escalates to you.
 
-`factory` is the umbrella CLI — the **front door, the 24/7 supervisor, and the control panel** that
-tie the subsystems into one product.
+| | |
+|---|---|
+| **Do you need it?** | Only if you use apiary **rooms** for your projects. For running agents on a repo and watching them, use [seldon](../../tools/seldon): it does that without rooms. |
+| **Requires** | Node 20+, tmux, [apiary](../apiary) and [foundation](../foundation) (`seldon install factory` installs all three), an agent CLI |
+| **Install** | `seldon install factory` |
+
+## Try it
+
+```bash
+factory new "a CLI that shows the weather"   # repo · plan · room · an agent in it
+factory board                                # every project: plan, lanes, what needs you
+factory decide d-4f2a91 "use metric by default"   # answer something an agent escalated
+```
 
 This module lives in the seldon monorepo at
 [`modules/factory`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/factory)
@@ -35,7 +48,6 @@ The Factory assembles four subsystems (each its own repo/layer):
 | **apiary** | [`modules/apiary`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/apiary) | transport — shared rooms/hives for agents |
 | **Hive Manifest** | `apiary/MANIFEST.md` | protocol — how agents behave (lanes, no-clobber, merge gate) |
 | **Foundation** | [`modules/foundation`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/foundation) | substrate — the four-file seam + deterministic spine |
-| **coord roles** | Claude Code skills + `agent-coord` MCP | orchestration — coordinator / worker / QA / CI / liaison |
 
 `factory` requires `apiary` and `foundation` on PATH. `npm i -g @gorlitzer-labs/factory`
 pulls neither, so install them too (`npm i -g @gorlitzer-labs/apiary @gorlitzer-labs/foundation`,
@@ -46,7 +58,7 @@ or `seldon install factory`, which includes both).
 ```
 factory new "<idea>"          create a line: repo · Foundation · plan · hive
 factory adopt [dir]           put an EXISTING repo on the line (keeps your docs; safe to re-run)
-factory staff <project>       put a coordinator (or --agent codex) in the hive — it actually joins
+factory staff <project>       put an agent (claude, or --agent codex) in the hive — it actually joins
 factory watch <project>       supervise one hive (24/7)   ·   watch --all  supervise every hive
 factory board                 live control panel + decisions pending your call
 factory state                 everything board shows, as JSON (read-only) — incl. who is working
@@ -71,7 +83,7 @@ factory new "a tiny URL shortener with click stats"
 
 Flags: `--name <n>` · `--dir <path>` · `--here` (use cwd) · `--port <p>`.
 
-The agent-driven half is handed to the hive — add a coordinator and it runs `/prd` + `/plan-phase`
+The agent-driven half is handed to the hive — the agent `factory staff` puts there runs `/prd` + `/plan-phase`
 and dispatches:
 
 ```bash
