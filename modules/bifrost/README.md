@@ -6,6 +6,13 @@
 
 > *Bridge between realms. One terminal workspace, spread across all your machines.*
 
+| | |
+|---|---|
+| **Do you need it?** | If you want tmux sessions that survive, and one workspace across several machines (and your phone). seldon already lists agents on other machines by itself; bifrost is the terminal side of that. |
+| **Requires** | macOS, Linux or Android (Termux); tmux; [Tailscale](https://tailscale.com) on each machine; ssh keys between them |
+| **Install** | `seldon install bifrost` (a shell installer, no npm) |
+| **Try it** | `bifrost summon` on your laptop: your home machine's sessions, right where you left them |
+
 ---
 
 ## What it is

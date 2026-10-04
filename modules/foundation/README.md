@@ -1,24 +1,37 @@
 # foundation
 
-**the seam** — a lean, **deterministic** project workflow you bolt onto any repo: the plan a codebase and its agents follow.
+**The plan for a repo.** What is next (`docs/QUEUE.md`), what is done (`DONE.md`), what is
+known to be true (`FACTS.md`). These files are written only through a small CLI, never by hand,
+so a dozen agents can share them without mangling them.
 
-It runs standalone — solo or under any orchestrator — and pairs with **apiary** when agents coordinate over it. Nothing here imports apiary.
+| | |
+|---|---|
+| **Do you need it?** | Yes if you want a list of tasks your agents work through. It powers seldon's plan screen (`p`). No if you only ever start agents ad hoc. |
+| **Requires** | Node 20+, git |
+| **Install** | `npm i -g @gorlitzer-labs/foundation` (or `seldon install foundation`) |
 
-Foundation is inspired by David Balzan's [groundwork](https://www.npmjs.com/package/@davidbalzan/groundwork)
-(an installable AI development workflow of skills + doc methodology) and by the writer-split seam of
-[agent-coord-mcp](https://github.com/davidbalzan/agent-coord-mcp) /
-[`@davidbalzan/groundwork-seam`](https://www.npmjs.com/package/@davidbalzan/groundwork-seam). We took
-the ideas, not the code: Foundation's center of gravity is the **deterministic spine** — every state
-mutation goes through a concurrency-safe, atomic, ASCII-validated command, and the model never
-hand-edits state. See [Credits](#credits) for what came from where.
-
-Lives in the [`gorlitzer-labs/seldon`](https://github.com/gorlitzer-labs/seldon/tree/main/modules/foundation)
-monorepo at `modules/foundation`, published to npm as `@gorlitzer-labs/foundation`.
+## Try it (one minute)
 
 ```bash
-npm i -g @gorlitzer-labs/foundation   # install the CLI
-foundation init                       # install the seam + doc scaffold + skills into the current repo
+cd ~/code/weather-cli
+foundation init                                   # adds docs/ (QUEUE, DONE, FACTS…) — keeps anything you had
+foundation queue "(P1) add a --units flag"
+foundation queue "(P2) cache the last forecast"
+foundation queue --list
 ```
+
+```text
+✓ queued (P1) add a --units flag  by ana
+✓ queued (P2) cache the last forecast  by ana
+(P1) add a --units flag
+(P2) cache the last forecast
+```
+
+Then open `seldon` in that repo and press `p`: the same two items, and `⏎` starts an agent on one.
+When it lands, `foundation done "add a --units flag" acme/weather-cli#12` records it.
+
+Inspired by David Balzan's groundwork and agent-coord-mcp; ideas only, no code. See
+[Credits](#credits).
 
 ## The seam (writer-split — one writer per file, the filesystem *is* the concurrency control)
 
@@ -49,7 +62,7 @@ foundation doctor                        flag doc↔reality drift + ADR reversal
 ## Queue provenance — why `doctor` fails on an unattributed item
 
 `docs/QUEUE.md` is an **instruction channel**, not a notepad. `/plan-phase` dispatches from it
-and a coordinator will put a worker on whatever it finds. So every append records its author:
+and an agent will pick up whatever it finds. So every append records its author:
 
 ```
 - [ ] (P1) sail to reefstack and dive the wreck
@@ -69,7 +82,7 @@ Migrating a repo that predates this: `foundation queue --stamp` marks existing i
 touches an item that already has a stamp.
 
 > This exists because of a real incident. On 2026-09-28 a queue item appeared in a repo that no
-> agent transcript, shell history, editor store or commit could account for. A coordinator
+> agent transcript, shell history, editor store or commit could account for. An agent
 > noticed and escalated — as prose, into a room nobody was reading — and it sat for four days.
 > `factory watch` now *files* an unaccounted item as a pending decision, so it reaches the human
 > instead of scrolling past.

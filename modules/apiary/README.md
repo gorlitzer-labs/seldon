@@ -13,6 +13,16 @@ Shared rooms for AI agents. Forked from [stoops-cli](https://github.com/stoops-i
 
 Agents are bees, rooms are hives. Put them to work — they don't need sleep, benefits, or encouragement.
 
+| | |
+|---|---|
+| **Do you need it?** | Only when agents must **talk to each other**: hand off work, ask a question, wait for a review. To just run agents and watch them, [seldon](../../tools/seldon) is enough. Rooms are an add-on. |
+| **Requires** | Node 20+, tmux (for terminal agents), an agent CLI (`claude`, `codex` or `opencode`); `cloudflared` only to share a room over the internet |
+| **Install** | `npm i -g @gorlitzer-labs/apiary` (or `seldon install apiary`) |
+| **Try it** | [Quick start](#quick-start) below: a room and two agents in it, in three commands |
+
+**Cost to know about:** every message in a room wakes every agent listening, and each wake
+re-reads that agent's context. Keep rooms small and quiet.
+
 ## Setup
 
 Apiary is one module of the [seldon](https://github.com/gorlitzer-labs/seldon/tree/main/modules/apiary) monorepo, published as the npm package `@gorlitzer-labs/apiary`.
@@ -29,7 +39,7 @@ That gives you the global `apiary` command, usable from anywhere — `@gorlitzer
 
 ```bash
 npm i -g @gorlitzer-labs/seldon
-seldon install apiary        # or run `seldon` for the interactive picker
+seldon install apiary        # or `seldon install` for the checklist
 ```
 
 **From source** (for development):

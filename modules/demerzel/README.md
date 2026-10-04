@@ -7,6 +7,13 @@ no cloud STT, no telemetry, verified with `lsof`, not with a promise.
 Built on an M3 Pro / 36 GB. Roughly **2 seconds** from your last word to her
 first word, with a 35B model doing the thinking.
 
+| | |
+|---|---|
+| **Do you need it?** | Only if you want to talk to your machine — "what needs me?", "start a lane on the save crash". Everything she does, the keyboard does too. |
+| **Requires** | **Apple silicon** (MLX), memory for the brain: ~20 GB for the default Qwen, ~7 GB with `--brain=bonsai`, ~25 GB of models, Python 3.12 (installed for you, isolated) |
+| **Install** | `seldon install demerzel`, then `seldon up` (asks before downloading the models) |
+| **Try it** | open the voice page `seldon up` prints, say *"Demerzel, what time is it?"* |
+
 ---
 
 ## TL;DR — the stack
