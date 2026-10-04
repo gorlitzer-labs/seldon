@@ -16,7 +16,7 @@ export async function factoryDecide(id, answerWords) {
   const entry = readRegistry().find((e) => e.name === d.hive);
   if (entry?.hive?.serverUrl && entry.hive.adminToken) {
     try {
-      const j = await (await fetch(`${entry.hive.serverUrl}/join`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "human", name: "Franco", token: entry.hive.adminToken }) })).json();
+      const j = await (await fetch(`${entry.hive.serverUrl}/join`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "human", name: process.env.USER || "operator", token: entry.hive.adminToken }) })).json();
       await fetch(`${entry.hive.serverUrl}/message`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${j.sessionToken}` }, body: JSON.stringify({ content: `DECISION ANSWERED [${id}] @${d.from}: ${answer}` }) });
     } catch { err("couldn't reach the hive — resolving locally anyway (agents won't see it until it's back)"); }
   }

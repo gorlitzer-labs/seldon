@@ -35,7 +35,7 @@ const { CodexTmuxBridge } = await import("../src/cli/codex/tmux-bridge.js");
 
 const IDLE = ["› Ask Codex to do anything", "  gpt-6-astra medium · ~/stranded"];
 const text = (s: string) => [{ type: "text" as const, text: s }];
-const MSG = "[12:15:31] #6485 [shipyard] Franco: sooo @all";
+const MSG = "[12:15:31] #6485 [shipyard] Sam: sooo @all";
 
 beforeEach(() => {
   keys.length = 0;

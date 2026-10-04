@@ -5,14 +5,10 @@
 > (the transport) and the **Hive Manifest** (the protocol): apiary moves messages, the Manifest
 > says how agents behave, Foundation is the **project substrate they coordinate over**.
 >
-> Inspired by David Balzan's [groundwork](https://www.npmjs.com/package/@davidbalzan/groundwork)
-> and [agent-coord-mcp](https://github.com/davidbalzan/agent-coord-mcp) (whose seam grammar lives
-> in [`@davidbalzan/groundwork-seam`](https://www.npmjs.com/package/@davidbalzan/groundwork-seam)).
-> It is *not* a copy of groundwork. It's the coherent system groundwork points at but
-> deliberately isn't — with a deterministic core, a multi-agent-native seam, and the gaps groundwork
-> leaves open (verify, git, intake) filled in.
+> Prior art is credited in the [README](README.md#credits). Foundation has a deterministic core,
+> a multi-agent-native seam, and fills the gaps other workflows leave open (verify, git, intake).
 
-Status: design draft for Franco's review. No code yet. Decisions locked so far are in §0.
+Status: design draft for review. No code yet. Decisions locked so far are in §0.
 
 ---
 
@@ -124,11 +120,10 @@ per-phase README "Quick Stats" (fabricated line counts / coverage nobody reads),
 status-restated-in-4-places redundancy — status is computed once by `foundation status`, everything
 else links to it.
 
-### 4a. Seam grammar — the interop contract (from the [coord-mcp](https://github.com/davidbalzan/agent-coord-mcp) 0.19→0.26 diff)
+### 4a. Seam grammar — the interop contract (superseded by §8b)
 
-The seam grammar is now a **standalone package `@davidbalzan/groundwork-seam`** (coord-mcp 0.26
-depends on `0.1.4`; groundwork vendors `0.1.0`). Foundation must produce files that **round-trip**
-with it. The pinned contract:
+An early draft targeted round-trip compatibility with an external seam-grammar package. That
+contract, kept for reference:
 
 - **Glyphs (load-bearing bytes):** ` — ` = U+2014 space-padded; ` · ` = U+00B7 space-padded. ASCII
   hyphen/period silently breaks parsing.
@@ -228,8 +223,8 @@ The three gaps groundwork leaves — and you require — as first-class skills:
 
 ### 8b. Seam-grammar decision — RESOLVED: detach completely, own it, do better
 
-Foundation uses its **own seam format** — no dependency on `@davidbalzan/groundwork-seam`, no
-obligation to match David's fragile exact-glyph contract. Foundation's orchestrator is apiary (its
+Foundation uses its **own seam format** — no dependency on an external seam package, no
+obligation to match a fragile exact-glyph contract. Foundation's orchestrator is apiary (its
 own), so coord-mcp interop isn't required; if ever wanted it's an explicit export/import bridge, not a
 design constraint. We keep the *ideas* from the diff (§4a "adopt" list) and fix the weaknesses.
 

@@ -103,7 +103,7 @@ export interface PersistedRoomSession {
   /** Unix timestamp of last TUI activity (set by room create/resume). */
   lastActive?: number;
   /**
-   * Display name the host used at create time (e.g. "Franco"). roomResume
+   * Display name the host used at create time (e.g. "Sam"). roomResume
    * restores this so the admin keeps a consistent identity across reconnects —
    * otherwise the human gets a random name and agents can't recognize them.
    */

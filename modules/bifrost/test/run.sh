@@ -12,7 +12,7 @@ set -uo pipefail   # deliberately NOT -e: a tested rc must not abort the harness
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Isolate every side effect: bifrost reads and writes ~/.config/bifrost, so give
-# it a throwaway HOME. Without this the suite would read Franco's real realms.
+# it a throwaway HOME. Without this the suite would read your real realms.
 export HOME
 HOME="$(mktemp -d)"
 export BIFROST_CONFIG_DIR="$HOME/.config/bifrost"

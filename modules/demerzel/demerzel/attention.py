@@ -132,7 +132,7 @@ class Attention:
 
         Naive removal leaves debris the model then has to interpret:
         "Hello, Demerzel, how you doing?" became "Hello, , how you doing?" -- a
-        real transcript from Franko's first conversation.
+        real transcript from the owner's first conversation.
         """
         out = _WAKE.sub("\x00", text, count=1)
         # Collapse the punctuation on BOTH sides of where the name was, keeping
@@ -149,7 +149,7 @@ class Attention:
         """Restart the window. Called when a turn FINISHES, not when it starts.
 
         Extending only at the start meant a long answer ate its own window: her
-        reply to Franko's first question ran about twenty seconds, so by the
+        reply to the owner's first question ran about twenty seconds, so by the
         time she stopped speaking the 25 s had nearly elapsed and his next two
         sentences were logged as overheard. The window has to measure silence
         since she stopped, not since he started.

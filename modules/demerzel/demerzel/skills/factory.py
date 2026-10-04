@@ -114,7 +114,7 @@ register(
 
 
 # --- creating and staffing a line ------------------------------------------
-# Franko chose apiary as the harness. Which agent CLI apiary launches is a
+# The owner chose apiary as the harness. Which agent CLI apiary launches is a
 # config choice, not a hardcoded one: `claude` is what factory's own docs use
 # and is the strongest at code, `opencode` against a local endpoint keeps the
 # agents on this machine. Naming it here rather than burying it means the

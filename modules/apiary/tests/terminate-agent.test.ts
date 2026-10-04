@@ -92,7 +92,7 @@ describe("seatsToEvict", () => {
   const roster = [
     { id: "agent_933679aa", name: "aztraboy", type: "agent" as const },
     { id: "agent_531f6da2", name: "fableboy", type: "agent" as const },
-    { id: "human_8a3cf2ce", name: "Franco", type: "human" as const },
+    { id: "human_8a3cf2ce", name: "Sam", type: "human" as const },
   ];
 
   test("a rejoining agent evicts its own previous seat", () => {
@@ -122,10 +122,10 @@ describe("seatsToEvict", () => {
   });
 
   test("two people may share a display name — humans are never evicted", () => {
-    // One agent name is one runtime by construction. Two humans called Franco
+    // One agent name is one runtime by construction. Two humans called Sam
     // are two people, and throwing one out of the room would be wrong.
-    const twoFrancos = [...roster, { id: "human_other", name: "Franco", type: "human" as const }];
-    expect(seatsToEvict(twoFrancos, { name: "Franco", type: "human" })).toEqual([]);
+    const twoSams = [...roster, { id: "human_other", name: "Sam", type: "human" as const }];
+    expect(seatsToEvict(twoSams, { name: "Sam", type: "human" })).toEqual([]);
   });
 
   test("a human joining does not evict an agent of the same name", () => {

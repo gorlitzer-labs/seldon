@@ -1,6 +1,6 @@
 // factory box — run an agent with its permissions skipped, inside a box.
 //
-// Franco skips permissions on almost everything, because an agent that stops to
+// The operator skips permissions on almost everything, because an agent that stops to
 // ask cannot work a shift. On the host that hands it ~/.ssh, ~/.aws, the gh
 // token, both AI logins and every repo on the machine. Nothing has gone wrong
 // yet; that is luck. This moves the same bypass somewhere it cannot cost much.

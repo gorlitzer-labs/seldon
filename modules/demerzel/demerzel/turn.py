@@ -16,6 +16,7 @@ import numpy as np
 from . import protocol as P
 from . import factory as fac
 from . import memory as mem
+from .owner import OWNER
 from . import tools as T
 from .protocol import Metrics, State
 
@@ -43,7 +44,7 @@ class ClauseBuffer:
         "I am here when you"   +   "need me."
 
     and spoken as two finished sentences with an audible hole between them.
-    Franko heard it as "I am here when you ....... need me". No amount of
+    The owner heard it as "I am here when you ....... need me". No amount of
     scheduling fixes that -- the pause is in the prosody, not the timing.
 
     So a clause boundary is a punctuation mark, full stop. The cost is that
@@ -124,7 +125,7 @@ def sanitize(text: str) -> str:
 def _narrate(line: str, emit, emit_audio, voice, should_stop) -> None:
     """Say what she is about to do, so a slow tool is never silence.
 
-    Franko asked for this directly: tell him to wait, and keep telling him what
+    The owner asked for this directly: tell them to wait, and keep telling them what
     is happening. `foundation` runs through npx and takes seconds, so this fires
     for real rather than being decoration.
     """
@@ -159,7 +160,7 @@ def _handle_pending_tool(transcript: str, ctx: dict) -> str | None:
     ctx.pop("pending_tool", None)
     if ctx.get("may_write") is False:
         who = (ctx.get("speaker") or {}).get("name")
-        return f"Sorry {who}, only Franko can do that." if who else "Only Franko can do that."
+        return f"Sorry {who}, only {OWNER} can do that." if who else f"Only {OWNER} can do that."
     call = T.Call(pend["name"], pend["args"])
     _, result = T.execute(call, may_write=True, ctx=ctx)
     print(f"  tool | confirmed {call.name} {call.args} -> {result[:70]!r}", flush=True)
@@ -189,7 +190,7 @@ def _handle_factory(transcript: str, ctx: dict) -> str | None:
             if ctx.get("may_write") is False:
                 who = (ctx.get("speaker") or {}).get("name")
                 if who:
-                    return (f"Sorry {who}, only Franko can answer the factory. "
+                    return (f"Sorry {who}, only {OWNER} can answer the factory. "
                             "Nothing was sent.")
                 return ("I am not confident enough that this is you to answer "
                         "for you. Do it from the terminal.")
@@ -235,7 +236,7 @@ def _handle_memory(intent: str, payload: str, ctx: dict | None = None) -> str:
         if _readonly():
             return "I am in read-only mode, so I cannot save that."
         if ctx is not None and ctx.get("may_write") is False:
-            return "Only Franko can change what I remember."
+            return f"Only {OWNER} can change what I remember."
         item = mem.remember(payload)
         if item is None:
             return "I already had that, or there was nothing to store."
@@ -246,7 +247,7 @@ def _handle_memory(intent: str, payload: str, ctx: dict | None = None) -> str:
         if _readonly():
             return "I am in read-only mode, so I cannot change what I remember."
         if ctx is not None and ctx.get("may_write") is False:
-            return "Only Franko can change what I remember."
+            return f"Only {OWNER} can change what I remember."
         dropped = mem.forget(payload)
         if not dropped:
             return "I had nothing matching that."

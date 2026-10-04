@@ -89,7 +89,7 @@ describe("findCodexSessionId", () => {
   });
 
   test("ignores a session that predates our launch", () => {
-    // Franco's own Codex, open in the same repo before the agent started.
+    // Sam's own Codex, open in the same repo before the agent started.
     writeRollout("rollout-c.jsonl", {
       sessionId: "his-own",
       cwd,

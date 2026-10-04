@@ -1,6 +1,6 @@
 # The box an agent runs in.
 #
-# Franco runs agents with permissions skipped — that is the only way an agent
+# The operator runs agents with permissions skipped — that is the only way an agent
 # gets through a day's work without a human tapping "allow" every minute. On the
 # host that means an agent can read ~/.ssh, ~/.aws, ~/.config/gh, both AI logins,
 # and every repo on the machine. It has not gone wrong yet. That is luck, not

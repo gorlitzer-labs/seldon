@@ -12,8 +12,8 @@ type Msg = { who: string; text: string; cls: "me" | "them" | "them unprompted"; 
 const YOU = "#FF9E3D";
 const SCRIPT: { at: number; state?: string; readout?: string; msg?: Msg; pendDone?: boolean }[] = [
   { at: 300, state: "idle", readout: "" },
-  { at: 900, state: "listening", readout: "franco 0.97" },
-  { at: 1500, msg: { who: "FRANCO", text: "Demerzel — did the weather CLI ship?", cls: "me", c: YOU } },
+  { at: 900, state: "listening", readout: "sam 0.97" },
+  { at: 1500, msg: { who: "SAM", text: "Demerzel — did the weather CLI ship?", cls: "me", c: YOU } },
   { at: 2100, state: "thinking", readout: "…" },
   { at: 3100, state: "speaking", readout: "780 ms", msg: { who: "DEMERZEL", text: "Yes. ana's fetch lane and ben's format lane both merged — weather-cli builds and runs. Say a city and I'll run it for you.", cls: "them", c: "#35C8FF", pending: true } },
   { at: 5200, pendDone: true },

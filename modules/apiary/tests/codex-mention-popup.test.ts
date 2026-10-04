@@ -72,11 +72,11 @@ describe("delivery with the popup up", () => {
   test("presses Escape before Enter, so the message submits as written", async () => {
     screen = POPUP_SCREEN;
     const bridge = new CodexTmuxBridge("agent");
-    await bridge.deliver(text("[12:15:31] #6485 [shipyard] Franco: sooo @all"));
+    await bridge.deliver(text("[12:15:31] #6485 [shipyard] Sam: sooo @all"));
 
     // The payload is pasted, the popup dismissed, and only then submitted.
     expect(keys).toEqual([
-      "paste:[12:15:31] #6485 [shipyard] Franco: sooo @all",
+      "paste:[12:15:31] #6485 [shipyard] Sam: sooo @all",
       "key:Escape",
       "Enter",
     ]);

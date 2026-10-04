@@ -1,7 +1,7 @@
 """Skill: ending the conversation, in any words and any language.
 
 The window used to close only on a keyword regex -- "that's all", "dismissed",
-"we're done". Franko said "now I\'m not gonna speak with you", then "I told you
+"we're done". The owner said "now I\'m not gonna speak with you", then "I told you
 that I\'m not speaking with you. Stop listening.", then the same in Italian. The
 model understood every one and replied "Understood. I will not listen." -- and
 kept listening, because understanding was never wired to the state.

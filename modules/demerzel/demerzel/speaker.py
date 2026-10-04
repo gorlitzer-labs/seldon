@@ -1,4 +1,4 @@
-"""Does Demerzel know it is Franko talking?
+"""Does Demerzel know it is the owner talking?
 
 An always-listening assistant with a write path is a security problem, not just
 a convenience one. Right now anyone within earshot could say "go with SQLite,
@@ -49,7 +49,7 @@ OWNER, GUEST = "owner", "guest"
 
 # One hue per enrolled person, assigned at enrolment and stored with the profile.
 # Hashing the name was tried first and collided on the two names that mattered
-# (Franko and Giulia landed on the same colour): six buckets and a weak hash is
+# (two enrolled voices landed on the same colour): six buckets and a weak hash is
 # not a safe way to allocate identity. Round-robin over unused entries cannot
 # collide until the palette is exhausted.
 #
@@ -70,7 +70,7 @@ PERSON_COLORS = ["#FF9E3D", "#C08CFF", "#FFD54A", "#FF7BA8", "#E8A06A", "#B0D46A
 # credential -- see the note on the write path below.
 #
 # Recalibrate per microphone and room with scripts/enroll.py; these defaults are
-# a starting point, not a finding about Franko's voice.
+# a starting point, not a finding about the owner's voice.
 CONVERSE = 0.45      # rejects the clearly-different voices, keeps her responsive
 WRITE = 0.72         # above the observed impostor, below enrolment self-similarity
 

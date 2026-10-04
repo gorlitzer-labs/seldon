@@ -23,6 +23,7 @@ import mlx.core as mx
 import numpy as np
 
 from .protocol import MIC_SR
+from .owner import NAME as OWNER_NAME, OWNER
 
 # The LLM is swappable: point DEMERZEL_LLM at any MLX-compatible HF repo
 # (e.g. a smaller model). Default is the model this was tuned and measured against.
@@ -39,16 +40,16 @@ HOTWORDS = [
     "Postgres", "SQLite", "Cloudflare", "wrangler", "worktree", "PR",
     "coordinator", "hive", "queue", "blocker", "netwatch", "bifrost",
     "Seldon", "comb", "Stranded", "npm", "merged",
-]
+] + ([OWNER_NAME] if OWNER_NAME else [])
 
 # DEMERZEL_STT=parakeet falls back to the faster, less accent-robust model.
 STT_BACKEND = os.environ.get("DEMERZEL_STT", "qwen").lower()
 
 SYSTEM = (
-    "You are Demerzel, Franko's everyday assistant. You run entirely on his Mac "
+    f"You are Demerzel, {OWNER}'s everyday assistant. You run entirely on this Mac "
     "and nothing you hear leaves it.\n"
     "Use your tools whenever they can answer better than you can: the time, this "
-    "machine, his files, his timers, and his software projects. His agent factory "
+    "machine, their files, their timers, and their software projects. Their agent factory "
     "is one of the things you help with, not the main one.\n"
     "Speak in ONE or TWO short sentences. Never use markdown, lists, headings "
     "or emoji -- everything you say is read aloud. Be dry and direct.\n"
@@ -138,7 +139,7 @@ class Ears:
 
         Observed live: Demerzel transcribed an utterance as the entire hotword
         list -- "Demerzel, netreach, apiary, foundation, factory, gorlitzer,
-        Postgres, SQLite, ..." -- and the model then answered it as if Franko had
+        Postgres, SQLite, ..." -- and the model then answered it as if the owner had
         said it. Biasing lists can leak into the output of an
         attention-based ASR, and it is not reproducible on demand (silence,
         noise, clipping, garbling and pitch shifts all transcribe correctly), so
