@@ -7,14 +7,18 @@ import { countByState } from "./lanes.mjs";
 
 const URGENT = ["needs-you", "working", "running"];
 
-export function buildRows(groups, hives = [], sameDir = (a, b) => a === b) {
+// `here` is the repo seldon was opened in: always listed, first among the quiet ones, so a
+// fresh repo with no agents yet can still get its first lane.
+export function buildRows(groups, hives = [], sameDir = (a, b) => a === b, here = null) {
   const projects = groups.map((g) => ({ ...g, hive: hives.find((h) => sameDir(h.dir, g.root)) || null }));
   for (const h of hives) {
     if (!projects.some((p) => sameDir(p.root, h.dir))) projects.push({ root: h.dir, name: h.name, lanes: [], hive: h });
   }
+  if (here && !projects.some((p) => sameDir(p.root, here))) projects.push({ root: here, name: here.split("/").pop() || here, lanes: [], hive: null });
   // Active projects keep the urgency order groupByProject gave them; idle registered ones follow.
   const active = projects.filter((p) => p.lanes.some((l) => URGENT.includes(l.state)));
-  const rest = projects.filter((p) => !active.includes(p)).sort((a, b) => a.name.localeCompare(b.name));
+  const isHere = (p) => !!here && sameDir(p.root, here);
+  const rest = projects.filter((p) => !active.includes(p)).sort((a, b) => isHere(b) - isHere(a) || a.name.localeCompare(b.name));
   const rows = [];
   for (const p of [...active, ...rest]) {
     rows.push({ type: "project", project: p });

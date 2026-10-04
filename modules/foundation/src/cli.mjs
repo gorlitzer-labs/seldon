@@ -39,6 +39,7 @@ function help() {
     `  ${c.cyan("task")} <phase> <token> --done  Flip one checkbox; recompute phase progress`,
     `  ${c.cyan("queue")} "(P1) <text>"          Append an inbound item to QUEUE.md (stamped: who + when)`,
     `  ${c.cyan("queue")} --stamp                Backfill provenance on items that predate it, as "unverified"`,
+    `  ${c.cyan("queue")} --list [--json]        The open items (--json: for tools, e.g. seldon's plan screen)`,
     `  ${c.cyan("stream")} <id> <status> [note]  Upsert one WORKSTREAMS row (your lane)`,
     `  ${c.cyan("done")} "<task>" <ref> [date]   Append a PR-cited line to DONE.md`,
     `  ${c.cyan("fact")} <id> "<claim>" [--verify <cmd>] [--by <who>]`,

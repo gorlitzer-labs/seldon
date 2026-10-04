@@ -8,8 +8,8 @@ import fs from "node:fs";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
 import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
-import { readLanes } from "../lib/agents.mjs";
-import { openCommand } from "../lib/lanes.mjs";
+import { readLanes, readPlan, addToPlan, run as runCmd, runSteps, projectRoot, harnessBins, recordLane } from "../lib/agents.mjs";
+import { openCommand, stopCommand, startCommands, slugify, laneForItem, HARNESSES } from "../lib/lanes.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -376,7 +376,7 @@ function confirm(question) {
   return new Promise((resolve) => {
     if (!process.stdin.isTTY) return resolve(true); // non-interactive: assume yes (paired with an explicit ids/--all)
     process.stdout.write(question);
-    readline.emitKeypressEvents(process.stdin);
+    readline.emitKeypressEvents(process.stdin, KEYS);
     process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.ref();  // a prior picker/prompt may have unref'd stdin; without
@@ -398,7 +398,7 @@ function readKey(question) {
   return new Promise((resolve) => {
     if (!process.stdin.isTTY) return resolve("");
     process.stdout.write(question);
-    readline.emitKeypressEvents(process.stdin);
+    readline.emitKeypressEvents(process.stdin, KEYS);
     process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.ref();
@@ -865,6 +865,12 @@ function dockerState() {
 
 
 
+// readline waits 500ms after Esc to tell a bare Esc from an Alt-sequence, so Esc then a quick
+// key read as Alt+key and the screen ignored both. 50ms still catches real escape sequences,
+// which a terminal sends in one write. Whichever emitKeypressEvents call runs first wins, so
+// every caller passes this.
+const KEYS = { escapeCodeTimeout: 50 };
+
 // ---- raw-terminal plumbing, once ---------------------------------------------
 // Both interactive screens (the install picker and the panel) need the same four-step dance,
 // and the pause/unref at the end is load-bearing: emitKeypressEvents resumes stdin, and
@@ -875,7 +881,7 @@ function dockerState() {
 function rawSession({ draw, onKey }) {
   let done = null;
   const listen = () => {
-    readline.emitKeypressEvents(process.stdin);
+    readline.emitKeypressEvents(process.stdin, KEYS);
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.on("keypress", handler);
@@ -886,7 +892,11 @@ function rawSession({ draw, onKey }) {
     process.stdin.pause();
     process.stdin.unref();
   };
-  const handler = (str, key) => onKey(str, key, api);
+  // Keys are handled one at a time, in order. A handler can take a while (it may spawn a CLI),
+  // and keys typed meanwhile used to run concurrently with it — Esc and the next prompt raced
+  // the first, leaving a stale screen and dropped characters.
+  let chain = Promise.resolve();
+  const handler = (str, key) => { chain = chain.then(() => onKey(str, key, api)).catch(() => {}); };
   const api = {
     draw: () => draw(api),
     finish: (v) => { release(); readline.cursorTo(process.stdout, 0); readline.clearScreenDown(process.stdout); done(v); },
@@ -912,28 +922,33 @@ async function panel() {
   ensureSiblingPath();
   let groups = [], state = null, rows = [], cur = 0, note = "";
   let lastState = 0;
+  // What the screen is doing: the home list, a project's plan, a line of text being typed, or
+  // picking which agent starts a lane. One at a time; esc always goes back to home.
+  let mode = { name: "home" };
+  let armedStop = null;                       // { key, at } — stop needs a second x within 3s
+  const here = projectRoot(process.cwd());     // the repo seldon was opened in is always listed
   const load = (force = false) => {
     groups = readLanes();
     if (force || Date.now() - lastState > 10_000) { state = has("factory") ? loadState() : null; lastState = Date.now(); }
     const prev = rows[cur];
-    rows = buildRows(groups, state?.hives || [], sameDir);
+    rows = buildRows(groups, state?.hives || [], sameDir, here);
     // Keep the cursor on the same thing across a refresh, not the same row number.
     const keep = prev && rows.findIndex((r) => r.type === prev.type && (r.type === "lane" ? r.lane.key === prev.lane.key : r.project.root === prev.project.root));
     cur = keep >= 0 ? keep : Math.min(cur, Math.max(0, rows.length - 1));
   };
+  const allLanes = () => groups.flatMap((g) => g.lanes);
 
   const svc = (label, on) => (on ? C.green("●") : C.dim("○")) + " " + label;
   const tint = { "needs-you": C.gold, working: C.green, running: C.green, idle: C.dim, failed: C.red, stopped: C.dim };
+  const laneCells = (l, sel) => {
+    const color = tint[l.state] || ((x) => x);
+    return `${color(GLYPH[l.state] || "?")} ${pad((l.name || l.id || "?").slice(0, 26), 26, sel ? C.bold : (x) => x)} ${pad(l.harness, 9, C.dim)} ${pad(laneDetail(l).slice(0, 40), 40, color)} ${C.dim(ago(l.startedAt))}`;
+  };
 
-  const draw = () => {
-    const out = [""];
-    out.push("  " + C.gold(C.bold("SELDON")) + "   " + headline(groups) + "   " + C.dim([
-      svc("supervisor", !!daemonUp("factory-watch")), svc("voice", !!daemonUp("demerzel")),
-    ].join("  ")));
-    out.push("");
+  const drawHome = (out) => {
     if (!rows.length) {
       out.push(C.dim("  no agents running and no projects yet."));
-      out.push("  " + C.cyan("claude --bg \"<task>\"") + C.dim("  in a repo, or  ") + C.cyan("cd <repo> && seldon go"));
+      out.push("  " + C.cyan("cd <repo> && seldon") + C.dim(", then ") + C.cyan("n") + C.dim(" starts an agent on a task"));
     }
     rows.forEach((r, i) => {
       const sel = i === cur;
@@ -946,19 +961,58 @@ async function panel() {
         out.push(`  ${cursor} ${pad(p.name, 22, C.bold)} ${plan}${others.length ? C.green("  agents: " + others.join(", ")) : ""}${why}`);
         if (sel) out.push(`      ${C.dim(p.root)}`);
       } else {
-        const l = r.lane;
-        const color = tint[l.state] || ((x) => x);
-        const name = pad((l.name || l.id || "?").slice(0, 26), 26, sel ? C.bold : (x) => x);
-        out.push(`  ${cursor}   ${color(GLYPH[l.state] || "?")} ${name} ${pad(l.harness, 9, C.dim)} ${pad(laneDetail(l).slice(0, 40), 40, color)} ${C.dim(ago(l.startedAt))}`);
-        if (sel && l.cwd !== r.project.root) out.push(`        ${C.dim(l.cwd)}`);
+        out.push(`  ${cursor}   ${laneCells(r.lane, sel)}`);
+        if (sel && r.lane.cwd !== r.project.root) out.push(`        ${C.dim(r.lane.cwd)}`);
       }
     });
-    out.push("");
     const sel = rows[cur];
+    out.push("");
     out.push("  " + C.dim(sel?.type === "lane"
-      ? "↑↓ move · ⏎ open this agent · r refresh · q quit"
-      : "↑↓ move · ⏎ go (staff + attach) · s staff · a room · b board · r refresh · q quit"));
+      ? "↑↓ move · ⏎ open · x stop · n new lane · p plan · r refresh · q quit"
+      : "↑↓ move · n new lane · p plan · ⏎ go (staff + room) · s staff · a room · b board · q quit"));
     out.push("  " + C.dim("U start stack · D stop stack · i install"));
+  };
+
+  const drawPlan = (out) => {
+    const { project, items } = mode;
+    out.push(`  ${C.bold("PLAN")} ${C.dim("·")} ${C.bold(project.name)}   ${C.dim(items ? `${items.length} open` : "")}`);
+    out.push("");
+    if (items === null) out.push(C.dim("  no plan here — needs foundation ≥ 0.3 and docs/QUEUE.md (") + C.cyan("foundation init") + C.dim(")"));
+    else if (!items.length) out.push(C.dim("  the plan is empty — ") + C.cyan("a") + C.dim(" adds an item"));
+    (items || []).forEach((it, i) => {
+      const sel = i === mode.cur;
+      const lane = laneForItem(it, allLanes());
+      const tag = lane ? (tint[lane.state] || ((x) => x))(`${GLYPH[lane.state]} ${lane.harness} ${laneDetail(lane)}`) : C.dim("— no lane");
+      out.push(`  ${sel ? C.gold("❯") : " "} ${C.dim(`(${it.priority})`)} ${pad(it.text.slice(0, 60), 60, sel ? C.bold : (x) => x)} ${tag}`);
+    });
+    out.push("");
+    out.push("  " + C.dim("↑↓ move · ⏎ start a lane on it · a add an item · esc back"));
+  };
+
+  const drawInput = (out) => {
+    out.push(`  ${C.bold(mode.title)}`);
+    out.push("");
+    out.push(`  ${mode.prompt} ${mode.buf}${C.gold("▏")}`);
+    out.push("");
+    out.push("  " + C.dim("⏎ ok · esc cancel"));
+  };
+
+  const drawHarness = (out) => {
+    out.push(`  ${C.bold("NEW LANE")} ${C.dim("·")} ${C.bold(mode.project.name)}`);
+    out.push("");
+    out.push(`  task   ${mode.task}`);
+    out.push(`  agent  ${HARNESSES.map((h, i) => `${C.cyan(String(i + 1))} ${h}`).join("   ")}`);
+    out.push("");
+    out.push("  " + C.dim("⏎ claude · 1/2/3 pick · esc cancel   (each lane gets its own branch + worktree)"));
+  };
+
+  const draw = () => {
+    const out = [""];
+    out.push("  " + C.gold(C.bold("SELDON")) + "   " + headline(groups) + "   " + C.dim([
+      svc("supervisor", !!daemonUp("factory-watch")), svc("voice", !!daemonUp("demerzel")),
+    ].join("  ")));
+    out.push("");
+    ({ home: drawHome, plan: drawPlan, input: drawInput, harness: drawHarness })[mode.name](out);
     if (note) out.push("\n  " + note);
     clearScreen();
     process.stdout.write(out.join("\n") + "\n");
@@ -973,14 +1027,58 @@ async function panel() {
   const stopTimer = () => { clearInterval(timer); timer = null; };
   startTimer();
 
-  // Hand the terminal to an agent, then come back to a fresh frame.
-  const runOwned = async (api, fn) => { stopTimer(); try { await api.suspend(fn); } finally { load(true); startTimer(); } };
+  // Hand the terminal to something that needs it, then come back to a fresh frame.
+  const runOwned = async (api, fn) => { stopTimer(); try { return await api.suspend(fn); } finally { load(true); startTimer(); } };
 
-  await rawSession({
-    draw,
-    onKey: async (str, key, api) => {
+  const openPlan = (project) => { mode = { name: "plan", project, items: readPlan(project.root), cur: 0 }; };
+  const ask = (title, prompt, then) => { mode = { name: "input", title, prompt, buf: "", then }; };
+  const pickHarness = (project, task) => { mode = { name: "harness", project, task }; };
+
+  const startLane = async (api, project, task, harness) => {
+    const slug = slugify(task);
+    const bins = harnessBins();
+    if (!bins[harness]) { note = C.red(`${harness} is not installed`) + C.dim(" (not on PATH)"); mode = { name: "home" }; return; }
+    const cmds = startCommands({ harness, task, root: project.root, slug, worktreesDir: path.join(SELDON_HOME, "worktrees", project.name), bins, env: { PATH: process.env.PATH } });
+    const r = await runOwned(api, () => runSteps(cmds));
+    const session = cmds.find((c) => c.session)?.session;
+    if (r.ok && session) recordLane({ session, harness, task, slug, root: project.root, worktree: cmds.find((c) => c.session).cwd, startedAt: Date.now() });
+    note = r.ok ? C.green(`started ${slug} (${harness})`) + C.dim(" — it shows up here in a moment") : C.red(`could not start ${slug}: `) + r.error;
+    mode = { name: "home" };
+  };
+
+  const keys = {
+    input: async (str, key) => {
+      if (key.name === "escape") mode = { name: "home" };
+      else if (key.name === "return") { const t = mode.buf.trim(); const then = mode.then; mode = { name: "home" }; if (t) await then(t); }
+      else if (key.name === "backspace") mode.buf = mode.buf.slice(0, -1);
+      else if (str && !key.ctrl && !key.meta && str >= " ") mode.buf += str;
+    },
+    harness: async (str, key, api) => {
+      if (key.name === "escape") { mode = { name: "home" }; return; }
+      const i = key.name === "return" ? 0 : "123".indexOf(str);
+      if (i >= 0) await startLane(api, mode.project, mode.task, HARNESSES[i]);
+    },
+    plan: async (str, key) => {
+      const items = mode.items || [];
+      if (key.name === "escape" || str === "q") mode = { name: "home" };
+      else if (key.name === "up" || str === "k") mode.cur = Math.max(0, mode.cur - 1);
+      else if (key.name === "down" || str === "j") mode.cur = Math.min(Math.max(0, items.length - 1), mode.cur + 1);
+      else if (str === "a") {
+        const project = mode.project;
+        ask(`ADD TO PLAN · ${project.name}`, "(P2) ›", (text) => {
+          const r = addToPlan(project.root, text);
+          openPlan(project);
+          note = r.ok ? C.green("added") : C.red("could not add: ") + r.error;
+        });
+      } else if (key.name === "return" && items[mode.cur]) {
+        const it = items[mode.cur];
+        const lane = laneForItem(it, allLanes());
+        if (lane) note = C.dim(`already has a lane: ${lane.name} (${lane.harness}, ${laneDetail(lane)})`);
+        else pickHarness(mode.project, it.text);
+      }
+    },
+    home: async (str, key, api) => {
       const r = rows[cur];
-      note = "";
       if (key.name === "up" || str === "k") cur = (cur - 1 + (rows.length || 1)) % (rows.length || 1);
       else if (key.name === "down" || str === "j") cur = (cur + 1) % (rows.length || 1);
       else if (str === "q" || key.name === "escape" || (key.ctrl && key.name === "c")) { stopTimer(); return api.finish(); }
@@ -989,11 +1087,21 @@ async function panel() {
       else if (str === "U") await runOwned(api, () => up());
       else if (str === "D") await runOwned(api, () => down());
       else if (!r) { /* nothing selected */ }
+      else if (str === "n") { const p = r.project; ask(`NEW LANE · ${p.name}`, "task ›", (task) => pickHarness(p, task)); }
+      else if (str === "p") openPlan(r.project);
       else if (r.type === "lane") {
         if (key.name === "return") {
           const how = openCommand(r.lane);
           if (how.why) note = C.gold(`can't open ${r.lane.name || "this agent"}: `) + how.why;
           else await runOwned(api, () => spawnSync(how.bin, how.args, { stdio: "inherit", cwd: how.cwd }));
+        } else if (str === "x") {
+          const how = stopCommand(r.lane);
+          if (how.why) note = C.gold(`can't stop ${r.lane.name || "this agent"}: `) + how.why;
+          else if (armedStop?.key === r.lane.key && Date.now() - armedStop.at < 3000) {
+            armedStop = null;
+            const res = await runOwned(api, () => runCmd(how));
+            note = res.ok ? C.dim(`stopped ${r.lane.name}`) : C.red(`could not stop: ${res.error}`);
+          } else { armedStop = { key: r.lane.key, at: Date.now() }; note = C.gold(`press x again to stop ${r.lane.name}`); }
         }
       } else {
         const p = r.project;
@@ -1003,6 +1111,16 @@ async function panel() {
         else if (str === "b") await runOwned(api, () => spawnSync("factory", ["board"], { stdio: "inherit" }));
         else if (str === "s") await runOwned(api, () => { fStaff(p.root); });
       }
+    },
+  };
+
+  await rawSession({
+    draw,
+    onKey: async (str, key, api) => {
+      if (mode.name === "home" && note && !note.includes("press x again")) note = "";
+      if (key.ctrl && key.name === "c") { stopTimer(); return api.finish(); }
+      const done = await keys[mode.name](str, key, api);
+      if (done !== undefined) return done;
       api.draw();
     },
   });

@@ -109,3 +109,53 @@ describe("openCommand", () => {
     assert.ok(openCommand({ harness: "claude", state: "working", pid: 3 }).why);
   });
 });
+
+import { slugify, startCommands, stopCommand, laneForItem } from "../lib/lanes.mjs";
+
+describe("starting and stopping lanes", () => {
+  test("slugs are kebab, bounded, never empty", () => {
+    assert.equal(slugify("Port the bloom shader to Metal!"), "port-the-bloom-shader-to-metal");
+    assert.ok(slugify("x".repeat(80)).length <= 40);
+    assert.equal(slugify("!!!"), "lane");
+  });
+
+  test("Claude starts in the background, in its own worktree, named after the task", () => {
+    assert.deepEqual(startCommands({ harness: "claude", task: "fix it", root: "/r/a", slug: "fix-it" }),
+      [{ bin: "claude", args: ["--bg", "-w", "fix-it", "-n", "fix-it", "fix it"], cwd: "/r/a" }]);
+  });
+
+  test("Codex and opencode get a seldon worktree outside the repo and a tmux session", () => {
+    const [wt, run] = startCommands({ harness: "codex", task: "fix it", root: "/r/a", slug: "fix-it", worktreesDir: "/h/.seldon/worktrees/a" });
+    assert.deepEqual(wt.args, ["-C", "/r/a", "worktree", "add", "-b", "lane/fix-it", "/h/.seldon/worktrees/a/fix-it"]);
+    assert.deepEqual(run.args.slice(0, 6), ["new-session", "-d", "-s", "seldon_fix-it", "-c", "/h/.seldon/worktrees/a/fix-it"]);
+    assert.deepEqual(run.args.slice(6), ["codex", "-C", "/h/.seldon/worktrees/a/fix-it", "fix it"]);
+    const oc = startCommands({ harness: "opencode", task: "t", root: "/r", slug: "t", worktreesDir: "/w" })[1];
+    assert.deepEqual(oc.args.slice(6), ["opencode", "/w/t", "--prompt", "t"]);
+  });
+
+  test("stop: background Claude by id, tmux lanes by session, anything else says why", () => {
+    assert.deepEqual(stopCommand({ harness: "claude", id: "ab" }), { bin: "claude", args: ["stop", "ab"] });
+    assert.deepEqual(stopCommand({ harness: "codex", tmuxSession: "seldon_x" }), { bin: "tmux", args: ["kill-session", "-t", "seldon_x"] });
+    assert.ok(stopCommand({ harness: "claude", pid: 3, tmuxSession: "work" }).why, "never kills a human's tmux session hosting claude");
+  });
+
+  test("a plan item finds the lane started for it", () => {
+    const lanes = [{ name: "other" }, { name: "x", cwd: "/r/a/.claude/worktrees/port-bloom" }, { tmuxSession: "seldon_fix-crash" }];
+    assert.equal(laneForItem({ text: "Port bloom" }, lanes), lanes[1]);
+    assert.equal(laneForItem({ text: "fix crash" }, lanes), lanes[2]);
+    assert.equal(laneForItem({ text: "nothing" }, lanes), null);
+  });
+});
+
+test("tmux lanes get the agent's absolute path and seldon's PATH (tmux uses the server's env otherwise)", () => {
+  const [, run] = startCommands({ harness: "opencode", task: "t", root: "/r", slug: "t", worktreesDir: "/w", bins: { opencode: "/opt/bin/opencode" }, env: { PATH: "/opt/bin:/usr/bin" } });
+  assert.deepEqual(run.args, ["new-session", "-d", "-s", "seldon_t", "-c", "/w/t", "-e", "PATH=/opt/bin:/usr/bin", "/opt/bin/opencode", "/w/t", "--prompt", "t"]);
+  assert.equal(run.session, "seldon_t");
+  assert.deepEqual(run.agent, ["/opt/bin/opencode", "/w/t", "--prompt", "t"]);
+});
+
+test("a known session is a lane whatever its pane runs (npm codex shows as node)", () => {
+  const panes = parseTmuxPanes("seldon_fix|700|node|/w/fix\nother|701|node|/x");
+  const ls = tmuxLanes(panes, { seldon_fix: { harness: "codex", startedAt: 5 } });
+  assert.deepEqual(ls.map((l) => [l.harness, l.name, l.startedAt]), [["codex", "fix", 5]]);
+});

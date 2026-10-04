@@ -29,7 +29,20 @@ export async function task(root, pos, flags) {
 }
 
 // ── queue: append an inbound item under ## Queue ───────────────────────────────
-export async function queue(root, pos, _flags) {
+// ── queue --list: the open plan, for people and for tools ─────────────────────
+// The one reader of QUEUE.md other tools should use (seldon's plan screen does), so the
+// grammar has a single parser. --json prints [{priority, text, id, section, added, by}].
+export function listQueue(root, flags = {}) {
+  const { items } = seam.parseQueue(read(docs(root, "QUEUE.md")) ?? "");
+  const open = items.filter((i) => !i.done)
+    .map(({ priority, text, id, section, added, by }) => ({ priority, text, id, section, added, by }));
+  if (flags.json) { process.stdout.write(JSON.stringify(open) + "\n"); return; }
+  if (!open.length) { info("the queue is empty"); return; }
+  for (const i of open) say(`(${i.priority}) ${i.text}`);
+}
+
+export async function queue(root, pos, flags) {
+  if (flags.list || flags.json) return listQueue(root, flags);
   let raw = pos.join(" ").trim();
   const m = raw.match(/^\(?(P[123])\)?\s+(.+)$/);
   if (!m) throw new Error('usage: foundation queue "(P1) <text>"');
