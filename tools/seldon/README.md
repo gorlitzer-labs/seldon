@@ -76,6 +76,26 @@ Two things it fixes that bit repeatedly:
 - **Siblings resolve.** `go` and the panel prepend seldon's own install folder to `PATH`, so
   `factory: command not found` stops happening in non-interactive shells.
 
+## The watcher — `seldon watch`
+
+`seldon up` starts it; `seldon down` stops it. Every 5 seconds it reads the same lanes the
+panel shows and sends a desktop notification **once** when an agent starts waiting on you,
+fails, or finishes a piece of work. It is plain code: no tokens, and it never types into an
+agent or posts into a room. `seldon watch` runs it in the foreground (`--interval 2s`,
+`--once`).
+
+## After a reboot
+
+Claude lanes come back with Claude's own supervisor. A Codex or opencode lane whose tmux
+session is gone (and that you did not stop with `x x`) shows as **stopped**; `R` on it brings
+it back, and `R` on a project brings back all of its stopped lanes:
+
+- Claude: `claude respawn` — the same conversation.
+- Codex: `codex resume --last` in the lane's own worktree — the same conversation (Codex scopes
+  `--last` to the directory, and every lane has its own).
+- opencode: a new conversation on the same task in the same worktree; the work on disk is kept.
+  (Its "continue" is per project and could pick up a sibling lane's conversation.)
+
 ## Holds — taking turns on shared things
 
 Agents on different projects share one machine: one boots the Android emulator, another

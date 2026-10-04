@@ -184,3 +184,60 @@ export function laneForItem(item, lanes) {
   const slug = slugify(item.text);
   return lanes.find((l) => l.name === slug || l.tmuxSession === `seldon_${slug}` || (l.cwd || "").split("/").pop() === slug) || null;
 }
+
+// ---- after a reboot ---------------------------------------------------------------
+// A tmux lane seldon started, whose session is gone, and that nobody stopped on purpose,
+// died with the machine (or crashed). It is listed as stopped so it can be resumed.
+export function registryLanes(entries, liveSessions) {
+  const live = new Set(liveSessions);
+  return (entries || []).filter((e) => e.session && !e.stoppedAt && !live.has(e.session)).map((e) => ({
+    harness: e.harness,
+    key: `tmux:${e.session}`,
+    id: null,
+    sessionId: null,
+    pid: null,
+    name: e.slug || e.session.replace(/^seldon_/, ""),
+    cwd: e.worktree,
+    kind: "tmux",
+    startedAt: e.startedAt ?? null,
+    state: "stopped",
+    waitingFor: null,
+    tmuxSession: e.session,
+    task: e.task,
+  }));
+}
+
+// How to bring a stopped lane back.
+//   claude:   `claude respawn <id>` resumes its saved conversation.
+//   codex:    `codex resume --last` is scoped to the current directory, and every lane has its
+//             own worktree, so it picks up exactly this lane's conversation.
+//   opencode: its "continue" is per project, and worktrees share one, so it could pick up a
+//             sibling lane's conversation. It is restarted on the same task in the same
+//             worktree instead (the work on disk is kept) — and says so.
+export function resumeCommands(lane, { bins = {}, env = {} } = {}) {
+  if (lane.harness === "claude" && lane.id) return { cmds: [{ bin: bins.claude || "claude", args: ["respawn", lane.id] }] };
+  if (!lane.tmuxSession || !lane.cwd || !["codex", "opencode"].includes(lane.harness)) return { why: "seldon did not start it, so it cannot restart it" };
+  const bin = bins[lane.harness] || lane.harness;
+  const agent = lane.harness === "codex" ? [bin, "resume", "--last"] : [bin, lane.cwd, "--prompt", lane.task || "continue where you left off"];
+  const envArgs = env.PATH ? ["-e", `PATH=${env.PATH}`] : [];
+  return {
+    cmds: [{ bin: "tmux", args: ["new-session", "-d", "-s", lane.tmuxSession, "-c", lane.cwd, ...envArgs, ...agent], session: lane.tmuxSession, agent, cwd: lane.cwd }],
+    fresh: lane.harness === "opencode",
+  };
+}
+
+// ---- telling the human ----------------------------------------------------------------
+// What changed since the last look that a person should hear about: an agent that starts
+// waiting on them, fails, or finishes. Only TRANSITIONS — a lane that stays blocked is not
+// re-announced every tick, and a lane seen for the first time is not news.
+const NEWS = { "needs-you": "needs you", failed: "failed", idle: "finished" };
+export function transitions(prev, lanes) {
+  const events = [];
+  for (const l of lanes) {
+    const was = prev.get(l.key);
+    if (was === undefined || was === l.state || !NEWS[l.state]) continue;
+    if (l.state === "idle" && !["working", "running"].includes(was)) continue;   // only work that just ended
+    events.push({ lane: l, from: was, to: l.state, text: `${l.name || l.id} ${NEWS[l.state]}${l.state === "needs-you" && l.waitingFor ? `: ${l.waitingFor}` : ""}` });
+  }
+  return events;
+}
