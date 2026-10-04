@@ -10,7 +10,7 @@ export const MODULES = [
   {
     id: "apiary",
     title: "the conversation",
-    blurb: "shared rooms where AI agents talk, coordinate, hand off",
+    blurb: "add-on · rooms where agents talk to each other (MCP, tmux)",
     method: "npm",
     pkg: "@gorlitzer-labs/apiary",
     dir: "modules/apiary",
@@ -22,7 +22,7 @@ export const MODULES = [
   {
     id: "foundation",
     title: "the seam",
-    blurb: "the deterministic project workflow beneath it all",
+    blurb: "the plan · docs/QUEUE.md + a deterministic CLI · recommended",
     method: "npm",
     pkg: "@gorlitzer-labs/foundation",
     dir: "modules/foundation",
@@ -34,7 +34,7 @@ export const MODULES = [
   {
     id: "comb",
     title: "the vault",
-    blurb: "keys by name; a leak audit; multi-machine secrets (SOPS + age)",
+    blurb: "add-on · secrets by name; a leak audit; multi-machine (SOPS + age)",
     method: "npm",
     pkg: "@gorlitzer-labs/comb",
     dir: "modules/comb",
@@ -46,7 +46,7 @@ export const MODULES = [
   {
     id: "factory",
     title: "the floor",
-    blurb: "the 24/7 supervisor — new · watch · board · box · realms",
+    blurb: "add-on · projects run through apiary rooms · new · board · box",
     method: "npm",
     pkg: "@gorlitzer-labs/factory",
     dir: "modules/factory",
@@ -58,7 +58,7 @@ export const MODULES = [
   {
     id: "bifrost",
     title: "the bridge",
-    blurb: "tmux + Tailscale; sessions survive; phone access; agent state",
+    blurb: "add-on · tmux + Tailscale across machines; phone access",
     method: "shell",
     dir: "modules/bifrost",
     installer: "modules/bifrost/install.sh",
@@ -70,7 +70,7 @@ export const MODULES = [
   {
     id: "demerzel",
     title: "the voice",
-    blurb: "a fully-local voice you talk to (MLX, Apple silicon)",
+    blurb: "add-on · a fully-local voice you talk to (MLX, Apple silicon)",
     method: "python",
     dir: "modules/demerzel",
     bin: "demerzel",

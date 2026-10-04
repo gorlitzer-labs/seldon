@@ -989,6 +989,7 @@ async function panel() {
     if (!rows.length) {
       out.push(C.dim("  no agents running and no projects yet."));
       out.push("  " + C.cyan("cd <repo> && seldon") + C.dim(", then ") + C.cyan("n") + C.dim(" starts an agent on a task"));
+      out.push(C.dim("  add-ons (rooms, voice, secrets, plans): ") + C.cyan("seldon install"));
     }
     rows.forEach((r, i) => {
       const sel = i === cur;
@@ -1362,7 +1363,9 @@ function tui() {
   const rows = MODULES.map((m) => ({
     m,
     installed: moduleInstalled(m),
-    on: platformOk(m) && (anyInstalled ? moduleInstalled(m) : ["apiary", "foundation", "factory"].includes(m.id)),
+    // seldon itself runs your agents; foundation adds the plan. Everything else is an add-on
+    // you choose on purpose, so a fresh machine starts with just that.
+    on: platformOk(m) && (anyInstalled ? moduleInstalled(m) : m.id === "foundation"),
   }));
   let cur = 0;
   const methodTag = (m) => ({ npm: "npm", shell: "shell", python: "python" }[m.method]);
@@ -1370,7 +1373,7 @@ function tui() {
     draw: () => {
       const out = [];
       BANNER.forEach((l) => out.push(C.gold(l)));
-      out.push(C.dim("  the AI-agent-factory stack — pick your tools  ") + C.green("✓ = installed"));
+      out.push(C.dim("  seldon runs your agents on its own · foundation adds the plan · the rest are add-ons  ") + C.green("✓ = installed"));
       out.push(C.dim("  ↑↓ move · space toggle · a all · enter install · q quit\n"));
       rows.forEach((r, i) => {
         const sel = r.on ? C.green("[x]") : "[ ]";
@@ -1693,11 +1696,9 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "install") return install_picker({ dev });   // `install` with no ids
 
   // ---- bare `seldon` ----------------------------------------------------------
-  // The checklist is a screen you need once per machine; the panel is the one you need every
-  // day. So the default is state-aware, like everything else here: nothing installed yet means
-  // you came to install, anything else means you came to work.
-  const cold = !MODULES.some((m) => moduleInstalled(m));
-  if (cold) return install_picker({ dev });
+  // Always the panel. It needs nothing else installed — it reads Claude, Codex and opencode
+  // directly — so a fresh machine is not sent to a checklist first; that made the add-ons look
+  // required. `seldon install` is the checklist.
   if (!process.stdin.isTTY) {
     // No terminal to draw on (a script, a hook, an agent's shell) — answer the same question
     // in text: every agent and every project, the same rows the panel draws.
