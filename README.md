@@ -108,25 +108,27 @@ cd ~/my-project && seldon go
 step is idempotent, so running it twice is safe and running it on a cold boot does all
 of them. It never asks a question it can answer by looking.
 
-Without arguments, from anywhere, `seldon` shows every project at once:
+Without arguments, from anywhere, `seldon` shows every coding agent on the machine — Claude
+Code, Codex and opencode — under the project it works on, the ones waiting on you first:
 
 ```text
-  SELDON   the agent factory — your projects
-  ○ voice   ● supervisor   ● docker
+  SELDON   1 need you · 2 working · 1 idle   ● supervisor  ○ voice
 
-  ❯ ● stranded         Coordinator            queue 5 · 2 done · 2 lanes
-        /Users/you/Desktop/stranded
-    ● anatomy          no agent               queue 0 · 0 done · 0 lanes
-        needs you: hive is down
+  ❯ stranded               plan 5 · 2 done
+      ⚑ fix-save-crash             claude    needs you: permission prompt             2m
+      ● smoke-harness              codex     running (no state reported)              40m
+    weather                plan 2 · 0 done
+      ● add-cache                  claude    working                                  12m
+      ○ docs-pass                  claude    idle                                     1h
 
-  ↑↓ pick · ⏎ go (fix what's missing, then attach) · s staff · a attach · b board
-  U start stack · D stop stack · i install · r refresh · q quit
+  ↑↓ move · ⏎ go (staff + attach) · s staff · a room · b board · r refresh · q quit
+  U start stack · D stop stack · i install
 ```
 
-A **red** dot is a stopped room, **amber** needs you, **green** is working. "Needs you"
-includes the state that used to be invisible: *the room is open, there is work queued, and
-nobody is in there* — which is exactly what `factory adopt` leaves behind, since opening a
-room does not staff it.
+It updates live. `⏎` on an agent opens it (`claude attach`, or its tmux session); `⏎` on a
+project runs `seldon go`. Claude agents report their own state through `claude agents --json`;
+Codex and opencode show as *running* until their adapters land. An agent in a git worktree
+counts for the project it belongs to.
 
 | to… | run |
 |---|---|

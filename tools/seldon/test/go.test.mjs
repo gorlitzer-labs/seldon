@@ -44,7 +44,10 @@ exit 0
   writeFileSync(join(bin, "apiary"), `#!/bin/sh\necho "apiary $*" >> '${log}'\nexit 0\n`);
   // a tmux that reports no sessions: nothing is running anywhere
   writeFileSync(join(bin, "tmux"), `#!/bin/sh\nexit 1\n`);
-  for (const f of ["factory", "apiary", "tmux"]) chmodSync(join(bin, f), 0o755);
+  // a claude with no sessions: the panel reads lanes from \`claude agents --json\`, and the
+  // real one on the machine running the tests must not leak in
+  writeFileSync(join(bin, "claude"), `#!/bin/sh\necho '[]'\n`);
+  for (const f of ["factory", "apiary", "tmux", "claude"]) chmodSync(join(bin, f), 0o755);
   return { bin, home, log, calls: () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean) : []) };
 }
 

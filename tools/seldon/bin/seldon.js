@@ -7,7 +7,10 @@ import path from "node:path";
 import fs from "node:fs";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
-import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf } from "../lib/projects.mjs";
+import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
+import { readLanes } from "../lib/agents.mjs";
+import { openCommand } from "../lib/lanes.mjs";
+import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // The monorepo root when running from a checkout (tools/seldon/bin -> ../../..)
@@ -900,87 +903,106 @@ const clearScreen = () => { readline.cursorTo(process.stdout, 0, 0); readline.cl
 // cell out of line.
 const pad = (text, width, color = (x) => x) => color(String(text)) + " ".repeat(Math.max(0, width - String(text).length));
 
-// ---- the panel: everything, manageable ---------------------------------------
-// `seldon` on its own used to be the install checklist — a screen you need once per machine,
-// standing where the screen you need every day belongs. Now bare `seldon` is this: every
-// project on the line, what state it is in, and the key that fixes it. `seldon install` is
-// the picker, named for what it does.
+// ---- the panel: every agent, every project ------------------------------------
+// Bare `seldon` is this screen: every coding agent on this machine (Claude, Codex, opencode),
+// grouped by the project it works on, the ones waiting on you first. Lanes are read from the
+// harnesses themselves (lib/agents.mjs), not from rooms, so the panel works with or without
+// factory and apiary; when factory is there its projects and plans are shown too.
 async function panel() {
   ensureSiblingPath();
-  if (!needFactory()) return;
-  let state = loadState();
-  let cur = 0;
-  let note = "";
-  const refresh = () => { state = loadState(); if (cur >= (state?.hives.length || 0)) cur = Math.max(0, (state?.hives.length || 1) - 1); };
+  let groups = [], state = null, rows = [], cur = 0, note = "";
+  let lastState = 0;
+  const load = (force = false) => {
+    groups = readLanes();
+    if (force || Date.now() - lastState > 10_000) { state = has("factory") ? loadState() : null; lastState = Date.now(); }
+    const prev = rows[cur];
+    rows = buildRows(groups, state?.hives || [], sameDir);
+    // Keep the cursor on the same thing across a refresh, not the same row number.
+    const keep = prev && rows.findIndex((r) => r.type === prev.type && (r.type === "lane" ? r.lane.key === prev.lane.key : r.project.root === prev.project.root));
+    cur = keep >= 0 ? keep : Math.min(cur, Math.max(0, rows.length - 1));
+  };
 
-  const svc = (label, on, extra = "") =>
-    (on ? C.green("●") : C.dim("○")) + " " + label + (extra ? C.dim(" " + extra) : "");
+  const svc = (label, on) => (on ? C.green("●") : C.dim("○")) + " " + label;
+  const tint = { "needs-you": C.gold, working: C.green, running: C.green, idle: C.dim, failed: C.red, stopped: C.dim };
 
   const draw = () => {
-    const out = [];
-    const hives = state?.hives || [];
+    const out = [""];
+    out.push("  " + C.gold(C.bold("SELDON")) + "   " + headline(groups) + "   " + C.dim([
+      svc("supervisor", !!daemonUp("factory-watch")), svc("voice", !!daemonUp("demerzel")),
+    ].join("  ")));
     out.push("");
-    out.push("  " + C.gold(C.bold("SELDON")) + C.dim("   the agent factory — your projects"));
-    out.push("  " + [
-      svc("voice", !!daemonUp("demerzel")),
-      svc("supervisor", !!daemonUp("factory-watch")),
-      svc("docker", dockerState() === "up"),
-    ].join(C.dim("   ")));
-    out.push("");
-    if (!hives.length) {
-      out.push(C.dim("  nothing on the line yet."));
-      out.push("  " + C.cyan('factory new "<your idea>"') + C.dim("   a new project"));
-      out.push("  " + C.cyan("cd <repo> && seldon go") + C.dim("   a repo you already have"));
+    if (!rows.length) {
+      out.push(C.dim("  no agents running and no projects yet."));
+      out.push("  " + C.cyan("claude --bg \"<task>\"") + C.dim("  in a repo, or  ") + C.cyan("cd <repo> && seldon go"));
     }
-    hives.forEach((h, i) => {
-      const dot = !h.up ? C.red("●") : h.needsYou ? C.gold("●") : C.green("●");
-      const cursor = i === cur ? C.gold("❯") : " ";
-      const name = pad(h.name, 16, i === cur ? C.bold : (x) => x);
-      const who = h.agents?.length
-        ? pad(h.agents.join(", "), 22, C.green)
-        : pad("no agent", 22, C.dim);
-      out.push(`  ${cursor} ${dot} ${name} ${who} ${C.dim(`queue ${h.queueOpen} · ${h.done} done · ${h.lanes.length} lanes`)}`);
-      if (i === cur) {
-        out.push(`        ${C.dim(h.dir)}`);
-        if (h.why) out.push(`        ${C.gold("needs you: ")}${h.why}`);
-        for (const n of (h.next || []).slice(0, 2)) out.push(`        ${C.dim("next: " + n.slice(0, 84) + (n.length > 84 ? "…" : ""))}`);
+    rows.forEach((r, i) => {
+      const sel = i === cur;
+      const cursor = sel ? C.gold("❯") : " ";
+      if (r.type === "project") {
+        const p = r.project;
+        const plan = p.hive ? C.dim(`plan ${p.hive.queueOpen} · ${p.hive.done} done`) : "";
+        const why = p.hive?.needsYou && p.hive.why ? C.gold("  ⚑ " + p.hive.why) : "";
+        const others = unlistedAgents(p);
+        out.push(`  ${cursor} ${pad(p.name, 22, C.bold)} ${plan}${others.length ? C.green("  agents: " + others.join(", ")) : ""}${why}`);
+        if (sel) out.push(`      ${C.dim(p.root)}`);
+      } else {
+        const l = r.lane;
+        const color = tint[l.state] || ((x) => x);
+        const name = pad((l.name || l.id || "?").slice(0, 26), 26, sel ? C.bold : (x) => x);
+        out.push(`  ${cursor}   ${color(GLYPH[l.state] || "?")} ${name} ${pad(l.harness, 9, C.dim)} ${pad(laneDetail(l).slice(0, 40), 40, color)} ${C.dim(ago(l.startedAt))}`);
+        if (sel && l.cwd !== r.project.root) out.push(`        ${C.dim(l.cwd)}`);
       }
     });
-    const decisions = state?.decisions || [];
-    if (decisions.length) {
-      out.push("");
-      out.push("  " + C.gold(`⚑ ${decisions.length} decision(s) waiting on you`));
-      for (const d of decisions.slice(0, 3)) out.push(`    ${C.gold(d.id)} ${C.dim(`[${d.hive}]`)} ${d.text.replace(/^\w+:\s*/, "").slice(0, 70)}`);
-      out.push("    " + C.dim('answer: factory decide <id> "<your call>"'));
-    }
     out.push("");
-    out.push("  " + C.dim("↑↓ pick · ⏎ go (fix what's missing, then attach) · s staff · a attach · b board"));
-    out.push("  " + C.dim("U start stack · D stop stack · i install · r refresh · q quit"));
+    const sel = rows[cur];
+    out.push("  " + C.dim(sel?.type === "lane"
+      ? "↑↓ move · ⏎ open this agent · r refresh · q quit"
+      : "↑↓ move · ⏎ go (staff + attach) · s staff · a room · b board · r refresh · q quit"));
+    out.push("  " + C.dim("U start stack · D stop stack · i install"));
     if (note) out.push("\n  " + note);
     clearScreen();
     process.stdout.write(out.join("\n") + "\n");
   };
 
+  load(true);
+  // Live: lanes change on their own, so redraw without a keypress. Cheap — one
+  // `claude agents --json` and one `tmux list-panes` per tick.
+  let timer = null;
+  const tick = () => { try { load(); } catch { /* keep the last frame */ } draw(); };
+  const startTimer = () => { timer = setInterval(tick, 2000); };
+  const stopTimer = () => { clearInterval(timer); timer = null; };
+  startTimer();
+
+  // Hand the terminal to an agent, then come back to a fresh frame.
+  const runOwned = async (api, fn) => { stopTimer(); try { await api.suspend(fn); } finally { load(true); startTimer(); } };
+
   await rawSession({
     draw,
     onKey: async (str, key, api) => {
-      const hives = state?.hives || [];
-      const h = hives[cur];
+      const r = rows[cur];
       note = "";
-      if (key.name === "up") cur = (cur - 1 + (hives.length || 1)) % (hives.length || 1);
-      else if (key.name === "down") cur = (cur + 1) % (hives.length || 1);
-      else if (key.name === "q" || key.name === "escape" || (key.ctrl && key.name === "c")) return api.finish();
-      else if (key.name === "r") { refresh(); }
-      else if (str === "i") { api.finish(); return install_picker(); }
-      else if (!h) { /* nothing selected — the remaining keys need a project */ }
-      else if (key.name === "return") { api.finish(); return go(h.name); }
-      else if (str === "a") { api.finish(); return fAttach(h.name); }
-      else if (str === "b") { return api.suspend(() => spawnSync("factory", ["board"], { stdio: "inherit" })); }
-      else if (str === "s") {
-        await api.suspend(() => { fStaff(h.dir); });
-        refresh();
-      } else if (str === "U") { await api.suspend(() => up()); refresh(); }
-      else if (str === "D") { await api.suspend(() => down()); refresh(); }
+      if (key.name === "up" || str === "k") cur = (cur - 1 + (rows.length || 1)) % (rows.length || 1);
+      else if (key.name === "down" || str === "j") cur = (cur + 1) % (rows.length || 1);
+      else if (str === "q" || key.name === "escape" || (key.ctrl && key.name === "c")) { stopTimer(); return api.finish(); }
+      else if (str === "r") load(true);
+      else if (str === "i") { stopTimer(); api.finish(); return install_picker(); }
+      else if (str === "U") await runOwned(api, () => up());
+      else if (str === "D") await runOwned(api, () => down());
+      else if (!r) { /* nothing selected */ }
+      else if (r.type === "lane") {
+        if (key.name === "return") {
+          const how = openCommand(r.lane);
+          if (how.why) note = C.gold(`can't open ${r.lane.name || "this agent"}: `) + how.why;
+          else await runOwned(api, () => spawnSync(how.bin, how.args, { stdio: "inherit", cwd: how.cwd }));
+        }
+      } else {
+        const p = r.project;
+        if (key.name === "return") { stopTimer(); api.finish(); return go(p.hive ? p.hive.name : p.root); }
+        if (!p.hive && "sab".includes(str)) note = C.dim("not adopted yet — ⏎ (seldon go) puts it on the line");
+        else if (str === "a") { stopTimer(); api.finish(); return fAttach(p.hive.name); }
+        else if (str === "b") await runOwned(api, () => spawnSync("factory", ["board"], { stdio: "inherit" }));
+        else if (str === "s") await runOwned(api, () => { fStaff(p.root); });
+      }
       api.draw();
     },
   });
@@ -1295,15 +1317,20 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cold) return install_picker({ dev });
   if (!process.stdin.isTTY) {
     // No terminal to draw on (a script, a hook, an agent's shell) — answer the same question
-    // in text rather than erroring, which is what this used to do.
+    // in text: every agent and every project, the same rows the panel draws.
     ensureSiblingPath();
+    const groups = readLanes();
     const st = has("factory") ? loadState() : null;
-    if (!st || !st.hives.length) { console.log(C.dim("no projects on the line — ") + C.cyan('factory new "<your idea>"')); return; }
-    for (const h of st.hives) {
-      const who = h.agents?.length ? h.agents.join(",") : "no agent";
-      console.log(`  ${h.up ? "up  " : "down"}  ${h.name.padEnd(16)} ${who.padEnd(20)} queue ${h.queueOpen}  ${h.why || ""}`);
+    const rows = buildRows(groups, st?.hives || [], sameDir);
+    console.log(headline(groups));
+    for (const r of rows) {
+      if (r.type === "project") {
+        const others = unlistedAgents(r.project);
+        console.log(`${r.project.name}${r.project.hive ? `  (plan ${r.project.hive.queueOpen})` : ""}${others.length ? `  agents: ${others.join(", ")}` : ""}${r.project.hive?.why ? `  needs you: ${r.project.hive.why}` : ""}`);
+      }
+      else console.log(`  ${GLYPH[r.lane.state] || "?"} ${(r.lane.name || r.lane.id || "?").padEnd(26)} ${r.lane.harness.padEnd(9)} ${laneDetail(r.lane)}`);
     }
-    console.log(C.dim("\n  continue one: ") + C.cyan("seldon go <name>"));
+    console.log(C.dim("\n  in a terminal, `seldon` is the live panel · continue one: ") + C.cyan("seldon go <name>"));
     return;
   }
   return panel();

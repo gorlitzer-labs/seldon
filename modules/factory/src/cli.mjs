@@ -50,7 +50,7 @@ function help() {
     `  ${c.cyan("staff")} [project|dir] [--agent claude|codex] [--model <id>] [--effort <lvl>] [--name <n>] [--another] [--no-wait]`,
     `        Put an agent (default: a Claude coordinator) in the project's hive — it actually joins.`,
     "",
-    `  ${c.cyan("watch")} [project] [--agents A,B] [--interval 30] [--stall 15] [--once]`,
+    `  ${c.cyan("watch")} [project] [--agents A,B] [--interval 30] [--stall 15] [--once] [--room-posts]`,
     `        The 24/7 supervisor: heal dead agents, run doctor, detect stalls,`,
     `        nudge idle agents, and post an escalation digest to the hive.`,
     "",

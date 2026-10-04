@@ -142,14 +142,19 @@ A standalone daemon (independent of any session) that keeps one hive alive + pro
 
 ```bash
 factory watch <project> --agents Aria,Bruno   # heal dead agents · run doctor · detect stalls ·
-                                              # nudge idle agents · post an escalation digest
+                                              # escalate to you (notification + briefing)
 factory watch --all                           # one supervisor over EVERY registered hive
 factory ls                                    # list all hives the factory knows
 ```
 
-Flags: `--interval 30` · `--stall 15` · `--digest 60` · `--once` (single tick, for cron). It
-**escalates** (blockers, drift, stalls) to you via the hive + `.factory/digest.log` — it never
-decides the irreversible.
+Flags: `--interval 30` · `--stall 15` · `--digest 60` · `--once` (single tick, for cron) ·
+`--room-posts`. It **escalates** (blockers, drift, stalls) to you through a desktop
+notification, `~/.factory/briefing.md` and `.factory/digest.log` — it never decides the
+irreversible.
+
+It does **not** post into the room unless you pass `--room-posts`. Every room post wakes every
+agent in it, and each wake re-reads that agent's whole context, so the old hourly digest and
+"claim a lane" nudge cost tokens across the whole fleet to tell agents nothing they needed.
 
 ## `factory board` — the control panel (Phase 3)
 
