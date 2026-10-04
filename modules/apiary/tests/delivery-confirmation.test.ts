@@ -42,7 +42,7 @@ vi.mock("../src/cli/codex/queue.js", () => ({
 const { CodexTmuxBridge } = await import("../src/cli/codex/tmux-bridge.js");
 const { TmuxBridge } = await import("../src/cli/claude/tmux-bridge.js");
 
-const MSG = "[12:15:31] #6485 [shipyard] Franco: sooo @all";
+const MSG = "[12:15:31] #6485 [shipyard] Sam: sooo @all";
 const text = (s: string) => [{ type: "text" as const, text: s }];
 
 /** The message submitted: it is in the transcript, the composer is empty again. */
@@ -91,7 +91,7 @@ describe("composer reading", () => {
   });
 
   test("survives the composer wrapping a long message", () => {
-    const wrapped = ["› [12:15:31] #6485 [shipyard] Franco: sooo", "  @all and then some more text"];
+    const wrapped = ["› [12:15:31] #6485 [shipyard] Sam: sooo", "  @all and then some more text"];
     expect(composerStillHolds(wrapped, MSG)).toBe(true);
   });
 

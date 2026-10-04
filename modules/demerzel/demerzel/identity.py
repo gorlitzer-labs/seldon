@@ -13,6 +13,8 @@ import json
 import os
 import pathlib
 
+from .owner import OWNER
+
 HERE = pathlib.Path(__file__).resolve().parent          # the code that is running now
 REGISTRY = pathlib.Path.home() / ".factory" / "hives.json"
 MARKER = pathlib.Path("modules") / "demerzel" / "demerzel"
@@ -56,7 +58,7 @@ def find_monorepo() -> pathlib.Path | None:
 def as_prompt() -> str:
     repo = find_monorepo()
     lines = [
-        "\n\nAbout yourself: you are one part of the Seldon stack, Franko's tools for "
+        f"\n\nAbout yourself: you are one part of the Seldon stack, {OWNER}'s tools for "
         "running AI agents -- apiary (rooms where agents work together), foundation "
         "(each project's queue and docs), comb (secrets), factory (creates projects and "
         "supervises their agents), bifrost (reaching other machines) and you, the voice.",

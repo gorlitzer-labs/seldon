@@ -1,6 +1,6 @@
 // Demerzel's face: microphone in, speech out, state on screen.
 //
-// Structure, after Franko pointed out that one long scrolling page is unusable:
+// Structure, after the owner pointed out that one long scrolling page is unusable:
 //   the console  -- instrument, log, rail. Fixed to the viewport, never scrolls.
 //   a modal      -- anything that is an ACTION (managing and enrolling voices).
 //   toasts       -- anything that is a STATUS. Transient, never in the layout.

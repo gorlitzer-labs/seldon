@@ -49,7 +49,7 @@ seldon go --attach            # attach even with no terminal detected (inside tm
 ```
 
 ```text
-  stranded  /Users/franco/Desktop/stranded
+  stranded  /Users/you/Desktop/stranded
   ✓ adopted            (foundation docs in place)
   ✓ hive up            http://127.0.0.1:7920
   ✓ supervisor running
@@ -83,7 +83,7 @@ Two things it fixes that bit repeatedly:
   ○ voice   ● supervisor   ● docker
 
   ❯ ● stranded         Coordinator            queue 5 · 2 done · 2 lanes
-        /Users/franco/Desktop/stranded
+        /Users/you/Desktop/stranded
     ● anatomy          no agent               queue 0 · 0 done · 0 lanes
         needs you: hive is down
 

@@ -2,7 +2,7 @@
 
 This is the answer to "she should have some way of doing everything". Rather
 than hardcoding the next fifty tools, she speaks the protocol the ecosystem
-already uses -- and the servers Franko runs are local processes: `playwright`,
+already uses -- and the servers the owner runs are local processes: `playwright`,
 `agent-coord`, and apiary's own `apiary mcp`.
 
 NOTHING IS ENABLED BY DEFAULT. He chose to stay fully local, and some servers

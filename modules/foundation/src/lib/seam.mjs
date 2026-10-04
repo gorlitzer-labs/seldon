@@ -41,7 +41,7 @@ export function findSection(lines, heading) {
 // `- [ ] (P1) text`  under `## Queue`.  `### Sub` headings tag the item's section.
 // An item may carry a provenance continuation line, in the same shape FACTS uses:
 //     - [ ] (P1) do the thing
-//         added: 2026-10-02T10:05Z  by: franco
+//         added: 2026-10-02T10:05Z  by: sam
 // It lives on its own line so the item's text — and therefore its hash id — stays clean.
 // `added`/`by` are null for an item that has none, and that difference is the whole point:
 // an item nobody can account for is the one thing this seam could not previously express.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enrol Franko's voice, and report whether the enrolment is actually usable.
+"""Enrol the owner's voice, and report whether the enrolment is actually usable.
 
 Usage:
   scripts/enroll.py recordings/*.wav      # from DEMERZEL_RECORD captures

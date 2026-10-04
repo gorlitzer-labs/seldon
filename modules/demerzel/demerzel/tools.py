@@ -1,7 +1,7 @@
 """The tool mechanism. Capabilities live in demerzel/skills/.
 
 Demerzel is an everyday assistant, and the factory is one skill inside her rather
-than the thing she is. That is Franko's framing and it is the right one: a voice
+than the thing she is. That is the owner's framing and it is the right one: a voice
 assistant that can only talk to a build system is a build system with a
 microphone.
 
@@ -15,7 +15,7 @@ WRITES ARE OWNER ONLY, taken from the identified speaker, so a recognised guest
 can ask anything and change nothing.
 
 EVERY TOOL DECLARES WHAT IT IS DOING, as a spoken present-tense phrase said
-before it runs, with a heartbeat while it runs. Franko asked not to be left in
+before it runs, with a heartbeat while it runs. The owner asked not to be left in
 silence, and `foundation` through npx really does take seconds.
 """
 from __future__ import annotations
@@ -23,6 +23,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Callable
+
+from .owner import OWNER
 
 TIMEOUT_S = 45
 HEARTBEAT_S = 30.0       # "keep telling me", not one notice
@@ -115,7 +117,7 @@ def execute(call: Call, may_write: bool, ctx: dict | None = None) -> tuple[str, 
     if tool is None:
         return "", f"I do not have a tool called {call.name}."
     if tool.writes and not may_write:
-        return "", "Only Franko can do that, so I did not."
+        return "", f"Only {OWNER} can do that, so I did not."
     try:
         intent = tool.doing(**call.args)
     except Exception:

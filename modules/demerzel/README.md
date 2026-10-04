@@ -97,7 +97,7 @@ log line is never clipped.
 ## ⚠️ This is coupled to a private stack — you will need to adapt it
 
 Demerzel is the voice of **[factory / foundation / apiary](https://github.com/gorlitzer-labs)**,
-Franko's own agent-orchestration tooling. That coupling is real, but it is
+the agent-orchestration tooling it ships with. That coupling is real, but it is
 contained in a few named places rather than smeared through the pipeline:
 
 | What | Where | To adapt |
@@ -105,7 +105,7 @@ contained in a few named places rather than smeared through the pipeline:
 | Factory skill — read the board, queue work, create a project, staff a hive | `demerzel/skills/factory.py` | Delete the module. The registry keeps working; you lose 6 tools of 19. |
 | Escalation watcher — she speaks up unprompted when a hive is blocked | `demerzel/factory.py` | Same: drop it, or point it at your own state source. |
 | `docs/` is a **Foundation seam** (`QUEUE`, `WORKSTREAMS`, `DONE`, `FACTS`) | `docs/` | Those files are never hand-edited; every mutation goes through a `foundation` command. Without the CLI they are still readable Markdown — `docs/FACTS.md` is the interesting one. |
-| Hotwords, system prompt, file roots | `demerzel/models.py`, `demerzel/skills/files.py` | Franko's vocabulary and name are hardcoded. Change them. |
+| Hotwords, system prompt, file roots | `demerzel/models.py`, `demerzel/skills/files.py` | Set `DEMERZEL_OWNER` to your first name (used in her prompt and replies; default "the owner"). The hotword list is tuned to the original setup; edit it for your own vocabulary. |
 
 **The point of the skills layer is exactly this.** `demerzel/tools.py` holds only
 the mechanism — the `Tool` dataclass, the registry, the call format, narrated
@@ -292,6 +292,7 @@ that refusal is load-bearing.
 | `DEMERZEL_BRAIN` | `qwen` | `bonsai` runs the brain as a local OpenAI-compatible server (Bonsai 2 via llama.cpp) instead of the in-process Qwen — lighter (~7 GB vs ~20 GB). Managed for you by `seldon up --brain=bonsai`. |
 | `DEMERZEL_LLM_SERVER` | `http://127.0.0.1:8081` | where the brain server lives when `DEMERZEL_BRAIN=bonsai`. |
 | `DEMERZEL_LLM` | `mlx-community/Qwen3.6-35B-A3B-4bit` | swaps the in-process **Qwen** MLX model (only when brain=qwen); any MLX-compatible HF repo. |
+| `DEMERZEL_OWNER` | *(unset)* | your first name — how she refers to you, and a hotword. Unset, she says "the owner". Who may change things is still decided by the voiceprint. |
 | `DEMERZEL_STT` | `qwen` | `parakeet` to A/B for speed over vocabulary |
 | `DEMERZEL_READONLY` | off | disables all writes; set this before sharing a session |
 | `DEMERZEL_FILE_ROOTS` | `~/Desktop` | where `read_file` / `find_files` may look |
@@ -326,7 +327,7 @@ Honest list, all of it in `docs/QUEUE.md`:
 
 ## Credits
 
-- **David** — **Groundswork** and **mcp-coord**, the prior art this borrows
+- **David Balzan** — **groundwork** and **agent-coord-mcp**, the prior art this borrows
   from. Demerzel's MCP client skill was built and verified against a live
   `agent-coord` server:
   connected, discovered 34 tools, registered them prefixed and marked local, and

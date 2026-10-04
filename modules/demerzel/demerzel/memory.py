@@ -32,6 +32,8 @@ import pathlib
 import re
 from dataclasses import dataclass
 
+from .owner import OWNER
+
 STORE = pathlib.Path(os.environ.get(
     "DEMERZEL_MEMORY", pathlib.Path.home() / ".demerzel" / "memory.md"))
 
@@ -145,7 +147,7 @@ def as_prompt() -> str:
     if not items:
         return ""
     lines = "\n".join(f"- {m.text}" for m in items[-MAX_ITEMS:])
-    return ("\n\nThings you have been asked to remember about Franko. Treat them as "
+    return (f"\n\nThings you have been asked to remember about {OWNER}. Treat them as "
             "true and use them without being asked:\n" + lines)
 
 
