@@ -8,15 +8,19 @@
  */
 import { test, describe, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { reapDaemons } from "./helpers.mjs";
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "bin", "seldon.js");
 const root = mkdtempSync(join(tmpdir(), "seldon-go-"));
-after(() => rmSync(root, { recursive: true, force: true }));
+after(() => {
+  for (const d of readdirSync(root).filter((n) => n.startsWith("home-"))) reapDaemons(join(root, d, ".seldon"));
+  rmSync(root, { recursive: true, force: true });
+});
 
 /**
  * hives: the JSON `factory state --compact` will answer with.

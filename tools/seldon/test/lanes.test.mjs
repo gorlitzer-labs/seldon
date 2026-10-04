@@ -210,3 +210,10 @@ describe("transitions", () => {
     assert.equal(transitions(new Map([["x", "working"]]), [lane("x", "failed")])[0].text, "x failed");
   });
 });
+
+test("a lane name already used gets a number, never a collision", async () => {
+  const { uniqueSlug } = await import("../lib/lanes.mjs");
+  const taken = new Set(["fix", "fix-2"]);
+  assert.equal(uniqueSlug("fix", (s) => taken.has(s)), "fix-3");
+  assert.equal(uniqueSlug("new", (s) => taken.has(s)), "new");
+});

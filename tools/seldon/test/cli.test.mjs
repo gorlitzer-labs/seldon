@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { reapDaemons } from "./helpers.mjs";
 import path from "node:path";
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "seldon.js");
@@ -183,7 +184,7 @@ test("`up` starts daemons from SELDON_HOME, not the folder it was typed in", () 
     execFileSync("node", [BIN, "up"], { cwd: project, env: { ...process.env, ...s.env }, stdio: "ignore" });
     for (let i = 0; i < 50 && !existsSync(where); i++) execFileSync("sleep", ["0.1"]);
     assert.equal(readFileSync(where, "utf8").trim(), realpathSync(s.home));
-  } finally { rmSync(s.root, { recursive: true, force: true }); }
+  } finally { reapDaemons(s.home); rmSync(s.root, { recursive: true, force: true }); }
 });
 
 test("`status` warns when docker is installed but its daemon is down", () => {

@@ -149,6 +149,13 @@ export function slugify(task, max = 40) {
 
 export const HARNESSES = ["claude", "codex", "opencode"];
 
+// A lane name nobody has used yet: "fix-it", else "fix-it-2", "fix-it-3"… Reusing a name
+// collides with the branch or worktree an earlier lane of that name left behind.
+export function uniqueSlug(base, isTaken) {
+  if (!isTaken(base)) return base;
+  for (let n = 2; ; n++) if (!isTaken(`${base}-${n}`)) return `${base}-${n}`;
+}
+
 // The commands that start a lane, in order. Claude makes and owns its worktree (`-w`) and runs
 // under its own supervisor (`--bg`), so it survives the terminal and shows in `claude agents`.
 // Codex and opencode have neither, so seldon makes the worktree (outside the repo, so it never
@@ -167,7 +174,7 @@ export function startCommands({ harness, task, root, slug, worktreesDir, bins = 
   const agent = harness === "codex" ? [bin, "-C", wt, task] : [bin, wt, "--prompt", task];
   const envArgs = env.PATH ? ["-e", `PATH=${env.PATH}`] : [];
   return [
-    { bin: "git", args: ["-C", root, "worktree", "add", "-b", `lane/${slug}`, wt] },
+    { bin: "git", args: ["-C", root, "worktree", "add", "-b", `lane/${slug}`, wt], quiet: true },
     { bin: "tmux", args: ["new-session", "-d", "-s", `seldon_${slug}`, "-c", wt, ...envArgs, ...agent], session: `seldon_${slug}`, agent, cwd: wt },
   ];
 }

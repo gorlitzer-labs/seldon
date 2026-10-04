@@ -114,7 +114,7 @@ export function run(cmd, { quiet = false } = {}) {
 }
 export function runSteps(cmds) {
   for (const c of cmds) {
-    const r = run(c);
+    const r = run(c, { quiet: !!c.quiet });
     if (!r.ok) return r;
     // A tmux session that is gone a moment later means the agent exited at once (bad flag,
     // no login, not installed). Say so — "started" for something that is not running is the
