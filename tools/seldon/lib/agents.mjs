@@ -2,7 +2,9 @@
 // Every source is best-effort — a missing `claude` or no tmux server is an empty list, not
 // an error, because a machine running only Codex (or nothing yet) is a normal machine.
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { applyReports } from "./reports.mjs";
+import { sameDir } from "./projects.mjs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -12,6 +14,7 @@ import {
 
 export const SELDON_HOME = process.env.SELDON_HOME || join(homedir(), ".seldon");
 const LANES_FILE = join(SELDON_HOME, "lanes.json");
+const STATE_DIR = join(SELDON_HOME, "state");
 
 const out = (bin, args, timeout = 5000) => {
   try { return execFileSync(bin, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout }); }
@@ -85,7 +88,8 @@ export function readLanes() {
   const claude = claudeLanes(readClaude()).map((l) =>
     l.id || !l.pid || !panes.length ? l : { ...l, tmuxSession: tmuxSessionFor(l.pid, panes, parentOf) });
   const stopped = registryLanes(readJson(LANES_FILE, []), panes.map((p) => p.session));
-  return groupByProject([...claude, ...tmuxLanes(panes, knownSessions()), ...stopped], projectRoot);
+  const tmux = applyReports(tmuxLanes(panes, knownSessions()), readReports(), sameDir);
+  return groupByProject([...claude, ...tmux, ...stopped], projectRoot);
 }
 
 // The project's open plan, via foundation (the one parser of QUEUE.md). null = no foundation
@@ -132,4 +136,32 @@ export function harnessBins() {
     if (p) bins[h] = p;
   }
   return bins;
+}
+
+// ---- harness reports (see reports.mjs) -------------------------------------------
+const reportFile = (r) => join(STATE_DIR, `${r.harness}-${String(r.session).replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
+
+export function writeReport(r) {
+  if (!r) return;
+  if (r.ended) { rmSync(reportFile(r), { force: true }); return; }
+  mkdirSync(STATE_DIR, { recursive: true });
+  const f = reportFile(r), tmp = `${f}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(r));
+  renameSync(tmp, f);
+}
+
+// Every report, newest state per session. Files untouched for 3 days are sessions that died
+// without saying so; they are cleared as they are read.
+export function readReports(now = Date.now()) {
+  let files = [];
+  try { files = readdirSync(STATE_DIR).filter((f) => f.endsWith(".json")); } catch { return []; }
+  const out = [];
+  for (const f of files) {
+    const p = join(STATE_DIR, f);
+    try {
+      if (now - statSync(p).mtimeMs > 3 * 86_400_000) { rmSync(p, { force: true }); continue; }
+      out.push(JSON.parse(readFileSync(p, "utf8")));
+    } catch { /* half-written or gone */ }
+  }
+  return out;
 }

@@ -8,9 +8,10 @@ import fs from "node:fs";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
 import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
-import { readLanes, readPlan, addToPlan, run as runCmd, runSteps, projectRoot, harnessBins, recordLane, markLane } from "../lib/agents.mjs";
+import { readLanes, readPlan, addToPlan, run as runCmd, runSteps, projectRoot, harnessBins, recordLane, markLane, writeReport } from "../lib/agents.mjs";
 import { openCommand, stopCommand, startCommands, resumeCommands, transitions, slugify, laneForItem, HARNESSES } from "../lib/lanes.mjs";
 import { notify } from "../lib/notify.mjs";
+import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
 import { tryHold, release as releaseHold, listHolds, findOwner } from "../lib/holds-store.mjs";
@@ -1433,6 +1434,46 @@ async function watchCmd(flags) {
   }
 }
 
+// ---- harness reports: Codex and opencode say what they are doing ---------------
+// `seldon report <harness>` reads one hook/plugin event on stdin and records the session's
+// state. It must never slow down or break the agent that calls it: no output, exit 0 always.
+async function reportCmd(harness) {
+  let raw = "";
+  try { for await (const chunk of process.stdin) raw += chunk; writeReport(reportFromEvent(harness, JSON.parse(raw))); } catch { /* never fail the agent */ }
+}
+
+// `seldon setup [codex|opencode] [--remove]` — install the reporter into each harness.
+const CODEX_HOOKS = path.join(process.env.HOME, ".codex", "hooks.json");
+const OPENCODE_PLUGIN = path.join(process.env.HOME, ".config", "opencode", "plugins", "seldon.js");
+function setupCmd(which, flags) {
+  const targets = which ? [which] : ["codex", "opencode"].filter((h) => has(h) || flags.remove);
+  if (!targets.length) { console.log(C.dim("neither codex nor opencode is installed — Claude needs no setup")); return; }
+  // The command as you invoked it (the bin link), run through its own `#!/usr/bin/env node`:
+  // the resolved file and the node binary both move on an upgrade (pnpm's store path, nvm's
+  // version dir), and a hook pointing at a path that is gone fails on every event, silently.
+  const bin = process.argv[1];
+  const report = `SELDON_REPORT=1 ${JSON.stringify(bin)} report`;
+  for (const h of targets) {
+    if (h === "codex") {
+      let cur = {};
+      try { cur = JSON.parse(fs.readFileSync(CODEX_HOOKS, "utf8")); } catch (e) { if (fs.existsSync(CODEX_HOOKS)) { console.log(C.red(`~/.codex/hooks.json is not valid JSON — left alone: ${e.message}`)); continue; } }
+      const next = flags.remove ? removeCodexHooks(cur) : mergeCodexHooks(cur, `${report} codex`);
+      fs.mkdirSync(path.dirname(CODEX_HOOKS), { recursive: true });
+      fs.writeFileSync(CODEX_HOOKS, JSON.stringify(next, null, 2) + "\n");
+      if (flags.remove) console.log(C.green("✓ codex: seldon's hooks removed") + C.dim(" (yours kept)"));
+      else {
+        console.log(C.green("✓ codex: hooks added to ~/.codex/hooks.json") + C.dim(" (any of yours kept)"));
+        console.log("  " + C.gold("one step left:") + " Codex runs a hook only after you trust it. Open " + C.cyan("codex") + ", run " + C.cyan("/hooks") + ", trust the seldon ones.");
+      }
+    } else if (h === "opencode") {
+      if (flags.remove) { fs.rmSync(OPENCODE_PLUGIN, { force: true }); console.log(C.green("✓ opencode: plugin removed")); continue; }
+      fs.mkdirSync(path.dirname(OPENCODE_PLUGIN), { recursive: true });
+      fs.writeFileSync(OPENCODE_PLUGIN, opencodePlugin(bin));
+      console.log(C.green("✓ opencode: plugin installed") + C.dim(" (~/.config/opencode/plugins/seldon.js — new opencode sessions report their state)"));
+    } else { console.log(C.red(`unknown harness: ${h}`) + C.dim(" (codex or opencode)")); process.exitCode = 1; }
+  }
+}
+
 // ---- holds: turn-taking on shared machine resources ---------------------------
 // `seldon hold emulator` before using it, `seldon release emulator` after. If another agent
 // holds it, `hold` waits its turn (default 90s — under an agent's tool timeout) and then
@@ -1543,6 +1584,8 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "release") return releaseCmd(tokens[0], flags);
   if (cmd === "holds") return holdsCmd();
   if (cmd === "watch") return watchCmd(flags);
+  if (cmd === "report") return reportCmd(tokens[0]);
+  if (cmd === "setup") return setupCmd(tokens[0], flags);
   if (cmd === "panel" || cmd === "board") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
   if (cmd === "install") return install_picker({ dev });   // `install` with no ids

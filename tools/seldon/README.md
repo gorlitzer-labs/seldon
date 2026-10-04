@@ -76,6 +76,24 @@ Two things it fixes that bit repeatedly:
 - **Siblings resolve.** `go` and the panel prepend seldon's own install folder to `PATH`, so
   `factory: command not found` stops happening in non-interactive shells.
 
+## Codex and opencode: let them report their state
+
+Claude Code lists its own sessions. Codex and opencode do not, so out of the box their lanes
+read *running*. One command teaches them to say what they are doing:
+
+```bash
+seldon setup            # both, if installed   ·   seldon setup codex | opencode   ·   --remove
+```
+
+- **Codex:** adds command hooks to `~/.codex/hooks.json` (yours are kept). Codex runs a hook
+  only after you trust it, so open `codex` once, run `/hooks` and trust the seldon ones.
+- **opencode:** installs a small plugin at `~/.config/opencode/plugins/seldon.js` that forwards
+  only the state events (busy / idle / permission asked / error).
+
+Both call `seldon report <harness>`, which keeps one tiny state file per session in
+`~/.seldon/state/`. The panel matches it to the lane by worktree, so a Codex lane waiting on an
+approval shows **needs you: permission: Bash**, and the watcher tells you.
+
 ## The watcher — `seldon watch`
 
 `seldon up` starts it; `seldon down` stops it. Every 5 seconds it reads the same lanes the
