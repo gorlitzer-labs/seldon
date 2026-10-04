@@ -79,21 +79,24 @@ Two things it fixes that bit repeatedly:
 ## The panel — `seldon`
 
 ```text
-  SELDON   the agent factory — your projects
-  ○ voice   ● supervisor   ● docker
+  SELDON   1 need you · 2 working · 1 idle   ● supervisor  ○ voice
 
-  ❯ ● stranded         Coordinator            queue 5 · 2 done · 2 lanes
-        /Users/you/Desktop/stranded
-    ● anatomy          no agent               queue 0 · 0 done · 0 lanes
-        needs you: hive is down
+  ❯ stranded               plan 5 · 2 done
+      ⚑ fix-save-crash             claude    needs you: permission prompt             2m
+      ● smoke-harness              codex     running (no state reported)              40m
+    weather                plan 2 · 0 done
+      ● add-cache                  claude    working                                  12m
+      ○ docs-pass                  claude    idle                                     1h
 
-  ↑↓ pick · ⏎ go (fix what's missing, then attach) · s staff · a attach · b board
-  U start stack · D stop stack · i install · r refresh · q quit
+  ↑↓ move · ⏎ go (staff + attach) · s staff · a room · b board · r refresh · q quit
+  U start stack · D stop stack · i install
 ```
 
-Red dot = stopped room, amber = needs you, green = working. `⏎` runs `go` on the selected
-project. Without a terminal (a script, a hook, an agent's shell) the same question is
-answered as plain text instead of erroring.
+Every coding agent on this machine — Claude Code, Codex, opencode — grouped by project (a
+worktree counts for its main repo), most urgent first, refreshed every two seconds. `⏎` on an
+agent opens it; `⏎` on a project runs `go`. Claude agents report their own state via
+`claude agents --json`; Codex and opencode panes show as *running* for now. Without a terminal
+(a script, a hook, an agent's shell) the same rows are printed as plain text.
 
 ## Start the stack
 

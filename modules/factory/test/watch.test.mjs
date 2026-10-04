@@ -45,7 +45,7 @@ function project(name, queueItems) {
 }
 
 // Run the supervisor for ~`ms` at a 1s interval with stall threshold 0 (stalled at once).
-async function supervise(dir, hiveUrl, ms = 4500, doctorOut = "no drift") {
+async function supervise(dir, hiveUrl, ms = 4500, doctorOut = "no drift", extra = []) {
   const home = mkdtempSync(join(root, "home-"));
   // a bin dir PER RUN: tests that need a different `foundation doctor` output must not
   // overwrite each other's fake while another supervisor is still ticking
@@ -53,7 +53,7 @@ async function supervise(dir, hiveUrl, ms = 4500, doctorOut = "no drift") {
   writeFileSync(join(bin, "foundation"), `#!/bin/sh\ncat <<'DOCTOR'\n${doctorOut}\nDOCTOR\n`); chmodSync(join(bin, "foundation"), 0o755);
   mkdirSync(join(home, ".factory"), { recursive: true });
   writeFileSync(join(home, ".factory", "hives.json"), JSON.stringify([{ name: "p", dir, hive: { serverUrl: hiveUrl, adminToken: "A" } }]));
-  const w = spawn("node", [CLI, "watch", "--all", "--interval", "1", "--stall", "0"], {
+  const w = spawn("node", [CLI, "watch", "--all", "--interval", "1", "--stall", "0", ...extra], {
     env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, NO_COLOR: "1", FACTORY_NO_NOTIFY: "1" },
   });
   let out = ""; w.stdout.on("data", (d) => (out += d)); w.stderr.on("data", (d) => (out += d));
@@ -66,7 +66,7 @@ describe("factory watch escalation", () => {
   test("a stall with work waiting is escalated once, not every tick", async () => {
     const h = await fakeHive();
     try {
-      const { text: out } = await supervise(project("busy", ["fix the title screen"]), h.url);
+      const { text: out } = await supervise(project("busy", ["fix the title screen"]), h.url, 4500, "no drift", ["--room-posts"]);
       const ticks = (out.match(/p: queue 1/g) || []).length;
       assert.ok(ticks >= 3, `expected several ticks, got ${ticks}:\n${out}`);
       const stalls = h.posts.filter((p) => /STALL/.test(p));
@@ -77,10 +77,27 @@ describe("factory watch escalation", () => {
   test("an empty queue with no lanes is idle, never stalled", async () => {
     const h = await fakeHive();
     try {
-      const { text: out } = await supervise(project("idle", []), h.url);
+      const { text: out } = await supervise(project("idle", []), h.url, 4500, "no drift", ["--room-posts"]);
       assert.doesNotMatch(out, /STALLED/);
       assert.equal(h.posts.filter((p) => /STALL/.test(p)).length, 0);
       assert.ok(h.posts.some((p) => /All nominal/.test(p)), "first digest still posted");
+    } finally { h.srv.close(); }
+  });
+});
+
+describe("by default the supervisor never posts into the room", () => {
+  // Every room post wakes every agent in it, and each wake re-reads that agent's context.
+  test("a stall escalates once — to the briefing, not the room", async () => {
+    const h = await fakeHive();
+    try {
+      const dir = project("quiet", ["fix the title screen"]);
+      const r = await supervise(dir, h.url);
+      const ticks = (r.text.match(/p: queue 1/g) || []).length;
+      assert.ok(ticks >= 3, `expected several ticks, got ${ticks}:\n${r.text}`);
+      assert.deepEqual(h.posts, [], "posted into the room without --room-posts");
+      const briefing = readFileSync(join(r.home, ".factory", "briefing.md"), "utf8");
+      assert.equal((briefing.match(/escalation: .*STALL/g) || []).length, 1, briefing);
+      assert.match(readFileSync(join(dir, ".factory", "digest.log"), "utf8"), /STALL/);
     } finally { h.srv.close(); }
   });
 });

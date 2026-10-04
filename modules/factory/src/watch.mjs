@@ -83,6 +83,11 @@ async function makeSupervisor(entry, flags, roster) {
   const digestPath = join(dir, ".factory", "digest.log");
   mkdirSync(join(dir, ".factory"), { recursive: true });
   const stok = hive ? await join_(hive) : null;
+  // Room posts are opt-in. Every post wakes every agent in the room, and each wake re-reads
+  // that agent's whole context — so an hourly "All nominal" digest cost real tokens to say
+  // nothing. Escalations reach the human through the notification, the briefing and
+  // .factory/digest.log, none of which an agent reads. `--room-posts` restores the old behaviour.
+  const roomPosts = !!flags["room-posts"];
   let lastFp = null, lastProgressAt = Date.now(), lastDigestAt = 0, nudged = false;
   // What was last escalated, minus the numbers ("STALL", "DRIFT"). An escalation fires when
   // this changes, not on every tick it stays true: a stalled hive used to post a digest, a
@@ -130,7 +135,7 @@ async function makeSupervisor(entry, flags, roster) {
     const queueOpen = count(readSafe(join(dir, "docs", "QUEUE.md")), /^- \[ \] /gm);
     const doneCount = count(readSafe(join(dir, "docs", "DONE.md")), /^- \[x\] /gm);
     const wsRows = readSafe(join(dir, "docs", "WORKSTREAMS.md")).split("\n").filter((l) => /^\|\s/.test(l) && !/stream\s*\|/i.test(l) && !/^\|\s*-/.test(l)).length;
-    if (stok && queueOpen > 0 && wsRows === 0 && online.length > 1) {
+    if (roomPosts && stok && queueOpen > 0 && wsRows === 0 && online.length > 1) {
       if (!nudged) { await postMsg(hive, stok, `FYI: ${queueOpen} item(s) in the QUEUE and no active lanes. Run /orient, claim one, register your lane.`); events.push("nudged idle agents toward the queue"); nudged = true; }
     } else if (wsRows > 0) nudged = false;
     const fp = `${doneCount}|${queueOpen}|${wsRows}|${mtime(join(dir, "docs", "WORKSTREAMS.md"))}`;
@@ -155,9 +160,9 @@ async function makeSupervisor(entry, flags, roster) {
     const digestDue = Date.now() - lastDigestAt >= digestMs;
     if (flags.once || digestDue || escalate) {
       appendFileSync(digestPath, line + (events.length ? "\n  " + events.join("\n  ") : "") + "\n");
-      if (stok && (digestDue || escalate)) {
+      if (digestDue || escalate) {
         const needs = events.filter((e) => /STALL|DRIFT|BLOCKER|DECISION|healed/.test(e));
-        await postMsg(hive, stok, `SUPERVISOR DIGEST — ${line.replace(/^\[.*?\] /, "")}` + (needs.length ? `\nNeeds you:\n- ${needs.join("\n- ")}` : `\nAll nominal.`));
+        if (roomPosts && stok) await postMsg(hive, stok, `SUPERVISOR DIGEST — ${line.replace(/^\[.*?\] /, "")}` + (needs.length ? `\nNeeds you:\n- ${needs.join("\n- ")}` : `\nAll nominal.`));
         if (escalate) { notify(`Factory · ${name} needs you`, needs[0] || line); brief(`[${name}] escalation: ${needs.join("; ") || line}`); }
         lastDigestAt = Date.now();
       }
