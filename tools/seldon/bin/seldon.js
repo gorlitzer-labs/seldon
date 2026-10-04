@@ -11,17 +11,17 @@ import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as
 import { readLanes, readPlan, addToPlan, run as runCmd, runSteps, projectRoot, harnessBins, recordLane } from "../lib/agents.mjs";
 import { openCommand, stopCommand, startCommands, slugify, laneForItem, HARNESSES } from "../lib/lanes.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
+import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
+import { tryHold, release as releaseHold, listHolds, findOwner } from "../lib/holds-store.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // The monorepo root when running from a checkout (tools/seldon/bin -> ../../..)
 const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
 const IN_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, "modules", "apiary", "package.json"));
 
-const C = {
-  dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`,
-  gold: (s) => `\x1b[33m${s}\x1b[0m`, green: (s) => `\x1b[32m${s}\x1b[0m`,
-  red: (s) => `\x1b[31m${s}\x1b[0m`, cyan: (s) => `\x1b[36m${s}\x1b[0m`,
-};
+// NO_COLOR (https://no-color.org) turns every escape off — for logs, pipes and tests.
+const paint = (code) => (s) => (process.env.NO_COLOR ? String(s) : `\x1b[${code}m${s}\x1b[0m`);
+const C = { dim: paint(2), bold: paint(1), gold: paint(33), green: paint(32), red: paint(31), cyan: paint(36) };
 
 function have(dep) {
   const probe = DEPS[dep]?.probe;
@@ -1011,6 +1011,8 @@ async function panel() {
     out.push("  " + C.gold(C.bold("SELDON")) + "   " + headline(groups) + "   " + C.dim([
       svc("supervisor", !!daemonUp("factory-watch")), svc("voice", !!daemonUp("demerzel")),
     ].join("  ")));
+    const hs = listHolds();
+    if (hs.length) out.push("  " + C.dim("held: ") + hs.map((h) => `${C.bold(h.resource)} ${C.dim("→ " + h.who + " " + ago(h.since))}`).join(C.dim("   ")));
     out.push("");
     ({ home: drawHome, plan: drawPlan, input: drawInput, harness: drawHarness })[mode.name](out);
     if (note) out.push("\n  " + note);
@@ -1348,7 +1350,9 @@ function help() {
   console.log(`
 ${C.bold("seldon")} — the agent factory: your projects, and the stack that runs them.
 
-  ${C.bold("seldon")}                 ${C.gold("the panel")} — every project, what state it is in, and the key that fixes it
+  ${C.bold("seldon")}                 ${C.gold("the panel")} — every agent (claude · codex · opencode) by project; n new lane, p plan
+  ${C.bold("seldon hold")} <thing>     take a turn on a shared resource (emulator, unreal, gpu); waits if someone has it
+  ${C.bold("seldon release")} <thing>  give it back   ·   ${C.bold("seldon holds")}  who holds what
   ${C.bold("seldon go")} [name|dir]   ${C.gold("get back to work")} — adopt if needed, reopen the room, staff an agent, attach.
                          Idempotent, and it prints every step it skipped. Run it from inside a repo.
   ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
@@ -1377,12 +1381,67 @@ ${C.bold("seldon")} — the agent factory: your projects, and the stack that run
 `);
 }
 
+// ---- holds: turn-taking on shared machine resources ---------------------------
+// `seldon hold emulator` before using it, `seldon release emulator` after. If another agent
+// holds it, `hold` waits its turn (default 90s — under an agent's tool timeout) and then
+// exits 2 saying who has it, so the agent can do something else and come back.
+// `seldon hold emulator -- <command>` holds, runs, releases.
+function holder(flags) {
+  const root = projectRoot(process.cwd());
+  let branch = "";
+  try { branch = execSync("git branch --show-current", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch { /* not a repo */ }
+  const who = flags.as || [root ? path.basename(root) : path.basename(process.cwd()), branch].filter(Boolean).join("/");
+  return { who, pid: findOwner(), cwd: process.cwd(), note: typeof flags.note === "string" ? flags.note : undefined };
+}
+
+async function holdCmd(name, flags, command) {
+  if (!name || !NAME_RE.test(name)) { console.log(C.red("usage: seldon hold <resource> [--for 30m] [--wait 90s] [-- command]") + C.dim("   resource: lowercase, e.g. emulator, unreal, gpu")); process.exitCode = 1; return; }
+  const forMs = parseDuration(flags.for, DEFAULT_FOR_MS);
+  const waitMs = parseDuration(flags.wait, 90_000);
+  if (forMs === null || waitMs === null) { console.log(C.red("--for / --wait take a duration: 90s, 30m, 2h")); process.exitCode = 1; return; }
+  const me = { ...holder(flags), forMs };
+  const deadline = Date.now() + waitMs;
+  let said = "";
+  for (;;) {
+    const r = tryHold(name, me);
+    if (r.take) {
+      console.log(C.green(`✓ ${name} is yours`) + C.dim(` (${me.who}, ${Math.round(forMs / 60_000)}m — release with: seldon release ${name})`));
+      break;
+    }
+    const line = `${name} is held by ${describeHold(r.wait, Date.now())}`;
+    if (Date.now() >= deadline) {
+      console.log(C.gold(`… ${line}`) + C.dim(` — try again later, or wait longer: seldon hold ${name} --wait 10m`));
+      process.exitCode = 2;
+      return;
+    }
+    if (line.split(" · ")[0] !== said) { console.log(C.dim(`… ${line} — waiting your turn`)); said = line.split(" · ")[0]; }
+    await new Promise((res) => setTimeout(res, 2000));
+  }
+  if (!command.length) return;
+  const r = spawnSync(command[0], command.slice(1), { stdio: "inherit" });
+  releaseHold(name, me);
+  process.exitCode = r.status ?? 1;
+}
+
+function releaseCmd(name, flags) {
+  if (!name) { console.log(C.red("usage: seldon release <resource> [--force]")); process.exitCode = 1; return; }
+  const r = releaseHold(name, holder(flags), !!flags.force);
+  if (r.ok) console.log(C.green(`✓ released ${name}`) + (r.gone ? C.dim(" (it was not held)") : ""));
+  else { console.log(C.gold(`${name} is held by ${describeHold(r.held, Date.now())} — not yours to release`) + C.dim(" (--force if it is truly stuck)")); process.exitCode = 1; }
+}
+
+function holdsCmd() {
+  const hs = listHolds();
+  if (!hs.length) { console.log(C.dim("nothing is held")); return; }
+  for (const h of hs) console.log(`  ${C.bold(h.resource.padEnd(14))} ${describeHold(h, Date.now())}${h.note ? C.dim("  " + h.note) : ""}`);
+}
+
 // ---- argv -------------------------------------------------------------------
 // A flag either carries a value (`--agent claude`, `--agent=claude`) or stands alone
 // (`--no-attach`). The value form has to be CONSUMED: filtering out everything starting with
 // `--` and keeping the rest as positionals read `seldon go --agent claude` as the project
 // named "claude".
-const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir"]);
+const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note"]);
 function parseArgv(raw) {
   const flags = {}, positional = [];
   for (let i = 0; i < raw.length; i++) {
@@ -1397,7 +1456,12 @@ function parseArgv(raw) {
   return { flags, positional };
 }
 
-const argv = process.argv.slice(2);
+const rawArgv = process.argv.slice(2);
+// Everything after a bare `--` is a command to run (`seldon hold emulator -- ./gradlew test`),
+// never seldon's own flags.
+const dd = rawArgv.indexOf("--");
+const argv = dd === -1 ? rawArgv : rawArgv.slice(0, dd);
+const passthru = dd === -1 ? [] : rawArgv.slice(dd + 1);
 const { flags, positional: args } = parseArgv(argv);
 const dev = !!flags.dev;
 const cmd = args[0];
@@ -1423,6 +1487,9 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "status") return statusCmd();
   if (cmd === "adopt") return adopt(tokens[0]);
   if (cmd === "go") return go(tokens[0], flags);
+  if (cmd === "hold") return holdCmd(tokens[0], flags, passthru);
+  if (cmd === "release") return releaseCmd(tokens[0], flags);
+  if (cmd === "holds") return holdsCmd();
   if (cmd === "panel" || cmd === "board") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
   if (cmd === "install") return install_picker({ dev });   // `install` with no ids
