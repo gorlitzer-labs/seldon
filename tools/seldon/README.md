@@ -76,6 +76,34 @@ Two things it fixes that bit repeatedly:
 - **Siblings resolve.** `go` and the panel prepend seldon's own install folder to `PATH`, so
   `factory: command not found` stops happening in non-interactive shells.
 
+## Holds — taking turns on shared things
+
+Agents on different projects share one machine: one boots the Android emulator, another
+opens Unreal, and they trip over each other. A **hold** is turn-taking for that:
+
+```bash
+seldon hold emulator          # yours, or wait your turn (90s, then exit 2: "held by stranded/fix-save")
+seldon release emulator       # done
+seldon hold unreal -- ./build.sh   # hold, run, release
+seldon holds                  # who holds what
+```
+
+- **Ownership:** a hold belongs to the agent process that took it (the `claude` / `codex` /
+  `opencode` above the shell).
+- **Expiry:** it ends when the agent exits, or after `--for` (30m default; ask again to renew),
+  so a crashed agent never blocks anyone.
+- **Release:** only the holder can release it. `--force` exists for a hold that is truly stuck.
+- **The panel:** shows current holds at the top.
+
+Tell your agents once, in `~/.claude/CLAUDE.md` / `AGENTS.md`:
+
+```markdown
+## Shared machine resources
+Before using the Android emulator, Unreal Editor or the GPU, run `seldon hold emulator`
+(or `unreal`, `gpu`). Exit 2 means another agent has it: do other work and try again later.
+Run `seldon release <name>` as soon as you are done.
+```
+
 ## The panel — `seldon`
 
 ```text
