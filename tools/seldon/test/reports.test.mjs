@@ -1,7 +1,7 @@
 /** reports.mjs + `seldon report` / `seldon setup` — Codex and opencode telling seldon their state. */
 import { test, describe, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -94,6 +94,16 @@ describe("the CLI", () => {
     assert.match(run(["setup", "codex"]).stdout, /\/hooks/, "says the trust step out loud");
     run(["setup", "codex", "--remove"]);
     assert.deepEqual(JSON.parse(readFileSync(join(home, ".codex", "hooks.json"), "utf8")), mine);
+  });
+
+  test("hooks call the seldon on PATH, never a versioned store path an upgrade removes", () => {
+    const bin = join(home, "stable-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "seldon"), "#!/bin/sh\n"); chmodSync(join(bin, "seldon"), 0o755);
+    const r = spawnSync(process.execPath, [CLI, "setup", "codex"], { env: { ...env, PATH: `${bin}:${process.env.PATH}` }, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const cfg = JSON.parse(readFileSync(join(home, ".codex", "hooks.json"), "utf8"));
+    assert.equal(cfg.hooks.Stop.at(-1).hooks[0].command, `SELDON_REPORT=1 "${join(bin, "seldon")}" report codex`);
   });
 
   test("setup opencode installs and removes the plugin", () => {

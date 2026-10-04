@@ -738,11 +738,12 @@ async function up() {
   // decisions from them). It no longer posts into rooms.
   if (has("factory")) startDaemon("factory-watch", "factory", ["watch", "--all"]);
 
-  // The rest are on-demand, not daemons — point at the command.
-  if (has("factory")) go.push(`${C.bold("Put agents to work")}  ${C.cyan('factory new "<your idea>"')}   ${C.dim("→ repo · foundation · apiary hive")}`);
-  if (has("factory")) go.push(`${C.bold("An existing repo")}  ${C.cyan("seldon adopt [dir]")}   ${C.dim("→ foundation (keeps your docs) · hive · supervised")}`);
-  if (has("apiary"))  go.push(`${C.bold("Agent rooms")}  ${C.cyan("apiary ps")}   ${C.dim("(active rooms + join links)")}`);
-  if (has("bifrost")) go.push(`${C.bold("Across machines / phone")}  ${C.cyan("bifrost sessions")}`);
+  // The rest are on-demand, not daemons — point at the command. Your agents first; the rooms
+  // flow is an add-on and says so.
+  go.unshift(`${C.bold("Your agents")}  ${C.cyan("seldon")}   ${C.dim("→ n new lane · p plan · ⏎ open · in any repo")}`);
+  if (has("factory")) go.push(`${C.bold("Projects in rooms")} ${C.dim("(add-on)")}  ${C.cyan('factory new "<your idea>"')}  ${C.dim("·")}  ${C.cyan("seldon adopt [dir]")}`);
+  if (has("apiary"))  go.push(`${C.bold("Agent rooms")} ${C.dim("(add-on)")}  ${C.cyan("apiary ps")}`);
+  if (has("bifrost")) go.push(`${C.bold("Terminals across machines")} ${C.dim("(add-on)")}  ${C.cyan("bifrost sessions")}`);
 
   if (go.length) { console.log(C.bold("  Where to go:")); for (const l of go) console.log("   • " + l); }
   else console.log(C.dim("  nothing to start — install services first: seldon install factory demerzel"));
@@ -1544,16 +1545,25 @@ async function reportCmd(harness) {
   try { for await (const chunk of process.stdin) raw += chunk; writeReport(reportFromEvent(harness, JSON.parse(raw))); } catch { /* never fail the agent */ }
 }
 
+function stableSeldonBin() {
+  try {
+    const p = execSync("command -v seldon", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (p && path.isAbsolute(p)) return p;
+  } catch { /* not on PATH */ }
+  return process.argv[1];
+}
+
 // `seldon setup [codex|opencode] [--remove]` — install the reporter into each harness.
 const CODEX_HOOKS = path.join(process.env.HOME, ".codex", "hooks.json");
 const OPENCODE_PLUGIN = path.join(process.env.HOME, ".config", "opencode", "plugins", "seldon.js");
 function setupCmd(which, flags) {
   const targets = which ? [which] : ["codex", "opencode"].filter((h) => has(h) || flags.remove);
   if (!targets.length) { console.log(C.dim("neither codex nor opencode is installed — Claude needs no setup")); return; }
-  // The command as you invoked it (the bin link), run through its own `#!/usr/bin/env node`:
-  // the resolved file and the node binary both move on an upgrade (pnpm's store path, nvm's
-  // version dir), and a hook pointing at a path that is gone fails on every event, silently.
-  const bin = process.argv[1];
+  // The `seldon` on PATH (e.g. ~/Library/pnpm/bin/seldon), not the file running now: that one
+  // lives under a versioned store path (pnpm's launcher execs node on it, so even argv[1] is the
+  // versioned path), and a hook pointing at a path an upgrade removed fails on every event,
+  // silently. Only if seldon is not on PATH at all does it fall back to the running file.
+  const bin = stableSeldonBin();
   const report = `SELDON_REPORT=1 ${JSON.stringify(bin)} report`;
   for (const h of targets) {
     if (h === "codex") {
