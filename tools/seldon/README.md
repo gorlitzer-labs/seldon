@@ -9,21 +9,19 @@
  ╚══════╝╚══════╝╚══════╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝
 ```
 
-**The front door to the Seldon stack** — a software factory of AI agents.
+**One screen for every coding agent** — Claude Code, Codex, opencode — on every project and
+machine: what is working, what needs you, what is next on the plan.
 
-Two jobs, and `seldon` picks between them by looking at the machine:
-
-- **nothing installed yet** → the install checklist. Each tool installs via its native
-  method (npm for the Node tools, a shell installer for bifrost, a venv for demerzel).
-- **stack in place** → **the panel**: every project on the line, what state it is in, and
-  the key that fixes it.
+`seldon` is the panel. `seldon install` adds the optional add-ons (rooms, voice, secrets, the
+plan), each via its native method (npm for the Node tools, a shell installer for bifrost, a
+venv for demerzel).
 
 ## Install
 
 ```bash
 pnpm add -g @gorlitzer-labs/seldon     # or: bun add -g …  ·  npm i -g …
-seldon                 # a fresh machine: the checklist — ↑↓ move · space pick · a all · enter
-seldon install         # the checklist, always, whatever is installed
+seldon                 # the panel
+seldon install         # the add-on checklist — ↑↓ move · space pick · a all · enter
 ```
 
 Or name the modules directly:
@@ -34,47 +32,49 @@ seldon doctor                    # check external deps (tmux, sops, age, tailsca
 seldon list                      # everything available
 ```
 
-## Get back to work — `seldon go`
-
-The one verb. Run it inside a repo and it fills in whatever is missing, in order, then hands
-you a seat in the room:
-
-```bash
-seldon go                     # this repo
-seldon go stranded            # by project name, from anywhere
-seldon go --agent codex       # a Codex agent rather than Claude
-seldon go --no-staff          # open the room, start nobody
-seldon go --no-attach         # do everything, leave the terminal alone
-seldon go --attach            # attach even with no terminal detected (inside tmux, a script)
-```
+## The panel — `seldon`
 
 ```text
-  stranded  /Users/you/Desktop/stranded
-  ✓ adopted            (foundation docs in place)
-  ✓ hive up            http://127.0.0.1:7920
-  ✓ supervisor running
-  → nobody is working here — staffing
-    queue 5 · 2 done · 2 lanes
-    next: (P1) automate the playtest checklist in the smoke harness…
-  → attaching to the stranded room
+  SELDON   1 need you · 2 working · 1 idle   ● watcher  ○ voice
+
+  ❯ stranded               plan 5 · 2 done
+      ⚑ fix-save-crash             claude    needs you: permission prompt             2m
+      ● smoke-harness              codex     working                                  40m
+    weather                plan 2 · 0 done
+      ● add-cache                  claude    working                                  12m
+      ○ docs-pass                  claude    idle                                     1h
+
+  ↑↓ move · ⏎ open · x stop · R resume · n new lane · p plan · r refresh · q quit
+  U start stack · D stop stack · i install
 ```
 
-`✓` is a step it skipped because it was already true, `→` one it did. The five steps are:
-**adopted?** → **room up?** → **supervisor?** → **anyone working?** → **attach**. Each is
-idempotent, so `go` is safe on a cold boot, twice in a row, or mid-session.
+Every coding agent on this machine — Claude Code, Codex, opencode — grouped by project (a
+worktree counts for its main repo), most urgent first, refreshed every two seconds. `⏎` on an
+agent opens it; `⏎` on a project runs `go`. Claude agents report their own state via
+`claude agents --json`; Codex and opencode do after `seldon setup` (until then they read
+*running*). Without a terminal
+(a script, a hook, an agent's shell) the same rows are printed as plain text.
 
-It owns no state of its own: it asks `factory state` what is missing and delegates every
-action to `factory adopt`, `factory staff` and `apiary room resume`. The reason it exists is
-that those four commands live in three tools and **none of them answered the whole question**
-— so an adopted repo whose room had stopped looked exactly like a broken install.
+| key | does |
+|---|---|
+| `n` | new lane: type the task, pick `1` claude · `2` codex · `3` opencode (⏎ = claude) |
+| `p` | the project's plan (`docs/QUEUE.md`); `⏎` on an item starts a lane on it, `a` adds one |
+| `⏎` | on an agent: open it · on a project: `seldon go` |
+| `x` `x` | stop the agent (asks twice) |
+| `R` | resume what a reboot stopped; on a project, all of its stopped lanes |
 
-Two things it fixes that bit repeatedly:
+Every lane gets its own branch and worktree. Claude lanes run as `claude --bg -w <slug>`, so
+they live under Claude's own supervisor and show in `claude agents` too. Codex and opencode
+lanes run in tmux (`seldon_<slug>`), in a worktree under `~/.seldon/worktrees/`, and are
+recorded in `~/.seldon/lanes.json`. A plan item shows the lane working on it.
 
-- **Opening a room does not staff it.** `factory adopt` leaves an *empty* room, so you joined
-  and sat there alone. `go` staffs before it attaches, and the panel flags "work queued,
-  nobody working" as needing you.
-- **Siblings resolve.** `go` and the panel prepend seldon's own install folder to `PATH`, so
-  `factory: command not found` stops happening in non-interactive shells.
+## Lanes from the command line
+
+```bash
+seldon lanes [--json]                                     # every agent here
+seldon lane start [dir] --task "fix the save crash" [--agent codex]
+seldon lane stop|resume|open <name or key>
+```
 
 ## Codex and opencode: let them report their state
 
@@ -132,14 +132,6 @@ seldon machines                                    # each one, and whether it an
 - **From a phone:** `ssh` to any one machine and run `seldon`. Below 70 columns it switches to
   one line per lane.
 
-## Lanes from the command line
-
-```bash
-seldon lanes [--json]                                     # every agent here
-seldon lane start [dir] --task "fix the save crash" [--agent codex]
-seldon lane stop|resume|open <name or key>
-```
-
 ## Holds — taking turns on shared things
 
 Agents on different projects share one machine: one boots the Android emulator, another
@@ -168,39 +160,60 @@ Before using the Android emulator, Unreal Editor or the GPU, run `seldon hold em
 Run `seldon release <name>` as soon as you are done.
 ```
 
-## The panel — `seldon`
+## If something's off
 
-```text
-  SELDON   1 need you · 2 working · 1 idle   ● supervisor  ○ voice
+| you see | do this |
+|---|---|
+| `seldon: command not found` in a new or SSH shell | the package manager's bin folder isn't on PATH there. it's `$(npm prefix -g)/bin` for npm, `$PNPM_HOME` for pnpm. Add that folder to PATH in `~/.zshrc` |
+| `factory: command not found`, but `seldon` works | nothing to fix — `seldon go` and the panel prepend their own install folder, so the siblings resolve even in a non-interactive shell |
+| you joined a room and you are alone in it | opening a room never staffs it. `seldon go` does both; or `factory staff <project>` |
+| an old version answers, or two copies | `seldon install <tool>`. It leaves exactly one copy and says which one it removed |
+| `seldon uninstall` says *still installed under …* | that exact path is left; delete it, then run the uninstall again |
+| pnpm: *global bin directory … is not in PATH* | two pnpm versions on one machine. `seldon install` / `uninstall` handle it; avoid running `pnpm rm -g` by hand |
+| Cursor / an app can't start `apiary mcp` | apps don't get your shell's PATH. Use absolute paths ([how](modules/apiary/README.md#mcp-server-apiary-mcp)) |
+| an MCP agent's `catch_up` always says *nothing new* | apiary older than 1.13.9. Run `seldon install apiary` |
 
-  ❯ stranded               plan 5 · 2 done
-      ⚑ fix-save-crash             claude    needs you: permission prompt             2m
-      ● smoke-harness              codex     running (no state reported)              40m
-    weather                plan 2 · 0 done
-      ● add-cache                  claude    working                                  12m
-      ○ docs-pass                  claude    idle                                     1h
+## With rooms: `seldon go` (apiary + factory add-ons)
 
-  ↑↓ move · ⏎ open · x stop · n new lane · p plan · r refresh · q quit
-  U start stack · D stop stack · i install
+The one verb. Run it inside a repo and it fills in whatever is missing, in order, then hands
+you a seat in the room:
+
+```bash
+seldon go                     # this repo
+seldon go stranded            # by project name, from anywhere
+seldon go --agent codex       # a Codex agent rather than Claude
+seldon go --no-staff          # open the room, start nobody
+seldon go --no-attach         # do everything, leave the terminal alone
+seldon go --attach            # attach even with no terminal detected (inside tmux, a script)
 ```
 
-Every coding agent on this machine — Claude Code, Codex, opencode — grouped by project (a
-worktree counts for its main repo), most urgent first, refreshed every two seconds. `⏎` on an
-agent opens it; `⏎` on a project runs `go`. Claude agents report their own state via
-`claude agents --json`; Codex and opencode panes show as *running* for now. Without a terminal
-(a script, a hook, an agent's shell) the same rows are printed as plain text.
+```text
+  stranded  /Users/you/Desktop/stranded
+  ✓ adopted            (foundation docs in place)
+  ✓ hive up            http://127.0.0.1:7920
+  ✓ supervisor running
+  → nobody is working here — staffing
+    queue 5 · 2 done · 2 lanes
+    next: (P1) automate the playtest checklist in the smoke harness…
+  → attaching to the stranded room
+```
 
-| key | does |
-|---|---|
-| `n` | new lane: type the task, pick `1` claude · `2` codex · `3` opencode (⏎ = claude) |
-| `p` | the project's plan (`docs/QUEUE.md`); `⏎` on an item starts a lane on it, `a` adds one |
-| `⏎` | on an agent: open it · on a project: `seldon go` |
-| `x` `x` | stop the agent (asks twice) |
+`✓` is a step it skipped because it was already true, `→` one it did. The five steps are:
+**adopted?** → **room up?** → **supervisor?** → **anyone working?** → **attach**. Each is
+idempotent, so `go` is safe on a cold boot, twice in a row, or mid-session.
 
-Every lane gets its own branch and worktree. Claude lanes run as `claude --bg -w <slug>`, so
-they live under Claude's own supervisor and show in `claude agents` too. Codex and opencode
-lanes run in tmux (`seldon_<slug>`), in a worktree under `~/.seldon/worktrees/`, and are
-recorded in `~/.seldon/lanes.json`. A plan item shows the lane working on it.
+It owns no state of its own: it asks `factory state` what is missing and delegates every
+action to `factory adopt`, `factory staff` and `apiary room resume`. The reason it exists is
+that those four commands live in three tools and **none of them answered the whole question**
+— so an adopted repo whose room had stopped looked exactly like a broken install.
+
+Two things it fixes that bit repeatedly:
+
+- **Opening a room does not staff it.** `factory adopt` leaves an *empty* room, so you joined
+  and sat there alone. `go` staffs before it attaches, and the panel flags "work queued,
+  nobody working" as needing you.
+- **Siblings resolve.** `go` and the panel prepend seldon's own install folder to `PATH`, so
+  `factory: command not found` stops happening in non-interactive shells.
 
 ## Start the stack
 
