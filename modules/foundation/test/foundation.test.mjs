@@ -46,6 +46,23 @@ test("queue appends an item and status surfaces it as next", () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("queue --list --json gives tools the open items, with provenance, and nothing done", () => {
+  const dir = fresh();
+  try {
+    run(["queue", "(P2) second thing"], dir);
+    run(["queue", "(P1) first thing"], dir);
+    const p = join(dir, "docs", "QUEUE.md");
+    writeFileSync(p, readFileSync(p, "utf8").replace("- [ ] (P2) second thing", "- [x] (P2) second thing"));
+    const { code, out } = run(["queue", "--list", "--json"], dir);
+    assert.equal(code, 0);
+    const items = JSON.parse(out);
+    assert.deepEqual(items.map((i) => [i.priority, i.text]), [["P1", "first thing"]]);
+    assert.match(items[0].id, /^q-[0-9a-f]{8}$/);
+    assert.ok(items[0].by, "provenance carried through");
+    assert.match(run(["queue", "--list"], dir).out, /\(P1\) first thing/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("stream upserts a lane that status reports", () => {
   const dir = fresh();
   try {

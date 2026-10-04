@@ -88,7 +88,7 @@ Two things it fixes that bit repeatedly:
       ● add-cache                  claude    working                                  12m
       ○ docs-pass                  claude    idle                                     1h
 
-  ↑↓ move · ⏎ go (staff + attach) · s staff · a room · b board · r refresh · q quit
+  ↑↓ move · ⏎ open · x stop · n new lane · p plan · r refresh · q quit
   U start stack · D stop stack · i install
 ```
 
@@ -97,6 +97,18 @@ worktree counts for its main repo), most urgent first, refreshed every two secon
 agent opens it; `⏎` on a project runs `go`. Claude agents report their own state via
 `claude agents --json`; Codex and opencode panes show as *running* for now. Without a terminal
 (a script, a hook, an agent's shell) the same rows are printed as plain text.
+
+| key | does |
+|---|---|
+| `n` | new lane: type the task, pick `1` claude · `2` codex · `3` opencode (⏎ = claude) |
+| `p` | the project's plan (`docs/QUEUE.md`); `⏎` on an item starts a lane on it, `a` adds one |
+| `⏎` | on an agent: open it · on a project: `seldon go` |
+| `x` `x` | stop the agent (asks twice) |
+
+Every lane gets its own branch and worktree. Claude lanes run as `claude --bg -w <slug>`, so
+they live under Claude's own supervisor and show in `claude agents` too. Codex and opencode
+lanes run in tmux (`seldon_<slug>`), in a worktree under `~/.seldon/worktrees/`, and are
+recorded in `~/.seldon/lanes.json`. A plan item shows the lane working on it.
 
 ## Start the stack
 

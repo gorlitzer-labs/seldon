@@ -61,17 +61,21 @@ export function parseTmuxPanes(text) {
   }).filter((p) => p.session);
 }
 
-export function tmuxLanes(panes) {
-  return panes.filter((p) => TMUX_HARNESSES.has(p.command)).map((p) => ({
-    harness: p.command,
+// `known` maps a tmux session to what started it ({ harness, task, startedAt }) — seldon's own
+// lanes registry and apiary's session files. That is the reliable signal: a pane's command
+// name is often not the harness (codex installed from npm runs as a `node` wrapper), so the
+// name match is only the fallback for agents started by hand.
+export function tmuxLanes(panes, known = {}) {
+  return panes.filter((p) => known[p.session] || TMUX_HARNESSES.has(p.command)).map((p) => ({
+    harness: known[p.session]?.harness || p.command,
     key: `tmux:${p.session}`,
     id: null,
     sessionId: null,
     pid: p.panePid,
-    name: p.session.replace(/^apiary_/, ""),
+    name: p.session.replace(/^(apiary|seldon)_/, ""),
     cwd: p.cwd,
     kind: "tmux",
-    startedAt: null,
+    startedAt: known[p.session]?.startedAt ?? null,
     state: "running",
     waitingFor: null,
     tmuxSession: p.session,
@@ -133,4 +137,50 @@ export function openCommand(lane) {
   if (lane.harness === "claude" && lane.sessionId && (lane.state === "stopped" || lane.state === "failed"))
     return { bin: "claude", args: ["--resume", lane.sessionId], cwd: lane.cwd };
   return { why: "it runs in a terminal seldon cannot reach — switch to that window" };
+}
+
+// ---- starting and stopping lanes -------------------------------------------------
+// A lane's name is its task, slugged: it names the session, the branch and the worktree, so
+// the plan item, the running agent and the branch on GitHub all read the same.
+export function slugify(task, max = 40) {
+  const s = String(task).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return (s.slice(0, max).replace(/-+$/, "") || "lane");
+}
+
+export const HARNESSES = ["claude", "codex", "opencode"];
+
+// The commands that start a lane, in order. Claude makes and owns its worktree (`-w`) and runs
+// under its own supervisor (`--bg`), so it survives the terminal and shows in `claude agents`.
+// Codex and opencode have neither, so seldon makes the worktree (outside the repo, so it never
+// shows up as untracked files) and hosts the agent in a tmux session named seldon_<slug>.
+//   claude:   https://code.claude.com/docs/en/agent-view  (`claude --bg`, `-w`, `-n`)
+//   codex:    `codex -C <dir> "PROMPT"`   opencode: `opencode <dir> --prompt "PROMPT"`
+//
+// tmux runs a session's command with the tmux SERVER's environment, not the caller's — so a
+// bare `codex` resolves (or fails to) against whatever PATH the server started with, and the
+// agent exits at once. `bins` maps harness -> absolute path and `env.PATH` is handed to the
+// session, so the agent and everything it spawns see the PATH seldon saw.
+export function startCommands({ harness, task, root, slug, worktreesDir, bins = {}, env = {} }) {
+  if (harness === "claude") return [{ bin: bins.claude || "claude", args: ["--bg", "-w", slug, "-n", slug, task], cwd: root }];
+  const wt = `${worktreesDir}/${slug}`;
+  const bin = bins[harness] || harness;
+  const agent = harness === "codex" ? [bin, "-C", wt, task] : [bin, wt, "--prompt", task];
+  const envArgs = env.PATH ? ["-e", `PATH=${env.PATH}`] : [];
+  return [
+    { bin: "git", args: ["-C", root, "worktree", "add", "-b", `lane/${slug}`, wt] },
+    { bin: "tmux", args: ["new-session", "-d", "-s", `seldon_${slug}`, "-c", wt, ...envArgs, ...agent], session: `seldon_${slug}`, agent, cwd: wt },
+  ];
+}
+
+export function stopCommand(lane) {
+  if (lane.harness === "claude" && lane.id) return { bin: "claude", args: ["stop", lane.id] };
+  if (lane.tmuxSession && lane.harness !== "claude") return { bin: "tmux", args: ["kill-session", "-t", lane.tmuxSession] };
+  return { why: "it is not a background session — stop it where it runs" };
+}
+
+// Which running lane is working on a plan item: the one named after it (seldon starts lanes
+// with the item's slug as name, session and worktree).
+export function laneForItem(item, lanes) {
+  const slug = slugify(item.text);
+  return lanes.find((l) => l.name === slug || l.tmuxSession === `seldon_${slug}` || (l.cwd || "").split("/").pop() === slug) || null;
 }

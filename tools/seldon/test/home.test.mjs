@@ -34,3 +34,8 @@ test("ago and laneDetail", () => {
   assert.equal(ago(0), "");
   assert.equal(laneDetail({ state: "needs-you", waitingFor: "permission prompt" }), "needs you: permission prompt");
 });
+
+test("the repo seldon was opened in is listed even with no agents and no plan", () => {
+  const rows = buildRows([], [{ name: "zed", dir: "/r/z", agents: [] }], undefined, "/r/fresh");
+  assert.deepEqual(rows.map((r) => r.project.name), ["fresh", "zed"]);
+});

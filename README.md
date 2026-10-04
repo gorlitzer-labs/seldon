@@ -121,7 +121,7 @@ Code, Codex and opencode — under the project it works on, the ones waiting on 
       ● add-cache                  claude    working                                  12m
       ○ docs-pass                  claude    idle                                     1h
 
-  ↑↓ move · ⏎ go (staff + attach) · s staff · a room · b board · r refresh · q quit
+  ↑↓ move · ⏎ open · x stop · n new lane · p plan · r refresh · q quit
   U start stack · D stop stack · i install
 ```
 
