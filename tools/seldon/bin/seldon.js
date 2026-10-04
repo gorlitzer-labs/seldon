@@ -8,8 +8,10 @@ import fs from "node:fs";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
 import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
-import { readLanes, readPlan, addToPlan, run as runCmd, runSteps, projectRoot, harnessBins, recordLane, markLane, writeReport } from "../lib/agents.mjs";
-import { openCommand, stopCommand, startCommands, resumeCommands, transitions, slugify, laneForItem, HARNESSES } from "../lib/lanes.mjs";
+import { readLanes, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
+import { openCommand, stopCommand, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
+import { startLane, stopLane, resumeLane, findLane } from "../lib/actions.mjs";
+import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
@@ -885,7 +887,8 @@ const KEYS = { escapeCodeTimeout: 50 };
 // closes. That bug was fixed once in the picker; sharing it means the panel cannot
 // reintroduce it. `suspend` lets a screen hand the terminal to a child process and take it
 // back — the panel does that every time it staffs an agent.
-function rawSession({ draw, onKey }) {
+// `onError` gets anything a key handler throws — shown, never swallowed.
+function rawSession({ draw, onKey, onError }) {
   let done = null;
   const listen = () => {
     readline.emitKeypressEvents(process.stdin, KEYS);
@@ -903,7 +906,7 @@ function rawSession({ draw, onKey }) {
   // and keys typed meanwhile used to run concurrently with it — Esc and the next prompt raced
   // the first, leaving a stale screen and dropped characters.
   let chain = Promise.resolve();
-  const handler = (str, key) => { chain = chain.then(() => onKey(str, key, api)).catch(() => {}); };
+  const handler = (str, key) => { chain = chain.then(() => onKey(str, key, api)).catch((e) => { onError?.(e); api.draw(); }); };
   const api = {
     draw: () => draw(api),
     finish: (v) => { release(); readline.cursorTo(process.stdout, 0); readline.clearScreenDown(process.stdout); done(v); },
@@ -934,8 +937,30 @@ async function panel() {
   let mode = { name: "home" };
   let armedStop = null;                       // { key, at } — stop needs a second x within 3s
   const here = projectRoot(process.cwd());     // the repo seldon was opened in is always listed
+  // Other machines (bifrost's realms). Their lanes arrive in the background every 10s, so a
+  // slow or sleeping machine never freezes this screen; `seen` says how each one answered.
+  const machines = listMachines();
+  const seen = new Map();                      // name -> { groups, error, at, inflight }
+  const pollMachines = () => {
+    for (const m of machines) {
+      const was = seen.get(m.name) || {};
+      if (was.inflight || (was.at && Date.now() - was.at < 10_000)) continue;
+      seen.set(m.name, { ...was, inflight: true });
+      fetchLanes(m, (r) => { seen.set(m.name, { groups: r.lanes ? remoteGroups(m, r.lanes) : was.groups || [], error: r.error || null, at: Date.now(), inflight: false }); });
+    }
+  };
+  const machineOf = (name) => machines.find((m) => m.name === name);
+  // Run seldon (or foundation) on a machine. `tty`: it may need a terminal (a trust dialog),
+  // so it inherits this one; otherwise its output is captured for the note line.
+  const onMachine = (name, argv, { tty = false } = {}) => {
+    const r = spawnSync("ssh", sshArgs(machineOf(name), argv, { tty }), tty ? { stdio: "inherit" } : { encoding: "utf8" });
+    seen.set(name, { ...(seen.get(name) || {}), at: 0 });   // it changed: ask it again on the next tick
+    const said = tty ? "" : `${r.stdout || ""}${r.stderr || ""}`.trim().split("\n").filter(Boolean).pop() || "";
+    return { ok: r.status === 0, out: r.stdout || "", error: r.status === 0 ? null : said || `ssh exited ${r.status}` };
+  };
   const load = (force = false) => {
-    groups = readLanes();
+    pollMachines();
+    groups = [...readLanes(), ...[...seen.values()].flatMap((v) => v.groups || [])];
     if (force || Date.now() - lastState > 10_000) { state = has("factory") ? loadState() : null; lastState = Date.now(); }
     const prev = rows[cur];
     rows = buildRows(groups, state?.hives || [], sameDir, here);
@@ -947,9 +972,17 @@ async function panel() {
 
   const svc = (label, on) => (on ? C.green("●") : C.dim("○")) + " " + label;
   const tint = { "needs-you": C.gold, working: C.green, running: C.green, idle: C.dim, failed: C.red, stopped: C.dim };
+  // Below 70 columns (a phone over ssh) a lane is one short line: glyph, name, the state in a
+  // word. The full detail is one ⏎ away.
+  const narrow = () => (process.stdout.columns || 100) < 70;
   const laneCells = (l, sel) => {
     const color = tint[l.state] || ((x) => x);
-    return `${color(GLYPH[l.state] || "?")} ${pad((l.name || l.id || "?").slice(0, 26), 26, sel ? C.bold : (x) => x)} ${pad(l.harness, 9, C.dim)} ${pad(laneDetail(l).slice(0, 40), 40, color)} ${C.dim(ago(l.startedAt))}`;
+    const name = (l.name || l.id || "?");
+    if (narrow()) {
+      const w = Math.max(10, (process.stdout.columns || 40) - 22);
+      return `${color(GLYPH[l.state] || "?")} ${pad(name.slice(0, w), w, sel ? C.bold : (x) => x)} ${color(l.state === "needs-you" ? "needs you" : l.state)}`;
+    }
+    return `${color(GLYPH[l.state] || "?")} ${pad(name.slice(0, 26), 26, sel ? C.bold : (x) => x)} ${pad(l.harness, 9, C.dim)} ${pad(laneDetail(l).slice(0, 40), 40, color)} ${C.dim(ago(l.startedAt))}`;
   };
 
   const drawHome = (out) => {
@@ -966,18 +999,21 @@ async function panel() {
         const why = p.hive?.needsYou && p.hive.why ? C.gold("  ⚑ " + p.hive.why) : "";
         const others = unlistedAgents(p);
         out.push(`  ${cursor} ${pad(p.name, 22, C.bold)} ${plan}${others.length ? C.green("  agents: " + others.join(", ")) : ""}${why}`);
-        if (sel) out.push(`      ${C.dim(p.root)}`);
+        if (sel && !narrow()) out.push(`      ${C.dim(p.root)}`);
       } else {
         out.push(`  ${cursor}   ${laneCells(r.lane, sel)}`);
-        if (sel && r.lane.cwd !== r.project.root) out.push(`        ${C.dim(r.lane.cwd)}`);
+        if (sel && r.lane.cwd !== r.project.root && !narrow()) out.push(`        ${C.dim(r.lane.cwd)}`);
       }
     });
     const sel = rows[cur];
     out.push("");
-    out.push("  " + C.dim(sel?.type === "lane"
-      ? "↑↓ move · ⏎ open · x stop · R resume · n new lane · p plan · r refresh · q quit"
-      : "↑↓ move · n new lane · p plan · ⏎ go (staff + room) · s staff · a room · b board · q quit"));
-    out.push("  " + C.dim("U start stack · D stop stack · i install"));
+    if (narrow()) out.push("  " + C.dim(sel?.type === "lane" ? "⏎ open · x stop · R resume · q" : "n lane · p plan · ⏎ go · q"));
+    else {
+      out.push("  " + C.dim(sel?.type === "lane"
+        ? "↑↓ move · ⏎ open · x stop · R resume · n new lane · p plan · r refresh · q quit"
+        : "↑↓ move · n new lane · p plan · ⏎ go (staff + room) · s staff · a room · b board · q quit"));
+      out.push("  " + C.dim("U start stack · D stop stack · i install"));
+    }
   };
 
   const drawPlan = (out) => {
@@ -1018,6 +1054,10 @@ async function panel() {
     out.push("  " + C.gold(C.bold("SELDON")) + "   " + headline(groups) + "   " + C.dim([
       svc("watcher", !!daemonUp("seldon-watch")), svc("voice", !!daemonUp("demerzel")),
     ].join("  ")));
+    if (machines.length) out.push("  " + C.dim("machines: ") + machines.map((m) => {
+      const v = seen.get(m.name);
+      return !v?.at ? C.dim(`${m.name} …`) : v.error ? C.red(`${m.name} ${v.error}`) : C.green(m.name);
+    }).join(C.dim("  ")));
     const hs = listHolds();
     if (hs.length) out.push("  " + C.dim("held: ") + hs.map((h) => `${C.bold(h.resource)} ${C.dim("→ " + h.who + " " + ago(h.since))}`).join(C.dim("   ")));
     out.push("");
@@ -1039,32 +1079,30 @@ async function panel() {
   // Hand the terminal to something that needs it, then come back to a fresh frame.
   const runOwned = async (api, fn) => { stopTimer(); try { return await api.suspend(fn); } finally { load(true); startTimer(); } };
 
-  const openPlan = (project) => { mode = { name: "plan", project, items: readPlan(project.root), cur: 0 }; };
+  const planOf = (project) => (project.machine
+    ? lastJsonLine(onMachine(project.machine, ["foundation", "queue", "--list", "--json", "--dir", project.remoteRoot]).out)
+    : readPlan(project.root));
+  const openPlan = (project) => { mode = { name: "plan", project, items: planOf(project), cur: 0 }; };
   const ask = (title, prompt, then) => { mode = { name: "input", title, prompt, buf: "", then }; };
   const pickHarness = (project, task) => { mode = { name: "harness", project, task }; };
 
   // Bring stopped lanes back (after a reboot, a crash). Says plainly what it could not do.
   const resumeLanes = async (api, lanes) => {
-    const bins = harnessBins(), said = [];
+    const said = [];
     for (const l of lanes) {
-      const how = resumeCommands(l, { bins, env: { PATH: process.env.PATH } });
-      if (how.why) { said.push(C.gold(`${l.name}: `) + how.why); continue; }
-      const res = await runOwned(api, () => runSteps(how.cmds));
-      if (res.ok && l.tmuxSession) markLane(l.tmuxSession, { stoppedAt: undefined, startedAt: Date.now() });
-      said.push(res.ok ? C.green(`resumed ${l.name}`) + (how.fresh ? C.dim(" (new conversation, same task + worktree)") : "") : C.red(`${l.name}: `) + res.error);
+      const res = await runOwned(api, () => (l.machine ? onMachine(l.machine, ["seldon", "lane", "resume", l.remoteKey], { tty: true }) : resumeLane(l)));
+      said.push(res.why ? C.gold(`${l.name}: `) + res.why
+        : res.ok ? C.green(`resumed ${l.name}`) + (res.fresh ? C.dim(" (new conversation, same task + worktree)") : "")
+        : C.red(`${l.name}: `) + res.error);
     }
     return said.join(C.dim(" · "));
   };
 
-  const startLane = async (api, project, task, harness) => {
-    const slug = slugify(task);
-    const bins = harnessBins();
-    if (!bins[harness]) { note = C.red(`${harness} is not installed`) + C.dim(" (not on PATH)"); mode = { name: "home" }; return; }
-    const cmds = startCommands({ harness, task, root: project.root, slug, worktreesDir: path.join(SELDON_HOME, "worktrees", project.name), bins, env: { PATH: process.env.PATH } });
-    const r = await runOwned(api, () => runSteps(cmds));
-    const session = cmds.find((c) => c.session)?.session;
-    if (r.ok && session) recordLane({ session, harness, task, slug, root: project.root, worktree: cmds.find((c) => c.session).cwd, startedAt: Date.now() });
-    note = r.ok ? C.green(`started ${slug} (${harness})`) + C.dim(" — it shows up here in a moment") : C.red(`could not start ${slug}: `) + r.error;
+  const startNewLane = async (api, project, task, harness) => {
+    const r = await runOwned(api, () => (project.machine
+      ? { ...onMachine(project.machine, ["seldon", "lane", "start", project.remoteRoot, "--task", task, "--agent", harness], { tty: true }), slug: slugify(task) }
+      : startLane({ root: project.root, name: project.name, task, harness })));
+    note = r.ok ? C.green(`started ${r.slug} (${harness})`) + C.dim(" — it shows up here in a moment") : C.red(`could not start ${r.slug || "the lane"}: `) + r.error;
     mode = { name: "home" };
   };
 
@@ -1078,7 +1116,7 @@ async function panel() {
     harness: async (str, key, api) => {
       if (key.name === "escape") { mode = { name: "home" }; return; }
       const i = key.name === "return" ? 0 : "123".indexOf(str);
-      if (i >= 0) await startLane(api, mode.project, mode.task, HARNESSES[i]);
+      if (i >= 0) await startNewLane(api, mode.project, mode.task, HARNESSES[i]);
     },
     plan: async (str, key) => {
       const items = mode.items || [];
@@ -1088,7 +1126,9 @@ async function panel() {
       else if (str === "a") {
         const project = mode.project;
         ask(`ADD TO PLAN · ${project.name}`, "(P2) ›", (text) => {
-          const r = addToPlan(project.root, text);
+          const r = project.machine
+            ? onMachine(project.machine, ["foundation", "queue", `(P2) ${text}`, "--dir", project.remoteRoot])
+            : addToPlan(project.root, text);
           openPlan(project);
           note = r.ok ? C.green("added") : C.red("could not add: ") + r.error;
         });
@@ -1120,20 +1160,22 @@ async function panel() {
         if (key.name === "return") {
           const how = openCommand(r.lane);
           if (how.why) note = C.gold(`can't open ${r.lane.name || "this agent"}: `) + how.why;
+          else if (r.lane.machine) await runOwned(api, () => onMachine(r.lane.machine, ["seldon", "lane", "open", r.lane.remoteKey], { tty: true }));
           else await runOwned(api, () => spawnSync(how.bin, how.args, { stdio: "inherit", cwd: how.cwd }));
         } else if (str === "x") {
-          const how = stopCommand(r.lane);
-          if (how.why) note = C.gold(`can't stop ${r.lane.name || "this agent"}: `) + how.why;
+          const cannot = stopCommand(r.lane).why;
+          if (cannot) note = C.gold(`can't stop ${r.lane.name || "this agent"}: `) + cannot;
           else if (armedStop?.key === r.lane.key && Date.now() - armedStop.at < 3000) {
             armedStop = null;
-            const res = await runOwned(api, () => runCmd(how));
-            if (res.ok && r.lane.tmuxSession) markLane(r.lane.tmuxSession, { stoppedAt: Date.now() });
-            note = res.ok ? C.dim(`stopped ${r.lane.name}`) : C.red(`could not stop: ${res.error}`);
+            const res = await runOwned(api, () => (r.lane.machine ? onMachine(r.lane.machine, ["seldon", "lane", "stop", r.lane.remoteKey]) : stopLane(r.lane)));
+            note = res.why ? C.gold(`can't stop ${r.lane.name || "this agent"}: `) + res.why
+              : res.ok ? C.dim(`stopped ${r.lane.name}`) : C.red(`could not stop: ${res.error}`);
           } else { armedStop = { key: r.lane.key, at: Date.now() }; note = C.gold(`press x again to stop ${r.lane.name}`); }
         }
       } else {
         const p = r.project;
-        if (key.name === "return") { stopTimer(); api.finish(); return go(p.hive ? p.hive.name : p.root); }
+        if (p.machine && key.name === "return") note = C.dim(`on ${p.machine} — n starts a lane there, p shows its plan; for the rest: ssh ${p.machine}, then seldon`);
+        else if (key.name === "return") { stopTimer(); api.finish(); return go(p.hive ? p.hive.name : p.root); }
         if (!p.hive && "sab".includes(str)) note = C.dim("not adopted yet — ⏎ (seldon go) puts it on the line");
         else if (str === "a") { stopTimer(); api.finish(); return fAttach(p.hive.name); }
         else if (str === "b") await runOwned(api, () => spawnSync("factory", ["board"], { stdio: "inherit" }));
@@ -1144,6 +1186,7 @@ async function panel() {
 
   await rawSession({
     draw,
+    onError: (e) => { note = C.red("error: ") + (e?.message || String(e)); mode = { name: "home" }; },
     onKey: async (str, key, api) => {
       if (mode.name === "home" && note && !note.includes("press x again")) note = "";
       if (key.ctrl && key.name === "c") { stopTimer(); return api.finish(); }
@@ -1434,6 +1477,62 @@ async function watchCmd(flags) {
   }
 }
 
+// ---- lanes from the command line ---------------------------------------------
+// The panel's actions, scriptable — and the protocol for other machines: the panel runs
+// `ssh <machine> seldon lanes --json` to read and `seldon lane <verb> <key>` to act.
+function lanesCmd(flags) {
+  const groups = readLanes();
+  if (flags.json) {
+    process.stdout.write(JSON.stringify(groups.flatMap((g) => g.lanes.map((l) => ({ ...l, project: g.root, projectName: g.name })))) + "\n");
+    return;
+  }
+  if (!groups.length) { console.log(C.dim("no agents running")); return; }
+  for (const g of groups) {
+    console.log(C.bold(g.name) + C.dim("  " + g.root));
+    for (const l of g.lanes) console.log(`  ${GLYPH[l.state] || "?"} ${(l.name || l.id || "?").padEnd(26)} ${l.harness.padEnd(9)} ${laneDetail(l).padEnd(36)} ${C.dim(l.key)}`);
+  }
+}
+
+function laneCmd(verb, arg, flags) {
+  const fail = (msg) => { console.log(C.red(msg)); process.exitCode = 1; };
+  if (verb === "start") {
+    const root = projectRoot(path.resolve(arg || ".")) || path.resolve(arg || ".");
+    const task = typeof flags.task === "string" ? flags.task : "";
+    const r = startLane({ root, name: path.basename(root), task, harness: flags.agent || "claude" });
+    return r.ok ? console.log(C.green(`✓ started ${r.slug}`) + C.dim(` (${flags.agent || "claude"}) in ${root}`)) : fail(`could not start: ${r.error}`);
+  }
+  if (!["stop", "resume", "open"].includes(verb)) return fail('usage: seldon lane start [dir] --task "…" [--agent claude|codex|opencode] · seldon lane stop|resume|open <key>');
+  const lane = arg && findLane(arg);
+  if (!lane) return fail(`no lane ${arg || ""} — see: seldon lanes`);
+  if (verb === "open") {
+    const how = openCommand(lane);
+    if (how.why) return fail(`can't open ${lane.name}: ${how.why}`);
+    process.exitCode = spawnSync(how.bin, how.args, { stdio: "inherit", cwd: how.cwd }).status ?? 1;
+    return;
+  }
+  const r = verb === "stop" ? stopLane(lane) : resumeLane(lane);
+  if (r.why) return fail(`can't ${verb} ${lane.name}: ${r.why}`);
+  if (!r.ok) return fail(`${verb} failed: ${r.error}`);
+  console.log(C.green(`✓ ${verb === "stop" ? "stopped" : "resumed"} ${lane.name}`) + (r.fresh ? C.dim(" (new conversation, same task + worktree)") : ""));
+}
+
+// `seldon machines` — the other computers the panel shows (bifrost's realms, one list).
+function machinesCmd(verb, name, target) {
+  if (verb === "add") {
+    if (!name || !target) { console.log(C.red("usage: seldon machines add <name> <user@host>")); process.exitCode = 1; return; }
+    addMachine(name, target);
+    console.log(C.green(`✓ ${name} added`) + C.dim(` — the panel now asks it for its agents (it needs seldon there, and ssh keys: ssh ${target} works without a password)`));
+    return;
+  }
+  const ms = listMachines();
+  if (!ms.length) { console.log(C.dim("no other machines — add one: seldon machines add mini you@mini.tailnet.ts.net")); return; }
+  let left = ms.length;
+  for (const m of ms) fetchLanes(m, (r) => {
+    console.log(`  ${C.bold(m.name.padEnd(12))} ${C.dim((m.user ? m.user + "@" : "") + m.host)}  ${r.error ? C.red(r.error) : C.green(`${r.lanes.length} agent(s)`)}`);
+    if (--left === 0) process.exit(0);
+  });
+}
+
 // ---- harness reports: Codex and opencode say what they are doing ---------------
 // `seldon report <harness>` reads one hook/plugin event on stdin and records the session's
 // state. It must never slow down or break the agent that calls it: no output, exit 0 always.
@@ -1534,7 +1633,7 @@ function holdsCmd() {
 // (`--no-attach`). The value form has to be CONSUMED: filtering out everything starting with
 // `--` and keeping the rest as positionals read `seldon go --agent claude` as the project
 // named "claude".
-const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval"]);
+const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task"]);
 function parseArgv(raw) {
   const flags = {}, positional = [];
   for (let i = 0; i < raw.length; i++) {
@@ -1585,6 +1684,9 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "holds") return holdsCmd();
   if (cmd === "watch") return watchCmd(flags);
   if (cmd === "report") return reportCmd(tokens[0]);
+  if (cmd === "lanes") return lanesCmd(flags);
+  if (cmd === "machines") return machinesCmd(tokens[0], tokens[1], tokens[2]);
+  if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
   if (cmd === "panel" || cmd === "board") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }

@@ -114,6 +114,32 @@ it back, and `R` on a project brings back all of its stopped lanes:
 - opencode: a new conversation on the same task in the same worktree; the work on disk is kept.
   (Its "continue" is per project and could pick up a sibling lane's conversation.)
 
+## Other machines
+
+The panel shows the agents on your other computers too, under `project @machine`, and every
+key works on them: open, stop, resume, new lane, plan.
+
+```bash
+seldon machines add mini you@mini.tailnet.ts.net   # once (needs seldon there + ssh keys)
+seldon machines                                    # each one, and whether it answers
+```
+
+- **The list:** machines are bifrost's realms (`~/.config/bifrost/realms/`), so bifrost,
+  factory and seldon share one list.
+- **How it reaches them:** the panel runs `ssh <machine> seldon lanes --json` in the background
+  every 10 seconds, so a sleeping machine never freezes it, and it acts with
+  `ssh <machine> seldon lane <verb> <key>`.
+- **From a phone:** `ssh` to any one machine and run `seldon`. Below 70 columns it switches to
+  one line per lane.
+
+## Lanes from the command line
+
+```bash
+seldon lanes [--json]                                     # every agent here
+seldon lane start [dir] --task "fix the save crash" [--agent codex]
+seldon lane stop|resume|open <name or key>
+```
+
 ## Holds — taking turns on shared things
 
 Agents on different projects share one machine: one boots the Android emulator, another
