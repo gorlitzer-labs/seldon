@@ -159,3 +159,54 @@ test("a known session is a lane whatever its pane runs (npm codex shows as node)
   const ls = tmuxLanes(panes, { seldon_fix: { harness: "codex", startedAt: 5 } });
   assert.deepEqual(ls.map((l) => [l.harness, l.name, l.startedAt]), [["codex", "fix", 5]]);
 });
+
+import { registryLanes, resumeCommands, transitions } from "../lib/lanes.mjs";
+
+describe("after a reboot", () => {
+  const reg = [
+    { session: "seldon_a", harness: "codex", slug: "a", worktree: "/w/a", task: "do a", startedAt: 1 },
+    { session: "seldon_b", harness: "opencode", slug: "b", worktree: "/w/b", task: "do b" },
+    { session: "seldon_c", harness: "codex", slug: "c", worktree: "/w/c", stoppedAt: 9 },
+  ];
+
+  test("a registered lane whose session is gone, not stopped on purpose, is listed as stopped", () => {
+    const ls = registryLanes(reg, ["seldon_b"]);
+    assert.deepEqual(ls.map((l) => [l.name, l.state, l.cwd]), [["a", "stopped", "/w/a"]]);
+  });
+
+  test("codex resumes its own conversation in its own worktree", () => {
+    const [l] = registryLanes(reg, []);
+    const { cmds } = resumeCommands(l, { bins: { codex: "/b/codex" }, env: { PATH: "/b" } });
+    assert.deepEqual(cmds[0].args, ["new-session", "-d", "-s", "seldon_a", "-c", "/w/a", "-e", "PATH=/b", "/b/codex", "resume", "--last"]);
+  });
+
+  test("opencode restarts on the same task, and says it is fresh", () => {
+    const l = registryLanes(reg, [])[1];
+    const r = resumeCommands(l);
+    assert.equal(r.fresh, true);
+    assert.deepEqual(r.cmds[0].agent, ["opencode", "/w/b", "--prompt", "do b"]);
+  });
+
+  test("background claude respawns; anything seldon did not start says why", () => {
+    assert.deepEqual(resumeCommands({ harness: "claude", id: "ab" }).cmds[0].args, ["respawn", "ab"]);
+    assert.ok(resumeCommands({ harness: "claude", pid: 3 }).why);
+  });
+});
+
+describe("transitions", () => {
+  const lane = (key, state, o = {}) => ({ key, name: key, state, ...o });
+  test("only changes a person should hear about, once", () => {
+    const prev = new Map([["a", "working"], ["b", "working"], ["c", "needs-you"], ["d", "stopped"]]);
+    const ev = transitions(prev, [
+      lane("a", "needs-you", { waitingFor: "permission prompt" }),
+      lane("b", "idle"),
+      lane("c", "needs-you"),           // still blocked: not news again
+      lane("d", "idle"),                // was not working: not "finished"
+      lane("e", "failed"),              // first sighting: not news
+    ]);
+    assert.deepEqual(ev.map((e) => e.text), ["a needs you: permission prompt", "b finished"]);
+  });
+  test("a failure is news", () => {
+    assert.equal(transitions(new Map([["x", "working"]]), [lane("x", "failed")])[0].text, "x failed");
+  });
+});

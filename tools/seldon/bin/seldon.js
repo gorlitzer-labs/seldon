@@ -8,8 +8,9 @@ import fs from "node:fs";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
 import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
-import { readLanes, readPlan, addToPlan, run as runCmd, runSteps, projectRoot, harnessBins, recordLane } from "../lib/agents.mjs";
-import { openCommand, stopCommand, startCommands, slugify, laneForItem, HARNESSES } from "../lib/lanes.mjs";
+import { readLanes, readPlan, addToPlan, run as runCmd, runSteps, projectRoot, harnessBins, recordLane, markLane } from "../lib/agents.mjs";
+import { openCommand, stopCommand, startCommands, resumeCommands, transitions, slugify, laneForItem, HARNESSES } from "../lib/lanes.mjs";
+import { notify } from "../lib/notify.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
 import { tryHold, release as releaseHold, listHolds, findOwner } from "../lib/holds-store.mjs";
@@ -724,11 +725,15 @@ async function up() {
     }
   }
 
-  // Supervisor — factory watch (background daemon, the "let it work" loop)
-  if (has("factory")) {
-    const r = startDaemon("factory-watch", "factory", ["watch", "--all"]);
-    go.push(`${C.bold("Supervisor")}  ${C.dim(r.already ? "already running" : "running")} — heals agents, catches stalls   ${C.dim("· live view: factory board")}`);
+  // The watcher — seldon's own supervisor: tells you when an agent needs you, fails or
+  // finishes. Plain code, no tokens, no rooms.
+  {
+    const r = startWatch();
+    go.push(`${C.bold("Watcher")}  ${C.dim(r.already ? "already running" : "running")} — tells you when an agent needs you   ${C.dim("· the panel: seldon")}`);
   }
+  // factory's supervisor only matters for projects that use rooms (heals room agents, files
+  // decisions from them). It no longer posts into rooms.
+  if (has("factory")) startDaemon("factory-watch", "factory", ["watch", "--all"]);
 
   // The rest are on-demand, not daemons — point at the command.
   if (has("factory")) go.push(`${C.bold("Put agents to work")}  ${C.cyan('factory new "<your idea>"')}   ${C.dim("→ repo · foundation · apiary hive")}`);
@@ -743,7 +748,7 @@ async function up() {
 }
 
 function down() {
-  const tracked = ["demerzel", "bonsai", "factory-watch"].filter((n) => stopDaemon(n));
+  const tracked = ["demerzel", "bonsai", "factory-watch", "seldon-watch"].filter((n) => stopDaemon(n));
   // Belt-and-suspenders so nothing leaks: also reap by seldon's OWN ports and
   // process signatures. This catches a server started outside seldon (manual
   // launch) or a pidfile that drifted. Scoped tightly — only our ports and
@@ -755,6 +760,7 @@ function down() {
     `pgrep -f '${SELDON_HOME}/bonsai/bin/llama-server'`,
     "pgrep -f 'demerzel[.]server'",
     "pgrep -f 'factory.*watch --all'",
+    "pgrep -f 'seldon[.]js watch'",
   ];
   const collect = () => {
     const s = new Set();
@@ -968,7 +974,7 @@ async function panel() {
     const sel = rows[cur];
     out.push("");
     out.push("  " + C.dim(sel?.type === "lane"
-      ? "↑↓ move · ⏎ open · x stop · n new lane · p plan · r refresh · q quit"
+      ? "↑↓ move · ⏎ open · x stop · R resume · n new lane · p plan · r refresh · q quit"
       : "↑↓ move · n new lane · p plan · ⏎ go (staff + room) · s staff · a room · b board · q quit"));
     out.push("  " + C.dim("U start stack · D stop stack · i install"));
   };
@@ -1009,7 +1015,7 @@ async function panel() {
   const draw = () => {
     const out = [""];
     out.push("  " + C.gold(C.bold("SELDON")) + "   " + headline(groups) + "   " + C.dim([
-      svc("supervisor", !!daemonUp("factory-watch")), svc("voice", !!daemonUp("demerzel")),
+      svc("watcher", !!daemonUp("seldon-watch")), svc("voice", !!daemonUp("demerzel")),
     ].join("  ")));
     const hs = listHolds();
     if (hs.length) out.push("  " + C.dim("held: ") + hs.map((h) => `${C.bold(h.resource)} ${C.dim("→ " + h.who + " " + ago(h.since))}`).join(C.dim("   ")));
@@ -1035,6 +1041,19 @@ async function panel() {
   const openPlan = (project) => { mode = { name: "plan", project, items: readPlan(project.root), cur: 0 }; };
   const ask = (title, prompt, then) => { mode = { name: "input", title, prompt, buf: "", then }; };
   const pickHarness = (project, task) => { mode = { name: "harness", project, task }; };
+
+  // Bring stopped lanes back (after a reboot, a crash). Says plainly what it could not do.
+  const resumeLanes = async (api, lanes) => {
+    const bins = harnessBins(), said = [];
+    for (const l of lanes) {
+      const how = resumeCommands(l, { bins, env: { PATH: process.env.PATH } });
+      if (how.why) { said.push(C.gold(`${l.name}: `) + how.why); continue; }
+      const res = await runOwned(api, () => runSteps(how.cmds));
+      if (res.ok && l.tmuxSession) markLane(l.tmuxSession, { stoppedAt: undefined, startedAt: Date.now() });
+      said.push(res.ok ? C.green(`resumed ${l.name}`) + (how.fresh ? C.dim(" (new conversation, same task + worktree)") : "") : C.red(`${l.name}: `) + res.error);
+    }
+    return said.join(C.dim(" · "));
+  };
 
   const startLane = async (api, project, task, harness) => {
     const slug = slugify(task);
@@ -1091,6 +1110,11 @@ async function panel() {
       else if (!r) { /* nothing selected */ }
       else if (str === "n") { const p = r.project; ask(`NEW LANE · ${p.name}`, "task ›", (task) => pickHarness(p, task)); }
       else if (str === "p") openPlan(r.project);
+      else if (str === "R") {
+        const targets = (r.type === "lane" ? [r.lane] : r.project.lanes).filter((l) => l.state === "stopped" || l.state === "failed");
+        if (!targets.length) note = C.dim("nothing stopped here to resume");
+        else note = await resumeLanes(api, targets);
+      }
       else if (r.type === "lane") {
         if (key.name === "return") {
           const how = openCommand(r.lane);
@@ -1102,6 +1126,7 @@ async function panel() {
           else if (armedStop?.key === r.lane.key && Date.now() - armedStop.at < 3000) {
             armedStop = null;
             const res = await runOwned(api, () => runCmd(how));
+            if (res.ok && r.lane.tmuxSession) markLane(r.lane.tmuxSession, { stoppedAt: Date.now() });
             note = res.ok ? C.dim(`stopped ${r.lane.name}`) : C.red(`could not stop: ${res.error}`);
           } else { armedStop = { key: r.lane.key, at: Date.now() }; note = C.gold(`press x again to stop ${r.lane.name}`); }
         }
@@ -1215,6 +1240,7 @@ async function go(arg, flags = {}) {
   //    telling you to go and run `seldon up` first.
   if (daemonUp("factory-watch")) sSkip("supervisor running");
   else { startDaemon("factory-watch", "factory", ["watch", "--all"]); sDid("supervisor started" + C.dim("  (heals agents, catches stalls)")); }
+  if (!startWatch().already) sDid("watcher started" + C.dim("  (tells you when an agent needs you)"));
 
   // 4. is anyone actually working here? This is the step that was missing: `factory adopt`
   //    opens an EMPTY room, and nothing said so — you joined and sat there alone.
@@ -1381,6 +1407,32 @@ ${C.bold("seldon")} — the agent factory: your projects, and the stack that run
 `);
 }
 
+// ---- the watcher: seldon's supervisor -----------------------------------------
+// Polls the lanes every 5s and tells you, once, when an agent starts waiting on you, fails
+// or finishes. Plain code: it costs no tokens and never types into an agent or a room.
+// `seldon up` runs it as a daemon; `seldon watch` runs it in the foreground.
+const SELF = fileURLToPath(import.meta.url);
+const startWatch = () => startDaemon("seldon-watch", process.execPath, [SELF, "watch"]);
+
+async function watchCmd(flags) {
+  ensureSiblingPath();
+  const every = parseDuration(flags.interval, 5000) || 5000;
+  let prev = new Map();
+  const stamp = () => new Date().toTimeString().slice(0, 8);
+  console.log(`${stamp()} seldon watch — every ${every / 1000}s`);
+  for (;;) {
+    let lanes = [];
+    try { lanes = readLanes().flatMap((g) => g.lanes); } catch (e) { console.log(`${stamp()} read failed: ${e.message}`); }
+    for (const e of transitions(prev, lanes)) {
+      console.log(`${stamp()} ${e.text}`);
+      notify(e.to === "needs-you" ? "Seldon · needs you" : "Seldon", `${e.text} — ${path.basename(e.lane.project || e.lane.cwd || "")}`);
+    }
+    prev = new Map(lanes.map((l) => [l.key, l.state]));
+    if (flags.once) return;
+    await new Promise((r) => setTimeout(r, every));
+  }
+}
+
 // ---- holds: turn-taking on shared machine resources ---------------------------
 // `seldon hold emulator` before using it, `seldon release emulator` after. If another agent
 // holds it, `hold` waits its turn (default 90s — under an agent's tool timeout) and then
@@ -1441,7 +1493,7 @@ function holdsCmd() {
 // (`--no-attach`). The value form has to be CONSUMED: filtering out everything starting with
 // `--` and keeping the rest as positionals read `seldon go --agent claude` as the project
 // named "claude".
-const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note"]);
+const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval"]);
 function parseArgv(raw) {
   const flags = {}, positional = [];
   for (let i = 0; i < raw.length; i++) {
@@ -1490,6 +1542,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "hold") return holdCmd(tokens[0], flags, passthru);
   if (cmd === "release") return releaseCmd(tokens[0], flags);
   if (cmd === "holds") return holdsCmd();
+  if (cmd === "watch") return watchCmd(flags);
   if (cmd === "panel" || cmd === "board") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
   if (cmd === "install") return install_picker({ dev });   // `install` with no ids

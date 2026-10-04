@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import {
   claudeLanes, parseTmuxPanes, tmuxLanes, tmuxSessionFor, groupByProject,
-  projectRootFromCommonDir, TMUX_PANE_FORMAT,
+  projectRootFromCommonDir, registryLanes, TMUX_PANE_FORMAT,
 } from "./lanes.mjs";
 
 export const SELDON_HOME = process.env.SELDON_HOME || join(homedir(), ".seldon");
@@ -48,13 +48,20 @@ export function projectRoot(cwd) {
 // lane is recognised whatever its pane happens to run, and (later) how it is resumed.
 const readJson = (p, fallback) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return fallback; } };
 
-export function recordLane(entry) {
-  const all = readJson(LANES_FILE, []).filter((e) => e.session !== entry.session);
-  all.push(entry);
+const writeLanes = (all) => {
   mkdirSync(SELDON_HOME, { recursive: true });
   const tmp = `${LANES_FILE}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(all, null, 2));
   renameSync(tmp, LANES_FILE);
+};
+
+export function recordLane(entry) {
+  writeLanes([...readJson(LANES_FILE, []).filter((e) => e.session !== entry.session), entry]);
+}
+
+// Stopped on purpose (x x): not offered for resume after a reboot. Resuming clears it.
+export function markLane(session, patch) {
+  writeLanes(readJson(LANES_FILE, []).map((e) => (e.session === session ? { ...e, ...patch } : e)));
 }
 
 // tmux session -> { harness, task, startedAt }: seldon's lanes plus apiary's Codex agents.
@@ -77,7 +84,8 @@ export function readLanes() {
   const panes = readTmuxPanes();
   const claude = claudeLanes(readClaude()).map((l) =>
     l.id || !l.pid || !panes.length ? l : { ...l, tmuxSession: tmuxSessionFor(l.pid, panes, parentOf) });
-  return groupByProject([...claude, ...tmuxLanes(panes, knownSessions())], projectRoot);
+  const stopped = registryLanes(readJson(LANES_FILE, []), panes.map((p) => p.session));
+  return groupByProject([...claude, ...tmuxLanes(panes, knownSessions()), ...stopped], projectRoot);
 }
 
 // The project's open plan, via foundation (the one parser of QUEUE.md). null = no foundation
