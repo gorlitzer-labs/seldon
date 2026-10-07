@@ -5,13 +5,15 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
-import { createServer } from "node:net";
 import { c, say, step, ok, warn } from "./lib/log.mjs";
 import { readRegistry, addToRegistry, pruneRegistry } from "./lib/hive.mjs";
 import { openQueueItems } from "./lib/util.mjs";
 
 export { openQueueItems };
 import { openHive } from "./new.mjs";
+import { freePort, registeredPorts } from "./lib/port.mjs";
+
+export { freePort };
 
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: "utf8", ...opts });
 const has = (cmd) => { try { sh("sh", ["-c", `command -v ${cmd}`]); return true; } catch { return false; } };
@@ -29,19 +31,6 @@ export function excludeLocally(dir, file) {
   mkdirSync(join(dir, ".git", "info"), { recursive: true });
   appendFileSync(ex, (cur && !cur.endsWith("\n") ? "\n" : "") + "/" + file + "\n");
   return true;
-}
-
-const portFree = (port) => new Promise((res) => {
-  const s = createServer();
-  s.once("error", () => res(false));
-  s.once("listening", () => s.close(() => res(true)));
-  s.listen(port, "127.0.0.1");
-});
-// `taken`: ports other registered hives claim. A hive that is down leaves its port free on the
-// OS, but reusing it would make the registry send that hive's traffic to this one.
-export async function freePort(start = 7920, span = 50, taken = new Set()) {
-  for (let p = start; p < start + span; p++) if (!taken.has(p) && await portFree(p)) return p;
-  throw new Error(`no free port in ${start}-${start + span - 1} for the hive`);
 }
 
 async function reachable(url) {
@@ -77,9 +66,7 @@ export async function factoryAdopt(target, flags = {}) {
   } else if (!has("apiary")) {
     warn("apiary not on PATH — skipping the hive. Install it (seldon install apiary), then re-run adopt.");
   } else {
-    const taken = new Set(readRegistry().filter((e) => e.dir !== dir)
-      .map((e) => { try { return parseInt(new URL(e.hive.serverUrl).port, 10); } catch { return 0; } }));
-    const port = flags.port ? parseInt(flags.port, 10) : await freePort(7920, 50, taken);
+    const port = flags.port ? parseInt(flags.port, 10) : await freePort(7920, 50, registeredPorts(dir));
     hive = await openHive(name, port);
     ok(`hive ${c.bold(name)} up on ${c.dim(hive.serverUrl)} ${c.dim("(room history resumes if it existed)")}`);
   }
