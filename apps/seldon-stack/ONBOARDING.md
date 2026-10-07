@@ -53,7 +53,7 @@ src/
     Surface.tsx            picks which module surface to render for a beat
     surfaces/              the real TUIs: Terminal, Apiary, Demerzel, Stack…
   demerzel-avatar/         the Demerzel voice avatar (vendored three)
-public/vo/{george,lily}/   34 narration mp3s
+public/vo/{george,lily}/   58 narration mp3s
 ```
 
 ## The content model (the part you'll edit most)
