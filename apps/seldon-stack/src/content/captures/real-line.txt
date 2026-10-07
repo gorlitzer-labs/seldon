@@ -1,0 +1,31 @@
+# one command: a repo, the foundation docs, a plan seed, and a hive
+$ factory new "a tiny Weather CLI that prints the current temperature for a city" --dir ~/Desktop/weather-demo --name weather-demo --port 7921
+
+🏭 The Agentic Factory — new line: weather-demo
+
+[1] repo
+✓ repo at /Users/you/Desktop/weather-demo
+[2] foundation
+✓ Foundation installed (foundation)
+[3] seed
+✓ PRD seed written + planning item queued
+[4] hive
+✓ hive weather-demo up on http://127.0.0.1:7921
+
+line is warm. next:
+  cd /Users/you/Desktop/weather-demo
+  factory staff weather-demo   # a coordinator joins the hive, runs /prd + /plan-phase, then dispatches
+  join url: http://127.0.0.1:7921/?token=…
+  supervise (Phase 2): factory watch weather-demo
+
+$ cd ~/Desktop/weather-demo && ls docs
+_INDEX.md	DECISIONS.md	FACTS.md	PRD.md		STACK_MAP.md
+CONTEXT.md	DONE.md		phases		QUEUE.md	WORKSTREAMS.md
+# the task goes in through the tool, stamped with who added it
+$ FOUNDATION_AGENT=you foundation queue "(P1) Build the Weather CLI: node, no dependencies, weather <city> prints the current temperature using the free Open-Meteo API (no key). Add a --units metric|imperial flag (default metric). Include node:test tests and a README example."
+✓ queued (P1) Build the Weather CLI: node, no dependencies, weather <city> prints the current temperature using the free Open-Meteo API (no key). Add a --units metric|imperial flag (default metric). Include node:test tests and a README example.  by you
+$ tail -4 docs/QUEUE.md | cut -c1-118
+- [ ] (P1) plan weather-demo: run /prd then /plan-phase, then dispatch build tasks
+    added: 2026-10-07T09:50Z  by: you
+- [ ] (P1) Build the Weather CLI: node, no dependencies, weather <city> prints the current temperature using the free 
+    added: 2026-10-07T09:51Z  by: you

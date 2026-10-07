@@ -1,0 +1,14 @@
+# the box mounts one folder. Can it see the machine it runs on?
+$ echo "host user: $USER   host home: $HOME"
+host user: you   host home: /Users/you
+$ docker run --rm -v "$PWD:/work" -w /work factory-agentbox bash -c 'echo "inside: user=$(whoami)"; ls -d /Users/you/.ssh /Users/you/.config/gh /Users 2>&1; echo; echo "the one thing it can see:"; ls /work | head -4'
+inside: user=agent
+ls: cannot access '/Users/you/.ssh': No such file or directory
+ls: cannot access '/Users/you/.config/gh': No such file or directory
+ls: cannot access '/Users': No such file or directory
+
+the one thing it can see:
+README.md
+bin
+docs
+package.json
