@@ -91,15 +91,17 @@ colima start --cpu 4 --memory 6 --disk 40
 docker version --format '{{.Server.Version}}'
 ```
 
-**Until factory 0.2.4 is on npm** ([#92](https://github.com/gorlitzer-labs/seldon/pull/92)), build the
-image once by hand — the published package leaves out the Dockerfile:
+`factory box` builds its image the first time you use it (factory 0.2.4 or newer;
+[#92](https://github.com/gorlitzer-labs/seldon/pull/92)), so there is nothing to do. **On 0.2.3 or older**
+the published package leaves out the Dockerfile, so build the image once by hand:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gorlitzer-labs/seldon/main/modules/factory/agentbox/Dockerfile \
   | docker build -t factory-agentbox -
 ```
 
-`factory box` builds the image only if it is missing, so after this it just works.
+`factory box` builds the image only if it is missing, so after this it just works. (Check with
+`factory --version`, or upgrade: `npm i -g @gorlitzer-labs/factory@latest`.)
 
 ## 4. Give the box its login — once, by name
 
@@ -130,8 +132,9 @@ factory new "a tiny Weather CLI that prints the current temperature for a city" 
 ```
 
 That is four steps: a repo, the foundation docs, a PRD seed with a planning item, and a hive.
-`--port` is only needed if a hive is already running on the machine (see the table below; fixed in
-0.2.4). Then the task goes in through the tool, never by hand-editing:
+`factory new` takes the first free port from 7920 (0.2.4 or newer). We passed `--port 7921` in the
+recording because a hive from an earlier project was already running on 7920 and we were on 0.2.3, which
+always used 7920 (see the table below). Then the task goes in through the tool, never by hand-editing:
 
 ```bash
 cd ~/Desktop/weather-demo
@@ -237,9 +240,9 @@ Everything below happened in this run.
 
 | What you see | Cause | What to do |
 |---|---|---|
-| `factory box`: `unable to prepare context: path ".../agentbox/" not found` | The npm package omits the Dockerfile ([#92](https://github.com/gorlitzer-labs/seldon/pull/92)) | Build the image once, §3 |
-| `factory box doctor`: `REACHABLE .claude — the box is not sealed` | The doctor counted the box's *own* `~/.claude` (the fleet home) as a host leak ([#92](https://github.com/gorlitzer-labs/seldon/pull/92)). Inside the box, `/Users` and `/host` do not exist | Cosmetic; fixed in 0.2.4. The proof in §7 is not affected |
-| `factory new`: `hive did not report startup in 15s` | A second `factory new` reused the fixed port 7920 ([#92](https://github.com/gorlitzer-labs/seldon/pull/92)) | `--port 7921`; fixed in 0.2.4 |
+| `factory box`: `unable to prepare context: path ".../agentbox/" not found` | The npm package omits the Dockerfile ([#92](https://github.com/gorlitzer-labs/seldon/pull/92)) | Upgrade to 0.2.4 or newer; on older versions build the image once, §3 |
+| `factory box doctor`: `REACHABLE .claude — the box is not sealed` | The doctor counted the box's *own* `~/.claude` (the fleet home) as a host leak ([#92](https://github.com/gorlitzer-labs/seldon/pull/92)). Inside the box, `/Users` and `/host` do not exist | Cosmetic; fixed in 0.2.4 (the shipped doctor reports all five paths sealed in this exact state). The proof in §7 was never affected |
+| `factory new`: `hive did not report startup in 15s` | A second `factory new` reused the fixed port 7920 ([#92](https://github.com/gorlitzer-labs/seldon/pull/92)) | Fixed in 0.2.4; on older versions pass `--port 7921` |
 | `401 OAuth access token is invalid` in the box | A truncated paste of the token | §4: copy whole, check the length |
 | `factory staff` stops at *"Bypass Permissions mode"* | It runs an unboxed agent on the host and waits for you to accept | Use `factory box` instead |
 | An agent says it cannot find `docs/QUEUE.md` | `docs/` is **untracked**, so `git clean -fd` deleted it. Our own reset script did this once, and the agent correctly refused to guess the spec | Reset with `git clean -fd -e docs …`, and look at `git clean -n` first |
