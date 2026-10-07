@@ -1,0 +1,27 @@
+$ factory box . --with CLAUDE_CODE_OAUTH_TOKEN
+📦 box weather-demo
+   mounted   /Users/you/Desktop/weather-demo → /work
+   agent     none — plain shell
+   identity  fleet home (volume factory-agentbox-home) — log in once, it sticks
+   secrets   CLAUDE_CODE_OAUTH_TOKEN (via comb, never in a command line)
+   ceiling   4g memory · 2 cpus
+$ claude -p "Read docs/QUEUE.md and docs/PRD.md. Take the queue item that starts with Build the Weather CLI and implement it exactly as written; leave the other queue item alone. First set a local git identity (ana, ana@example.invalid). Run the tests. Commit on a branch named feat/weather-units. Do not push. Finish with a 5 line summary." --dangerously-skip-permissions
+- I built the Weather CLI queue item: `bin/weather.js` and `src/weather.js` have no dependencies. `weather <city>` looks the city up through Open-Meteo's geocoding API, then prints the current temperature.
+- `--units metric|imperial` defaults to metric. It accepts `--units x` and `--units=x`, multi-word city names, and gives clear errors for bad units, a missing city, or an unknown city.
+- I added `package.json` with `npm test`, six `node:test` tests in `test/weather.test.js`, and a README with usage examples. The tests pass (6/6) against a mocked fetch, so I didn't call the live API.
+- I set the local git identity to ana / ana@example.invalid and committed `8dc00bc` on `feat/weather-units`. I didn't push.
+- I left the "plan weather-demo" queue item and `docs/` untouched, and `docs/` stays untracked.
+$ git log --oneline -2
+8dc00bc (HEAD -> feat/weather-units) Add Weather CLI with --units metric|imperial
+8d77a6b (main) init
+$ npm test 2>&1 | grep -E "^# (tests|pass|fail)"
+# tests 6
+# pass 6
+# fail 0
+$ node bin/weather.js Berlin
+Berlin: 18.3°C
+$ node bin/weather.js Berlin --units imperial
+Berlin: 64.9°F
+$ node bin/weather.js Berlin --units kelvin; echo "exit=$?"
+Invalid --units "kelvin": expected metric or imperial
+exit=1

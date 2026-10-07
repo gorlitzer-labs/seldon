@@ -32,7 +32,7 @@ project, agents `ana` / `ben`) — nothing from any private product.
 
 ### Content model
 
-Nine chapters (`00` intro → `06` modules → `07` combos → `08` credits). Each
+Ten chapters (`00` intro → `06` modules → `07` combos → `08` a real run on a fresh Mac → `09` credits). Each
 chapter is a list of **beats** (subchapters); a beat frames or lifts one hex,
 picks a **view** (`hive` · `surface` · `combo`), and carries the narration lines.
 All content lives in `src/content/` — see [ONBOARDING.md](./ONBOARDING.md) for the

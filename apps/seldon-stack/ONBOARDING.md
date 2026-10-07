@@ -42,7 +42,7 @@ src/
     deck.ts                zustand store — current chapter/beat, flat stepping
     useHashRoute.ts        #/chapter/beat  <->  store sync
   content/                 *** all lecture content lives here ***
-    chapters.ts            the 9 chapters and their beats (the script)
+    chapters.ts            the 10 chapters and their beats (the script)
     types.ts               Beat / Chapter / SayLine / View / ModuleId
     modules.ts             per-module metadata
     captures/              real captured workflows shown in the surfaces

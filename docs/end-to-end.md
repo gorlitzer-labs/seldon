@@ -4,6 +4,9 @@ A single agnostic task threaded through all six tools — the same **Weather CLI
 project (agents `ana` / `ben`) the [seldon-stack](apps/seldon-stack)
 teardown uses. Nothing here touches a real product.
 
+> **Want to see it run for real?** [tutorial-real-run.md](tutorial-real-run.md) is this flow executed on a
+> fresh Mac — with the clips, the evidence, and everything that went wrong.
+
 ## The task
 
 > "Add a `--units` flag to the Weather CLI (metric / imperial) and ship it."

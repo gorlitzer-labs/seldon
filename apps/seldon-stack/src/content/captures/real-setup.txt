@@ -1,0 +1,17 @@
+# a fresh Mac, set up over SSH: node, docker, and the six tools
+$ node -v && docker version --format 'docker server {{.Server.Version}}'
+v22.23.3
+docker server 29.5.2
+$ seldon doctor
+  ✓ node
+  ✓ tmux
+  ✓ sops
+  ✓ age
+  ✓ tailscale
+  ✓ python3
+$ for t in comb apiary factory foundation bifrost; do printf '%-11s' $t; command -v $t; done
+comb       /Users/you/Library/pnpm/bin/comb
+apiary     /Users/you/Library/pnpm/bin/apiary
+factory    /Users/you/Library/pnpm/bin/factory
+foundation /Users/you/Library/pnpm/bin/foundation
+bifrost    /Users/you/bin/bifrost
