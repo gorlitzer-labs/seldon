@@ -218,6 +218,25 @@ describe("factory new --here on a repo that already has a PRD", () => {
   });
 });
 
+describe("factory new picks a free hive port", () => {
+  test("a second `new` on the same machine does not collide with the first", () => {
+    // `new` used to default to a fixed 7920, so the second line on a machine failed with
+    // "hive did not report startup in 15s" — the port was simply taken. `adopt` already picked the
+    // first free one; `new` now does too, and registered hives count as taken.
+    const run = (name) => {
+      const dir = join(root, name);
+      const r = spawnSync("node", [CLI, "new", "some idea", "--dir", dir, "--name", name], {
+        encoding: "utf8", timeout: 40000,
+        env: { ...process.env, HOME, PATH: `${BIN}:${process.env.PATH}`, APIARY_LOG, NO_COLOR: "1" },
+      });
+      assert.equal(r.status, 0, r.stdout + r.stderr);
+      return +/up on http:\/\/127\.0\.0\.1:(\d+)/.exec(r.stdout)[1];
+    };
+    const a = run("new-first"), b = run("new-second");
+    assert.notEqual(a, b, `both lines got port ${a}`);
+  });
+});
+
 describe("adopt helpers", () => {
   test("freePort skips ports another registered hive claims, even when the OS says free", async () => {
     const start = 20000 + Math.floor(Math.random() * 20000);

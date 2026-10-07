@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { c, say, step, ok, warn } from "./lib/log.mjs";
 import { addToRegistry } from "./lib/hive.mjs";
+import { freePort, registeredPorts } from "./lib/port.mjs";
 
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").split("-").slice(0, 4).join("-") || "project";
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: "utf8", ...opts });
@@ -17,7 +18,9 @@ export async function factoryNew(idea, flags) {
   if (!idea) throw new Error('usage: factory new "<idea>" [--name <n>] [--dir <path>] [--here] [--port <p>]');
   const name = flags.name || slug(idea);
   const dir = flags.here ? process.cwd() : resolve(flags.dir || join(homedir(), "Desktop", name));
-  const port = parseInt(flags.port || "7920", 10);
+  // First free port from 7920, as `adopt` does. A fixed 7920 made a second `factory new` on a machine
+  // that already had a hive fail with "hive did not report startup" (the port was simply taken).
+  const port = flags.port ? parseInt(flags.port, 10) : await freePort(7920, 50, registeredPorts(dir));
 
   say(`\n${c.honey("🏭 The Agentic Factory")} — new line: ${c.bold(name)}\n`);
 

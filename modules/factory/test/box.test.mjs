@@ -10,7 +10,12 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
-import { runArgs, HARNESSES, HOME_VOLUME, IMAGE, wrapWithSecrets } from "../src/box.mjs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { runArgs, HARNESSES, HOME_VOLUME, IMAGE, wrapWithSecrets, doctorProbe } from "../src/box.mjs";
 
 const REPO = "/Users/someone/Desktop/project";
 const mountsOf = (args) => args.filter((a, i) => args[i - 1] === "-v");
@@ -113,5 +118,47 @@ describe("secrets", () => {
     const { bin, args } = wrapWithSecrets(["run", "--rm", IMAGE], []);
     assert.equal(bin, "docker");
     assert.deepEqual(args, ["run", "--rm", IMAGE]);
+  });
+});
+
+describe("box doctor", () => {
+  // Runs the REAL probe string in a shell: `home` stands in for the box's own $HOME, `hostHome` for
+  // the host's home path as seen from inside the box.
+  const probe = (home, hostHome) =>
+    spawnSync("sh", ["-c", doctorProbe(hostHome)], { encoding: "utf8", env: { ...process.env, HOME: home } }).stdout;
+  const tmp = () => mkdtempSync(join(tmpdir(), "box-doctor-"));
+
+  test("the box's own ~/.claude and ~/.codex are not host secrets", () => {
+    // After an agent has signed in or run inside the box, its fleet home holds these. Flagging them
+    // told every user "the box is not sealed" after first use, when nothing of the host was visible.
+    const home = tmp(), nowhere = join(tmp(), "no-such-host-home");
+    try {
+      for (const d of [".claude", ".codex"]) mkdirSync(join(home, d));
+      const out = probe(home, nowhere);
+      assert.ok(!out.includes("REACHABLE"), out);
+      assert.equal(out.trim().split("\n").length, 5, "all five host secrets are still reported on");
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  test("a host secret that really is reachable is still flagged", () => {
+    const hostHome = tmp();
+    try {
+      mkdirSync(join(hostHome, ".ssh"));
+      const out = probe(tmp(), hostHome);
+      assert.match(out, /REACHABLE .ssh/);
+      assert.match(out, /sealed +\.aws/);
+    } finally { rmSync(hostHome, { recursive: true, force: true }); }
+  });
+});
+
+describe("the npm package", () => {
+  test("ships the Dockerfile `factory box` builds its image from", () => {
+    // box.mjs builds from ../agentbox/. A `files` list without it published a package whose
+    // `factory box` failed on first use for everyone who installed from npm.
+    const dir = join(dirname(fileURLToPath(import.meta.url)), "..");
+    const r = spawnSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: dir, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    const shipped = JSON.parse(r.stdout)[0].files.map((f) => f.path);
+    assert.ok(shipped.includes("agentbox/Dockerfile"), `agentbox/Dockerfile is not in the package:\n${shipped.join("\n")}`);
   });
 });

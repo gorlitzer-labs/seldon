@@ -232,20 +232,28 @@ export async function factoryBox(pos, flags) {
  * reach. Run it after any change to the mount policy — a wall nobody has tested
  * is a wall nobody should trust.
  */
+/**
+ * The shell the doctor runs inside the box: for each host secret, is it reachable?
+ *
+ * Only the host's LITERAL paths (and a would-be /host mount) are probed. The box's own $HOME is
+ * deliberately not: it is the fleet's volume, so ~/.claude and ~/.codex legitimately exist there
+ * once an agent has signed in or run, and flagging them told every user their box "is not sealed"
+ * after first use. What needs proving is that the host's real /Users/<you>/.ssh (etc.) is not
+ * reachable from inside by any mount, and that is what these paths test.
+ */
+export function doctorProbe(hostHome) {
+  return HOST_SECRETS
+    .map((p) => `if [ -e "${hostHome}/${p}" ] || [ -e "/host/${p}" ]; then echo "REACHABLE ${p}"; else echo "sealed    ${p}"; fi`)
+    .join("; ");
+}
+
 export function boxDoctor(dir, flags = {}) {
   if (!dockerAvailable()) throw new Error("docker is not running — start Docker Desktop and try again");
   ensureImage({ rebuild: flags.rebuild === true });
 
   const repo = resolve(dir ?? process.cwd());
 
-  // Probe the LITERAL host paths, not just $HOME. Checking $HOME alone is very
-  // nearly a tautology — the box's home is its own volume, so of course ~/.ssh
-  // is not in it. What actually needs proving is that the host's real
-  // /Users/<you>/.ssh is not reachable from inside by any mount.
-  const hostHome = homedir();
-  const probe = HOST_SECRETS
-    .map((p) => `if [ -e "$HOME/${p}" ] || [ -e "${hostHome}/${p}" ] || [ -e "/host/${p}" ]; then echo "REACHABLE ${p}"; else echo "sealed    ${p}"; fi`)
-    .join("; ");
+  const probe = doctorProbe(homedir());
 
   const args = runArgs({ repo, command: ["bash", "-lc", `${probe}; echo "---"; ls /work >/dev/null 2>&1 && echo "work mount OK" || echo "work mount MISSING"`] });
   const r = docker(args);
