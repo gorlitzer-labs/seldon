@@ -70,7 +70,10 @@ const FAKE_MACS = /^(00:00:00:00:00:00|ff:ff:ff:ff:ff:ff|aa:bb:cc:dd:ee:ff|00:11
  * history unflagged. So this keys on the NAME being assigned, and lets placeholders
  * through: YOUR_WIFI_PASSWORD, <ssid>, ${PASS}, ****, changeme and the like.
  */
-const PLACEHOLDER = /^(your|my[_-]?|<|\$|\{|%|x{3,}|\*{3,}|\.{3}|change[_-]?me|example|placeholder|dummy|fake|sample|test|todo|tbd|null|none|undefined|redacted|password|passwd|secret|ssid|pass)/i;
+// A placeholder is a marker (YOUR…, <…>, ${…}, %…%, ****, xxx) or a whole stand-in word,
+// alone or with a _/- suffix ("test", "example-ssid"). Prefixes alone are not enough: a
+// real network called "TestNet-5G" or a password "passw0rd123" must still be caught.
+const PLACEHOLDER = /^(?:your|<|\$|\{|%|x{3,}$|\*{3,}$|\.{3})|^(?:change[_-]?me|example|placeholder|dummy|fake|sample|test|todo|tbd|null|none|undefined|redacted|password|passwd|secret|ssid|pass|my[_-]?(?:ssid|password|pass|wifi))(?:$|[_-])/i;
 const literalValue = (m) => (m.match(/["']([^"']*)["']\s*\)?\s*$/) ?? [])[1] ?? "";
 export const CONTENT_RULES = [
   {
