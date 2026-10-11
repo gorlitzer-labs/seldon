@@ -17,6 +17,10 @@ and attaches provenance, so every version links back to the commit it came from.
    git tag comb@0.2.1 && git push origin comb@0.2.1
    ```
 
+Push tags **one at a time**. When more than three tags arrive in one push,
+GitHub creates no tag events at all, so nothing gets published and nothing
+says why.
+
 The workflow refuses a tag whose version does not match `package.json`, or that
 is not on main, then installs, builds, tests and publishes.
 
