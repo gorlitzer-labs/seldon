@@ -24,6 +24,9 @@ import * as store from "./backends/sops.mjs";
 import * as realms from "./realms.mjs";
 import { syncWith } from "./sync.mjs";
 import { scan, defaultTargets } from "./audit.mjs";
+import { check, parseDeny, parseIgnore, machineRules, isIgnored, DENY_KEY } from "./gate.mjs";
+import * as gateGit from "./gate-git.mjs";
+import { userInfo, hostname } from "node:os";
 import { VERSION, checkAndNotify } from "./update-check.mjs";
 
 const B = (s) => `\x1b[1m${s}\x1b[0m`;
@@ -76,6 +79,12 @@ function help() {
     `  ${B("comb sync")} <host>                 merge the store with another realm's, both ways (over ssh)`,
     `  ${B("comb pubkey")}                      print THIS machine's age public key`,
     `  ${B("comb rm")} <NAME>                  forget one`,
+    "",
+    `  ${B("comb gate install")} [--repo]      block pushes that would publish secrets or personal details`,
+    `  ${B("comb gate check")} [--history]     check unpushed commits now (or the whole history)`,
+    `  ${B("comb gate status")}                does a push from this repo go through the gate?`,
+    `  ${B("comb gate deny add")} <pattern>    add to your personal list (stored encrypted, never in a repo)`,
+    `  ${B("comb gate deny ls")} | rm <n>      show or remove entries`,
     "",
     dim("  Values are never printed, never passed as arguments, never logged."),
     dim("  `comb get NAME --reveal` exists for when you genuinely need to read one."),
@@ -252,6 +261,107 @@ try {
       say(dim("  A Cloudflare token is 40 characters of nothing in particular and cannot be"));
       say(dim("  matched by shape. Finding none above does not mean none are there."));
       break;
+    }
+
+    case "gate": {
+      const sub = pos[0];
+      const readDeny = () => (store.initialised() ? store.readAll()[DENY_KEY]?.value ?? "" : "");
+      const writeDeny = (lines) => store.writeSecret(DENY_KEY, lines.join("\n"));
+
+      if (sub === "install") {
+        if (flags.repo) {
+          const r = gateGit.installRepo(process.cwd());
+          say(r.already ? `${green("✓")} already installed in ${B(r.hook)}` : `${green("✓")} gate installed in ${B(r.hook)}`);
+        } else {
+          const r = gateGit.installGlobal();
+          say(`${green("✓")} gate installed for every repository ${dim(`(core.hooksPath → ${r.hook.replace(/\/pre-push$/, "")})`)}`);
+          if (r.prev) say(yellow(`  ⚠ replaced a previous global core.hooksPath (${r.prev}) — move any hooks from there into the new directory`));
+          say(dim("  repos with their own core.hooksPath (husky) skip it: run `comb gate install --repo` inside them"));
+        }
+        if (!store.initialised()) say(yellow("  ⚠ no comb store yet: only generic rules will run. `comb init`, then `comb gate deny add …`"));
+        else if (!readDeny()) say(yellow("  ⚠ your personal list is empty — add your name and emails: `comb gate deny add \"Jane Doe\"`"));
+        break;
+      }
+
+      if (sub === "status") {
+        const st = gateGit.status(process.cwd());
+        say(st.guarded ? `${green("✓")} pushes from here go through the gate ${dim(st.hook)}` : red(`✗ pushes from here are NOT checked ${dim(`(hooks: ${st.hook})`)}`));
+        if (!st.guarded && st.local) say(dim(`  this repo sets its own core.hooksPath (${st.local}); run \`comb gate install --repo\``));
+        if (!st.guarded && !st.local) say(dim("  run `comb gate install` once for every repository on this machine"));
+        say(dim(`  personal list: ${parseDeny(readDeny()).length} pattern(s)`));
+        process.exit(st.guarded ? 0 : 1);
+      }
+
+      if (sub === "deny") {
+        const op = pos[1];
+        const lines = readDeny().split("\n").filter((l) => l.trim());
+        if (op === "add") {
+          let pattern = pos.slice(2).join(" ");
+          if (!pattern && !process.stdin.isTTY) pattern = (await promptSecret("pattern")).trim();
+          if (!pattern) throw new Error('what should never be published? `comb gate deny add "Jane Doe"`');
+          parseDeny(pattern); // a bad /regex/ fails here, not on the next push
+          writeDeny([...lines, pattern]);
+          say(`${green("✓")} added as #${lines.length + 1} ${dim("(kept encrypted in the comb store)")}`);
+        } else if (op === "ls" || op === undefined) {
+          if (!lines.length) say(dim("  empty — `comb gate deny add <pattern>`"));
+          lines.forEach((l, i) => say(`  ${String(i + 1).padStart(2)}  ${l}`));
+        } else if (op === "rm") {
+          const n = Number(pos[2]);
+          if (!(n >= 1 && n <= lines.length)) throw new Error(`no entry #${pos[2]} — see \`comb gate deny ls\``);
+          writeDeny(lines.filter((_, i) => i !== n - 1));
+          say(`${green("✓")} removed #${n}`);
+        } else throw new Error(`unknown: comb gate deny ${op}`);
+        break;
+      }
+
+      if (sub === "check") {
+        const cwd = process.cwd();
+        let revs;
+        if (flags.hook) {
+          const stdin = await new Promise((r) => { let d = ""; process.stdin.on("data", (c) => (d += c)); process.stdin.on("end", () => r(d)); });
+          revs = gateGit.pushRange(stdin);
+          if (!revs) process.exit(0);
+        } else {
+          revs = flags.history ? ["--all"] : ["HEAD", "--not", "--remotes"];
+        }
+
+        const all = store.initialised() ? store.readAll() : {};
+        const known = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v?.value]));
+        const deny = parseDeny(all[DENY_KEY]?.value ?? "");
+        const commits = gateGit.readCommits(revs, cwd);
+        if (!commits.length) { say(dim("comb gate: nothing to publish")); process.exit(0); }
+
+        const ignore = parseIgnore(gateGit.readIgnoreFile(cwd));
+        const findings = check(commits, {
+          known, deny, ignore,
+          machine: machineRules({ user: userInfo().username, hostname: hostname() }),
+        });
+        const leaks = gateGit.gitleaks(revs, cwd);
+        findings.push(...(leaks ?? []).filter((f) => !isIgnored(ignore, f.where.replace(/:\d+$/, ""), "gitleaks")));
+
+        const label = `${commits.length} commit(s)`;
+        if (!findings.length) {
+          say(`${green("✓")} comb gate: ${label} clean${leaks === null ? dim(" (gitleaks not installed — credential coverage is narrower)") : ""}`);
+          if (!deny.length) say(dim("  your personal list is empty — names and emails are not being checked"));
+          process.exit(0);
+        }
+
+        say(red(`✗ comb gate: blocked — ${findings.length} finding(s) in ${label}`));
+        const bySha = new Map();
+        for (const f of findings) bySha.set(f.sha, [...(bySha.get(f.sha) ?? []), f]);
+        for (const [sha, fs] of bySha) {
+          say(`  ${B(sha.slice(0, 7))}`);
+          for (const f of fs) say(`    ${f.where}  ${yellow(f.rule)} ${dim(f.why)}`);
+        }
+        say("");
+        say(dim("  Values are never shown. Remove them from EVERY commit listed — a later commit"));
+        say(dim("  deleting the file does not take it out of the history being pushed."));
+        say(dim("  A false positive on a generic rule: add `<path-glob> <rule>` to .combgateignore."));
+        say(dim("  Deliberate, one push only: git push --no-verify"));
+        process.exit(1);
+      }
+
+      throw new Error("usage: comb gate install [--repo] | check [--history] | status | deny add|ls|rm");
     }
 
     case undefined: case "help": case "--help": case "-h": help(); break;

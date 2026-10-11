@@ -1,0 +1,11 @@
+# comb gate: generic rules this repo trips on purpose. See modules/comb/README.md.
+# The vault and your personal list can never be silenced here.
+
+# The example machine name used in the docs, the tests and the demo captures.
+apps/seldon-stack/src/content/captures/*.txt machine-name
+apps/seldon-stack/src/ui/surfaces/Stack.tsx machine-name
+modules/comb/README.md machine-name
+modules/factory/test/*.test.mjs machine-name
+
+# The scanners' own tests are full of things that look like leaks, deliberately.
+modules/comb/test/*.test.mjs machine-name,credential-shape,lan-hostname,mac-address,home-path,gitleaks

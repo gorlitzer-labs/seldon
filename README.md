@@ -69,7 +69,7 @@ panel.
 | **[foundation](modules/foundation)** | the plan: `docs/QUEUE.md`, `DONE.md`, `FACTS.md`, written only through a deterministic CLI. Recommended |
 | **[apiary](modules/apiary)** | rooms where agents talk to each other (MCP or tmux), when one lane is not enough |
 | **[factory](modules/factory)** | projects run through apiary rooms: `factory new "<idea>"`, a board, decisions |
-| **[comb](modules/comb)** | secrets by name, a leak audit, one store across machines (SOPS + age) |
+| **[comb](modules/comb)** | secrets by name, a leak audit, a pre-push gate for secrets and personal details, one store across machines (SOPS + age) |
 | **[bifrost](modules/bifrost)** | tmux + Tailscale: sessions that survive, one workspace across machines |
 | **[demerzel](modules/demerzel)** | a fully local voice you talk to (MLX, Apple silicon) |
 

@@ -67,6 +67,9 @@ matters. Everything else is recoverable; that is not. Back it up somewhere real.
 | `comb audit` | which secrets leaked into transcripts and shell history |
 | `comb rm <NAME>` | forget one (does **not** revoke it at the provider) |
 | `comb sync <host>` | merge the store with another realm's, both ways, over ssh |
+| `comb gate install [--repo]` | block pushes that would publish secrets or personal details |
+| `comb gate check [--history]` | check unpushed commits, or a repository's whole history |
+| `comb gate deny add\|ls\|rm` | your personal list, kept encrypted in the store |
 
 Values are never printed, never passed as command-line arguments, never logged.
 `comb get NAME --reveal` exists for when you genuinely need to read one, and
@@ -132,6 +135,66 @@ Two kinds of finding, and the difference matters:
   and biased: a GitHub token announces itself with `ghp_`, while a Cloudflare
   token is forty characters of nothing in particular and cannot be recognised at
   all. **Finding none proves nothing.**
+
+## `comb gate` — nothing sensitive leaves in a push
+
+`comb audit` finds what already leaked. The gate stops the next one at the last
+moment it is still free to stop: once a push reaches a public repo, the leak is
+in other people's clones and caches, and deleting it later does not take it back.
+
+```bash
+comb gate install                  # a pre-push hook for every repository on this machine
+comb gate deny add "Jane Doe"      # your personal list, kept ENCRYPTED in the store
+comb gate deny add "/j(ane|\.) ?doe/i"   # a /regex/ for other spellings
+comb gate check --history          # audit a repository's whole history now
+comb gate status                   # does a push from this repo go through the gate?
+```
+
+A credential scanner on its own is not enough, and that was learnt the hard way.
+Across one account's public repos, gitleaks caught a bot token and a private key.
+What actually exposed the person went straight past it: their real name in
+`package.json` authors (then published to npm), a work account's username, a
+committed `.wrangler/cache/cf.json` (Cloudflare's geolocation of the developer:
+town, ISP, coordinates), a committed scan of their home network, and a personal
+email as the author of hundreds of commits. So the gate checks, in every commit
+being pushed:
+
+- **vault**: every value in your comb store, matched verbatim. Certain.
+- **personal**: your own list of names, emails and hostnames, in file contents,
+  file names and commit author/committer.
+- **files** that should never be committed: `.wrangler/`, `cf.json`, `.env*`
+  (not `.env.example`), `.dev.vars`, private keys, kubeconfig, scan dumps.
+- **this machine**: your home path (`/Users/<you>`) and its hostname.
+- **home network**: `*.lan` hostnames and real MAC addresses.
+- **credential shapes**: the ones `comb audit` knows, plus everything
+  [gitleaks](https://github.com/gitleaks/gitleaks) knows, when it is installed.
+
+**Every commit, not the final tree.** A file added in one commit and deleted in
+the next is still in the history being pushed. That is exactly how the `cf.json`
+above went public.
+
+**The personal list never touches a file.** A denylist committed to a repo would
+publish the very things it exists to protect, so it lives in the store as
+`COMB_GATE_DENY`, encrypted like any secret, and findings name a pattern by its
+number, never by its content. Matched values are never printed either.
+
+**Blocks by default.** A gate that only warns gets read once. The hook also fails
+closed: if `comb` is missing, the push is refused rather than waved through. To
+push anyway, deliberately and once: `git push --no-verify`.
+
+**False positives on generic rules** go in a `.combgateignore` at the repo root,
+one `<path glob> <rule,rule>` per line (`oui.txt mac-address`). Only the generic
+rules can be silenced. The vault and the personal list cannot: a secret is never
+a false positive worth keeping, and a file saying "my name may appear here" is
+itself a place the name appears.
+
+**One gap git leaves open:** a repository that sets its own `core.hooksPath`
+(husky does) overrides the global one, and git never runs the gate there.
+`comb gate status` shows it; `comb gate install --repo` inside that repository
+puts the gate in its hooks directory instead. Pair the gate with GitHub's own
+[push protection](https://docs.github.com/en/code-security/secret-scanning/push-protection-for-repositories-and-organizations),
+free on public repositories, which catches known credential formats on the
+server even when a push skipped the hook.
 
 ## Rotation is manual, on purpose
 
