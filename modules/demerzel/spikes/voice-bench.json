@@ -1,0 +1,51 @@
+{
+  "tts": [
+    {
+      "line": "The board is clear. Nothing needs you right now.",
+      "first_audio_ms": 878.3420840045437,
+      "total_s": 0.8783691250137053,
+      "audio_s": 3.125,
+      "rtf": 0.2810781200043857
+    },
+    {
+      "line": "Aria on netreach is blocked on a storage decision. Postgres or SQLite?",
+      "first_audio_ms": 947.551375022158,
+      "total_s": 0.9475779159984086,
+      "audio_s": 5.35,
+      "rtf": 0.17711736747633805
+    },
+    {
+      "line": "Four lanes are running and two tasks landed since this morning.",
+      "first_audio_ms": 741.9478750089183,
+      "total_s": 0.7419700410100631,
+      "audio_s": 4.1,
+      "rtf": 0.18096830268538128
+    }
+  ],
+  "stt": [
+    {
+      "expected": "The board is clear. Nothing needs you right now.",
+      "got": "The board is clear, nothing needs you right now.",
+      "audio_s": 3.125,
+      "transcribe_s": 0.21871966699836776,
+      "rtf": 0.06999029343947769
+    },
+    {
+      "expected": "Aria on netreach is blocked on a storage decision. Postgres or SQLite?",
+      "got": "Aria on NetReach is blocked on a storage decision. Poskers or SQ light.",
+      "audio_s": 5.35,
+      "transcribe_s": 0.23170666699297726,
+      "rtf": 0.04330965738186491
+    },
+    {
+      "expected": "Four lanes are running and two tasks landed since this morning.",
+      "got": "Four lanes are running, and two tasks landed since this morning.",
+      "audio_s": 4.1,
+      "transcribe_s": 0.1950104999996256,
+      "rtf": 0.04756353658527454
+    }
+  ],
+  "tts_first_audio_ms_avg": 855.9471113452067,
+  "stt_transcribe_ms_avg": 215.14561133032353,
+  "stt_rtf_avg": 0.05362116246887238
+}

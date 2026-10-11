@@ -1,0 +1,18 @@
+$ foundation init
+✓ Foundation installed → ~/weather-cli
+  docs:   8 created, 0 kept  (seam: QUEUE · WORKSTREAMS · DONE · FACTS)
+  skills: 9 → .claude/skills/  (+ 27 harness mirrors: cursor · copilot · codex)
+  next:   /kickstart <idea>   ·   foundation status   ·   foundation doctor
+
+$ foundation queue "(P1) fetch layer: getWeather(city) -> {tempC, desc}"
+✓ queued (P1) fetch layer: getWeather(city) -> {tempC, desc}
+$ foundation queue "(P1) format layer: render one tidy line"
+✓ queued (P1) format layer: render one tidy line
+$ foundation done "fetch layer" gorlitzer-labs/weather-cli#1
+✓ done: fetch layer [gorlitzer-labs/weather-cli#1] [2026-09-18]
+
+$ foundation status
+Foundation status
+· no phase task files yet (docs/phases/*/…_TASKS.md)
+
+next  (P1) fetch layer: getWeather(city) -> {tempC, desc}

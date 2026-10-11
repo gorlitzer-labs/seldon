@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Aria AEC spike</title>
+<link rel="icon" href="data:,">
+<style>
+  body{font:14px ui-monospace,Menlo,monospace;background:#0b0e13;color:#cfe3ff;padding:2rem;max-width:52rem;margin:auto}
+  button{font:inherit;padding:.6rem 1.1rem;background:#1b2738;color:#cfe3ff;border:1px solid #2f4358;border-radius:6px;cursor:pointer}
+  button:disabled{opacity:.4;cursor:default}
+  #log{white-space:pre-wrap;margin-top:1rem;line-height:1.5}
+  .warn{color:#ffcf70}
+</style>
+<h2>Aria &mdash; acoustic echo cancellation spike</h2>
+<p class="warn">Use SPEAKERS, not headphones. Headphones make this test meaningless.</p>
+<p>Does the browser keep Aria's own voice out of her microphone? You WILL hear the tone in
+both phases &mdash; AEC removes it from the mic, not from the room.</p>
+<button id="go">Run test (~24s)</button>
+<div id="log"></div>
+<p><a href="./bargein.html" style="color:#7ee787">&rarr; barge-in spike</a></p>
+<script type="module">
+import { log, connect, send, capture } from './capture.js';
+
+const ON  = { echoCancellation: true,  noiseSuppression: true,  autoGainControl: true  };
+const OFF = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+
+document.getElementById('go').onclick = async () => {
+  const btn = document.getElementById('go');
+  btn.disabled = true;
+  document.getElementById('log').textContent = '';
+  await connect();
+  const ctx = new AudioContext();
+  await ctx.resume();
+  log(`AudioContext sampleRate = ${ctx.sampleRate} Hz\n`);
+
+  log('1/3 noise floor (stay quiet, no tone)...');
+  await capture(ctx, ON, 'noise-floor', 3);
+
+  log('2/3 tone playing, AEC OFF (mic will hear it)...');
+  await capture(ctx, OFF, 'tone-aec-off', 6, true);
+
+  log('3/3 tone playing, AEC ON (mic should not)...');
+  await capture(ctx, ON, 'tone-aec-on', 6, true);
+
+  send({ phase: 'done' });
+  log('\ndone - verdict is in the terminal.');
+  btn.disabled = false;
+};
+</script>

@@ -1,0 +1,62 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: ${{ matrix.pkg }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg:
+          - tools/seldon
+          - modules/apiary
+          - modules/foundation
+          - modules/comb
+          - modules/factory
+          - modules/bifrost
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # External tools some suites exercise: comb (age + sops vault), apiary/factory (tmux).
+      - name: system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age tmux
+          # 3.11+ for `sops set --value-stdin`; comb refuses older.
+          SOPS=3.13.3
+          sudo curl -fsSL "https://github.com/getsops/sops/releases/download/v${SOPS}/sops-v${SOPS}.linux.amd64" -o /usr/local/bin/sops
+          sudo chmod +x /usr/local/bin/sops
+      # npm install (not ci): module lockfiles drift and ci is strict; we just
+      # need devDeps (e.g. vitest) present to run the suite.
+      - name: install deps
+        working-directory: ${{ matrix.pkg }}
+        run: npm install --no-audit --no-fund
+      # Build first: apiary's integration suite drives the built CLI and skips
+      # itself when dist/ is missing, so without this it never ran in CI.
+      - name: build
+        working-directory: ${{ matrix.pkg }}
+        run: npm run build --if-present
+      - name: test
+        working-directory: ${{ matrix.pkg }}
+        run: npm test
+
+  demerzel:
+    # The skills that need no voice models (self-knowledge, what shipped, the
+    # foundation call). Stdlib unittest, so no ML stack is installed here.
+    name: modules/demerzel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: test
+        working-directory: modules/demerzel
+        run: python -m unittest discover tests -v

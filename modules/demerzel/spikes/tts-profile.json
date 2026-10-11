@@ -1,0 +1,8 @@
+{
+  "fresh_openers_mean_ms": 395,
+  "fresh_openers_range_ms": [355, 443],
+  "repeated_same_text_ms": [430, 402, 397, 413],
+  "g2p_ms": 2,
+  "g2p_share_of_total": 0.0,
+  "note": "first-audio tracks the opener's AUDIO duration, not its text novelty; RTF about 0.23"
+}

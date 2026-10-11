@@ -1,0 +1,12 @@
+{
+  "speech_only_p90_dbfs": -35.56330352146398,
+  "residual_dbfs": -54.52972721573993,
+  "speech_over_tone_p90_dbfs": -40.546490608923094,
+  "speech_snr_db": 13.983236606816838,
+  "gain_penalty_db": 4.983187087459115,
+  "frames": {
+    "speech-only": 324,
+    "tone-only": 326,
+    "speech-over-tone": 326
+  }
+}

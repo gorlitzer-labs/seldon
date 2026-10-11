@@ -1,0 +1,12 @@
+{
+  "noise_floor_dbfs": -39.505766008775545,
+  "tone_aec_off_dbfs": -27.256422765951754,
+  "tone_aec_on_dbfs": -54.04071279175453,
+  "erle_db": 26.784290025802775,
+  "residual_above_floor_db": -14.534946782978984,
+  "frames": {
+    "noise-floor": 137,
+    "tone-aec-off": 279,
+    "tone-aec-on": 278
+  }
+}

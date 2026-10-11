@@ -1,0 +1,14 @@
+$ bifrost sessions
+Bifrost sessions
+
+  HEIMDALL (ML6MCWV0MW)
+    (no sessions)
+
+  AGENTS
+    ● ana   idle
+    ◐ ben   working
+    ■ cass  blocked
+
+  REALM — zanpakuto (zanpakuto)  online
+    ● zanpakuto-1  weather-cli  (node)
+      → bifrost attach zanpakuto-1

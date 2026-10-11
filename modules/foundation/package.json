@@ -1,0 +1,35 @@
+{
+  "name": "@gorlitzer-labs/foundation",
+  "version": "0.3.0",
+  "description": "Foundation — a lean, deterministic project-development workflow you bolt onto any repo. The sheet that guides how the comb gets built.",
+  "type": "module",
+  "bin": {
+    "foundation": "src/cli.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "src",
+    "payload",
+    "README.md"
+  ],
+  "scripts": {
+    "smoke": "node test/smoke.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "ai",
+    "claude-code",
+    "workflow",
+    "scaffold",
+    "multi-agent",
+    "apiary",
+    "deterministic"
+  ],
+  "author": "gorlitzer",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

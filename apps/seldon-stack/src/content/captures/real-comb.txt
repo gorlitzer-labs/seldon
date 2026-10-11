@@ -1,0 +1,12 @@
+# secrets by name: the agent gets the key, the command line never does
+$ comb ls | grep -E 'name|CLAUDE_CODE_OAUTH_TOKEN'
+  name                          updated      note
+  CLAUDE_CODE_OAUTH_TOKEN       2026-10-07   
+$ comb run --with CLAUDE_CODE_OAUTH_TOKEN -- sh -c 'echo "inside the command: ${#CLAUDE_CODE_OAUTH_TOKEN} characters"'
+inside the command: 108 characters
+$ echo "in your shell: ${CLAUDE_CODE_OAUTH_TOKEN:-(not set)}"
+in your shell: (not set)
+# run a check while the secret is live: does ANY process have it in its command line?
+$ comb run --with CLAUDE_CODE_OAUTH_TOKEN -- sh ./argv-check.sh
+processes whose command line holds the token: 0
+token present in this script's environment:   yes

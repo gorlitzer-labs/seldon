@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Seldon">
+  <rect width="64" height="64" rx="13" fill="#0a0b10"/>
+  <!-- honeycomb: three hex cells, gold — the hive/comb motif of the stack -->
+  <g fill="none" stroke="#e8ad3c" stroke-width="3.2" stroke-linejoin="round">
+    <polygon points="32,11 42,17 42,29 32,35 22,29 22,17"/>
+    <polygon points="20.5,32 30.5,38 30.5,50 20.5,56 10.5,50 10.5,38" opacity="0.55"/>
+    <polygon points="43.5,32 53.5,38 53.5,50 43.5,56 33.5,50 33.5,38" opacity="0.55"/>
+  </g>
+  <circle cx="32" cy="23" r="3.4" fill="#e8ad3c"/>
+</svg>

@@ -1,0 +1,14 @@
+$ comb init
+✓ store ready at ~/.comb
+  public key  age1c3wlkfknd4rnm3efpavgytxr0n9c6k82a7yn5hrllqhrltw5kpgspud5cl
+  private key ~/.comb/age.key — back this up somewhere safe; nothing else can recover the store
+
+$ comb set WEATHER_API_KEY --url https://openweathermap.org/api
+✓ WEATHER_API_KEY stored (32 characters — not shown, not logged)
+
+$ comb ls
+  name                          updated      note
+  WEATHER_API_KEY               2026-09-18   https://openweathermap.org/api
+
+$ comb run --with WEATHER_API_KEY -- node weather.js Rome
+Rome: 18°C, light rain

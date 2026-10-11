@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 560" width="980" height="560" role="img" aria-label="The Seldon stack: apiary, foundation, comb, factory, bifrost, demerzel">
+<title>The Seldon stack: apiary, foundation, comb, factory, bifrost, demerzel</title>
+<defs>
+  <radialGradient id="glow" cx="75%" cy="30%" r="70%"><stop offset="0" stop-color="#2b2210"/><stop offset="1" stop-color="#0a0b10"/></radialGradient>
+  <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8ad3c"/></marker>
+</defs>
+<rect width="980" height="560" rx="18" fill="url(#glow)"/>
+<text xml:space="preserve" x="40" y="58" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" font-weight="800" fill="#f3efe6" text-anchor="start" opacity="1">seldon</text>
+<text xml:space="preserve" x="40" y="88" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">six tools — take one, take all six</text>
+<rect x="40" y="102" width="64" height="5" rx="2.5" fill="#e8ad3c"/>
+<polygon points="270.0,119.0 353.1,167.0 353.1,263.0 270.0,311.0 186.9,263.0 186.9,167.0" fill="#15161e" stroke="#e8ad3c" stroke-width="2.5" stroke-linejoin="round"/>
+<text xml:space="preserve" x="270.0" y="201" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="23" font-weight="700" fill="#e8ad3c" text-anchor="middle" opacity="1">apiary</text>
+<text xml:space="preserve" x="270.0" y="227" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#f3efe6" text-anchor="middle" opacity="1">the conversation</text>
+<text xml:space="preserve" x="270.0" y="249" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#9a968c" text-anchor="middle" opacity="1">rooms where agents talk</text>
+<polygon points="446.3,119.0 529.4,167.0 529.4,263.0 446.3,311.0 363.1,263.0 363.1,167.0" fill="#15161e" stroke="#e8ad3c" stroke-width="2.5" stroke-linejoin="round"/>
+<text xml:space="preserve" x="446.2768775266122" y="201" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="23" font-weight="700" fill="#e8ad3c" text-anchor="middle" opacity="1">foundation</text>
+<text xml:space="preserve" x="446.2768775266122" y="227" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#f3efe6" text-anchor="middle" opacity="1">the seam</text>
+<text xml:space="preserve" x="446.2768775266122" y="249" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#9a968c" text-anchor="middle" opacity="1">the plan agents follow</text>
+<polygon points="622.6,119.0 705.7,167.0 705.7,263.0 622.6,311.0 539.4,263.0 539.4,167.0" fill="#15161e" stroke="#e8ad3c" stroke-width="2.5" stroke-linejoin="round"/>
+<text xml:space="preserve" x="622.5537550532244" y="201" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="23" font-weight="700" fill="#e8ad3c" text-anchor="middle" opacity="1">comb</text>
+<text xml:space="preserve" x="622.5537550532244" y="227" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#f3efe6" text-anchor="middle" opacity="1">the vault</text>
+<text xml:space="preserve" x="622.5537550532244" y="249" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#9a968c" text-anchor="middle" opacity="1">keys by name only</text>
+<polygon points="358.1,272.0 441.3,320.0 441.3,416.0 358.1,464.0 275.0,416.0 275.0,320.0" fill="#15161e" stroke="#e8ad3c" stroke-width="2.5" stroke-linejoin="round"/>
+<text xml:space="preserve" x="358.1384387633061" y="354.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="23" font-weight="700" fill="#e8ad3c" text-anchor="middle" opacity="1">factory</text>
+<text xml:space="preserve" x="358.1384387633061" y="380.0" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#f3efe6" text-anchor="middle" opacity="1">the floor</text>
+<text xml:space="preserve" x="358.1384387633061" y="402.0" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#9a968c" text-anchor="middle" opacity="1">24/7 supervisor</text>
+<polygon points="534.4,272.0 617.6,320.0 617.6,416.0 534.4,464.0 451.3,416.0 451.3,320.0" fill="#15161e" stroke="#e8ad3c" stroke-width="2.5" stroke-linejoin="round"/>
+<text xml:space="preserve" x="534.4153162899183" y="354.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="23" font-weight="700" fill="#e8ad3c" text-anchor="middle" opacity="1">bifrost</text>
+<text xml:space="preserve" x="534.4153162899183" y="380.0" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#f3efe6" text-anchor="middle" opacity="1">the bridge</text>
+<text xml:space="preserve" x="534.4153162899183" y="402.0" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#9a968c" text-anchor="middle" opacity="1">machines + your phone</text>
+<polygon points="710.7,272.0 793.8,320.0 793.8,416.0 710.7,464.0 627.6,416.0 627.6,320.0" fill="#15161e" stroke="#e8ad3c" stroke-width="2.5" stroke-linejoin="round"/>
+<text xml:space="preserve" x="710.6921938165306" y="354.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="23" font-weight="700" fill="#e8ad3c" text-anchor="middle" opacity="1">demerzel</text>
+<text xml:space="preserve" x="710.6921938165306" y="380.0" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#f3efe6" text-anchor="middle" opacity="1">the voice</text>
+<text xml:space="preserve" x="710.6921938165306" y="402.0" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#9a968c" text-anchor="middle" opacity="1">talk to it, fully local</text>
+<text xml:space="preserve" x="940" y="532" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" font-weight="400" fill="#9a968c" text-anchor="end" opacity="1">you install them with one command: seldon</text>
+</svg>

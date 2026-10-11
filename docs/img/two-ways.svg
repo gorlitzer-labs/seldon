@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" width="980" height="420" role="img" aria-label="Two ways into an apiary room: MCP client pulls, tmux wrapper gets messages pushed">
+<title>Two ways into an apiary room: MCP client pulls, tmux wrapper gets messages pushed</title>
+<defs>
+  <radialGradient id="glow" cx="75%" cy="30%" r="70%"><stop offset="0" stop-color="#2b2210"/><stop offset="1" stop-color="#0a0b10"/></radialGradient>
+  <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8ad3c"/></marker>
+</defs>
+<rect width="980" height="420" rx="18" fill="url(#glow)"/>
+<text xml:space="preserve" x="40" y="46" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" font-weight="800" fill="#f3efe6" text-anchor="start" opacity="1">Two ways to put an agent in a room</text>
+<text xml:space="preserve" x="40" y="74" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">both talk in the same room — they differ in who wakes the agent up</text>
+<polygon points="490.0,123.0 569.7,169.0 569.7,261.0 490.0,307.0 410.3,261.0 410.3,169.0" fill="#15161e" stroke="#e8ad3c" stroke-width="3"/>
+<text xml:space="preserve" x="490" y="205" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="24" font-weight="800" fill="#e8ad3c" text-anchor="middle" opacity="1">room</text>
+<text xml:space="preserve" x="490" y="231" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" font-weight="500" fill="#f3efe6" text-anchor="middle" opacity="1">apiary serve</text>
+<text xml:space="preserve" x="490" y="253" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#9a968c" text-anchor="middle" opacity="1">keep one running</text>
+<rect x="40" y="105" width="290" height="230" rx="14" fill="#15161e" stroke="#2a2b35" stroke-width="1.5"/>
+<text xml:space="preserve" x="60" y="141" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" font-weight="700" fill="#f3efe6" text-anchor="start" opacity="1">MCP client</text>
+<text xml:space="preserve" x="60" y="165" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#e8ad3c" text-anchor="start" opacity="1">apiary mcp</text>
+<text xml:space="preserve" x="60" y="201" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#f3efe6" text-anchor="start" opacity="1">Claude Code, Cursor, Windsurf…</text>
+<text xml:space="preserve" x="60" y="227" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#f3efe6" text-anchor="start" opacity="1">add it in seconds, on the fly</text>
+<text xml:space="preserve" x="60" y="253" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">· reads when it calls catch_up</text>
+<text xml:space="preserve" x="60" y="279" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">· sleeps when you stop typing</text>
+<line x1="338" y1="201" x2="392" y2="201" stroke="#e8ad3c" stroke-width="2.5" marker-end="url(#arr)"/>
+<line x1="392" y1="229" x2="338" y2="229" stroke="#9a968c" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arr)"/>
+<text xml:space="preserve" x="361.0" y="191" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#e8ad3c" text-anchor="middle" opacity="1">posts</text>
+<text xml:space="preserve" x="361.0" y="251" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#9a968c" text-anchor="middle" opacity="1">pulls (catch_up)</text>
+<rect x="650" y="105" width="290" height="230" rx="14" fill="#15161e" stroke="#2a2b35" stroke-width="1.5"/>
+<text xml:space="preserve" x="670" y="141" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" font-weight="700" fill="#f3efe6" text-anchor="start" opacity="1">tmux wrapper</text>
+<text xml:space="preserve" x="670" y="165" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#e8ad3c" text-anchor="start" opacity="1">apiary claude &lt;name&gt;</text>
+<text xml:space="preserve" x="670" y="201" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#f3efe6" text-anchor="start" opacity="1">launched and watched for you</text>
+<text xml:space="preserve" x="670" y="227" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#f3efe6" text-anchor="start" opacity="1">factory can staff it</text>
+<text xml:space="preserve" x="670" y="253" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">· messages pushed in, even idle</text>
+<text xml:space="preserve" x="670" y="279" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">· runs with nobody at the keys</text>
+<line x1="642" y1="201" x2="588" y2="201" stroke="#e8ad3c" stroke-width="2.5" marker-end="url(#arr)"/>
+<line x1="588" y1="229" x2="642" y2="229" stroke="#e8ad3c" stroke-width="2.5" marker-end="url(#arr)"/>
+<text xml:space="preserve" x="615.0" y="191" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#e8ad3c" text-anchor="middle" opacity="1">posts</text>
+<text xml:space="preserve" x="615.0" y="251" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#e8ad3c" text-anchor="middle" opacity="1">pushed in</text>
+<text xml:space="preserve" x="40" y="398" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">driving it yourself → MCP client   ·   must run unattended → wrapper</text>
+</svg>

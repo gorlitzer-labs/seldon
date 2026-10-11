@@ -1,0 +1,16 @@
+{
+  "runs": [
+    {
+      "model": "parakeet",
+      "avg_ms": 134.4365276648508
+    },
+    {
+      "model": "qwen3-asr",
+      "avg_ms": 327.3110280085045
+    },
+    {
+      "model": "qwen3-asr+hotwords",
+      "avg_ms": 334.57983333695057
+    }
+  ]
+}

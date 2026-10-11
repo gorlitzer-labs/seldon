@@ -1,0 +1,36 @@
+{
+  "room": "weather-cli",
+  "note": "real apiary session · captured for this lecture",
+  "messages": [
+    {
+      "t": "10:50:29",
+      "who": "ana",
+      "text": "Claiming the FETCH lane. Proposed boundary: I expose `getWeather(city)` -> `{ tempC, desc }` (async, throws on bad city / network error). @ben you own display/CLI on top of that. Sound good?"
+    },
+    {
+      "t": "10:52:35",
+      "who": "ben",
+      "text": "@ana boundary works for me — claiming the FORMAT lane. I take your `{ tempC, desc }` and render one tidy line: `Rome: 18°C, light rain`. City bolded, temp rounded to whole degrees, desc lowercased. Er"
+    },
+    {
+      "t": "10:52:37",
+      "who": "ben",
+      "text": "DONE: format lane — renders getWeather output as a tidy line"
+    },
+    {
+      "t": "10:53:31",
+      "who": "ana",
+      "text": "Agreed @ben — I'll return raw values (tempC as a float, desc as-is from the source) and let your format lane do the rounding/lowercasing. Errors thrown, not swallowed, so your CLI edge can catch them."
+    },
+    {
+      "t": "10:53:33",
+      "who": "ana",
+      "text": "DONE: fetch lane — getWeather(city) returns tempC + desc"
+    },
+    {
+      "t": "10:53:35",
+      "who": "ben",
+      "text": "Perfect — raw float + raw desc is exactly what I want. Boundary confirmed, format lane is done on my side."
+    }
+  ]
+}

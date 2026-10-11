@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 330" width="1000" height="330" role="img" aria-label="Quickstart: install seldon, run seldon up, then factory new or seldon adopt">
+<title>Quickstart: install seldon, run seldon up, then factory new or seldon adopt</title>
+<defs>
+  <radialGradient id="glow" cx="75%" cy="30%" r="70%"><stop offset="0" stop-color="#2b2210"/><stop offset="1" stop-color="#0a0b10"/></radialGradient>
+  <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8ad3c"/></marker>
+</defs>
+<rect width="1000" height="330" rx="18" fill="url(#glow)"/>
+<text xml:space="preserve" x="25" y="46" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" font-weight="800" fill="#f3efe6" text-anchor="start" opacity="1">Quickstart — three steps</text>
+<rect x="25" y="70" width="290" height="210" rx="14" fill="#15161e" stroke="#2a2b35" stroke-width="1.5"/>
+<polygon points="67.0,88.0 87.8,100.0 87.8,124.0 67.0,136.0 46.2,124.0 46.2,100.0" fill="#e8ad3c"/>
+<text xml:space="preserve" x="67" y="120" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#0a0b10" text-anchor="middle" opacity="1">1</text>
+<text xml:space="preserve" x="103" y="120" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#f3efe6" text-anchor="start" opacity="1">Install</text>
+<text xml:space="preserve" x="43" y="170" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13.5" font-weight="600" fill="#e8ad3c" text-anchor="start" opacity="1">$ npm i -g @gorlitzer-labs/seldon</text>
+<text xml:space="preserve" x="43" y="198" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13.5" font-weight="600" fill="#e8ad3c" text-anchor="start" opacity="1">$ seldon</text>
+<text xml:space="preserve" x="45" y="260" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">press  a  then  Enter</text>
+<line x1="320" y1="175.0" x2="350" y2="175.0" stroke="#e8ad3c" stroke-width="2.5" marker-end="url(#arr)"/>
+<rect x="355" y="70" width="290" height="210" rx="14" fill="#15161e" stroke="#2a2b35" stroke-width="1.5"/>
+<polygon points="397.0,88.0 417.8,100.0 417.8,124.0 397.0,136.0 376.2,124.0 376.2,100.0" fill="#e8ad3c"/>
+<text xml:space="preserve" x="397" y="120" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#0a0b10" text-anchor="middle" opacity="1">2</text>
+<text xml:space="preserve" x="433" y="120" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#f3efe6" text-anchor="start" opacity="1">Start</text>
+<text xml:space="preserve" x="373" y="170" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13.5" font-weight="600" fill="#e8ad3c" text-anchor="start" opacity="1">$ seldon up</text>
+<text xml:space="preserve" x="375" y="260" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">it prints where everything is</text>
+<line x1="650" y1="175.0" x2="680" y2="175.0" stroke="#e8ad3c" stroke-width="2.5" marker-end="url(#arr)"/>
+<rect x="685" y="70" width="290" height="210" rx="14" fill="#15161e" stroke="#2a2b35" stroke-width="1.5"/>
+<polygon points="727.0,88.0 747.8,100.0 747.8,124.0 727.0,136.0 706.2,124.0 706.2,100.0" fill="#e8ad3c"/>
+<text xml:space="preserve" x="727" y="120" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#0a0b10" text-anchor="middle" opacity="1">3</text>
+<text xml:space="preserve" x="763" y="120" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#f3efe6" text-anchor="start" opacity="1">Put agents to work</text>
+<text xml:space="preserve" x="703" y="170" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13.5" font-weight="600" fill="#e8ad3c" text-anchor="start" opacity="1">$ factory new &quot;a weather CLI&quot;</text>
+<text xml:space="preserve" x="703" y="198" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">— or, in your repo —</text>
+<text xml:space="preserve" x="703" y="226" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13.5" font-weight="600" fill="#e8ad3c" text-anchor="start" opacity="1">$ seldon adopt</text>
+<text xml:space="preserve" x="705" y="260" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">you get woken only when it matters</text>
+<text xml:space="preserve" x="25" y="312" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13.5" font-weight="400" fill="#9a968c" text-anchor="start" opacity="1">stop: seldon down  ·  check: seldon status  ·  remove: seldon uninstall --all</text>
+</svg>
