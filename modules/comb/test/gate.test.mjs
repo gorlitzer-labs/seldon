@@ -86,6 +86,9 @@ describe("credentials written into code", () => {
     assert.ok(C('const char *HARDCODED_SSID = "HomeNet-5G";').has("hardcoded-credential"));
     assert.ok(C('const char *HARDCODED_PASSWORD = "s3cret-wifi-pw";').has("hardcoded-credential"));
     assert.ok(C('WiFi.begin("HomeNet", "s3cret-wifi-pw");').has("hardcoded-credential"));
+    // Values that merely START like a placeholder word are real.
+    assert.ok(C('const char *HARDCODED_SSID = "TestNet-5G";').has("hardcoded-credential"));
+    assert.ok(C('wifi_password = "passw0rd123"').has("hardcoded-credential"));
   });
 
   test("a password in config or JSON", () => {
@@ -100,6 +103,9 @@ describe("credentials written into code", () => {
       'password = "<password>"',
       'password: "${PASSWORD}"',
       'password = "********"',
+      'ssid = "test"',
+      'password = "example-password"',
+      'const char *ap_ssid = "my_ssid";',
       '<input type="password" name="password">',
       'WiFi.begin(ssid, password);',
       'config.setPassword(password);',

@@ -8,4 +8,4 @@ modules/comb/README.md machine-name
 modules/factory/test/*.test.mjs machine-name
 
 # The scanners' own tests are full of things that look like leaks, deliberately.
-modules/comb/test/*.test.mjs machine-name,credential-shape,lan-hostname,mac-address,home-path,gitleaks
+modules/comb/test/*.test.mjs machine-name,credential-shape,lan-hostname,mac-address,home-path,gitleaks,hardcoded-credential
