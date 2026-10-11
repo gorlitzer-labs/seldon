@@ -166,8 +166,16 @@ being pushed:
   (not `.env.example`), `.dev.vars`, private keys, kubeconfig, scan dumps.
 - **this machine**: your home path (`/Users/<you>`) and its hostname.
 - **home network**: `*.lan` hostnames and real MAC addresses.
+- **credentials written into code**: a Wi-Fi SSID or password, or any `password = "…"`,
+  assigned as a literal. No scanner recognises a Wi-Fi password by its shape, so this keys on
+  the name being assigned and lets placeholders through (`YOUR_WIFI_PASSWORD`, `<ssid>`, `${PASS}`).
 - **credential shapes**: the ones `comb audit` knows, plus everything
   [gitleaks](https://github.com/gitleaks/gitleaks) knows, when it is installed.
+
+**What counts as new comes from the server.** git tells the hook what the remote has right
+now, and the gate checks everything after that, or the whole history if the remote's tip
+is not in this clone (a force push over rewritten history). Local remote-tracking refs are
+never trusted for this: they can be stale.
 
 **Every commit, not the final tree.** A file added in one commit and deleted in
 the next is still in the history being pushed. That is exactly how the `cf.json`

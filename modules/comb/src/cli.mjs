@@ -319,7 +319,9 @@ try {
         let revs;
         if (flags.hook) {
           const stdin = await new Promise((r) => { let d = ""; process.stdin.on("data", (c) => (d += c)); process.stdin.on("end", () => r(d)); });
-          revs = gateGit.pushRange(stdin);
+          // The hook runs `comb gate check --hook <remote name> <url>`; the flag parser
+          // reads the name as --hook's value.
+          revs = gateGit.pushRange(stdin, typeof flags.hook === "string" ? flags.hook : undefined);
           if (!revs) process.exit(0);
         } else {
           revs = flags.history ? ["--all"] : ["HEAD", "--not", "--remotes"];

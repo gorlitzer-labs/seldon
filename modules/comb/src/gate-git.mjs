@@ -19,21 +19,36 @@ function git(args, { cwd, input } = {}) {
 /**
  * Turn a pre-push hook's stdin into `git rev-list` arguments.
  *
- * Each line is `<local ref> <local sha> <remote ref> <remote sha>`. What gets
- * published is every commit reachable from the local sha that the remote does
- * not already have. `--not --remotes` rather than `<remote sha>..<local sha>`:
- * the remote sha is all zeros for a new branch, and a brand-new repository has
- * no remote refs at all — in which case the whole history is about to be
- * published, and the whole history is what gets checked.
+ * Each line is `<local ref> <local sha> <remote ref> <remote sha>`, and the remote sha is
+ * what the remote has *right now*: git asked it. That is the only trustworthy answer to
+ * "what is new". Local remote-tracking refs are a guess that can be stale or plain wrong
+ * (a clone of a mirror carries the mirror's refs, not the server's), and trusting them
+ * once let a rewritten history through unchecked.
+ *
+ *   - remote sha all zeros (a new branch): everything not already on that remote's
+ *     branches, `--remotes=<remote>`; in a brand-new repository that is the whole history.
+ *   - remote sha known locally (an ordinary push): exactly the commits after it.
+ *   - remote sha unknown locally (a force push over history this clone never had, e.g.
+ *     a rewrite): nothing can be excluded safely, so the whole history being pushed is
+ *     checked.
+ *
+ * `exists` answers whether an object is present locally; injected so this stays testable.
  */
-export function pushRange(stdin) {
-  const tips = [];
+export function pushRange(stdin, remote, exists = (sha) => spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`]).status === 0) {
+  const tips = [], known = [];
+  let newBranch = false, unknownBase = false;
   for (const line of stdin.split("\n")) {
-    const [, localSha] = line.trim().split(/\s+/);
+    const [, localSha, , remoteSha] = line.trim().split(/\s+/);
     if (!localSha || ZERO.test(localSha)) continue; // a branch deletion publishes nothing
     tips.push(localSha);
+    if (!remoteSha || ZERO.test(remoteSha)) newBranch = true;
+    else if (exists(remoteSha)) known.push(remoteSha);
+    else unknownBase = true;
   }
-  return tips.length ? [...tips, "--not", "--remotes"] : null;
+  if (!tips.length) return null;
+  if (unknownBase) return tips;
+  const not = [...known, ...(newBranch && remote && !remote.includes("/") && !remote.includes(":") ? [`--remotes=${remote}`] : newBranch ? ["--remotes"] : [])];
+  return not.length ? [...tips, "--not", ...not] : tips;
 }
 
 /** Everything a set of rev-list arguments covers, parsed for the gate. */
@@ -45,10 +60,19 @@ export function readCommits(revArgs, cwd) {
   return parseLog(out);
 }
 
-/** The repo's `.combgateignore`, from the working tree (the ignore rules you have now). */
+/**
+ * The repo's `.combgateignore`: from the working tree when there is one (the rules you
+ * have now), otherwise from HEAD. A bare repository has no working tree, and asking it
+ * for one used to make the gate error out (and so refuse every push from a mirror).
+ */
 export function readIgnoreFile(cwd) {
-  const p = join(git(["rev-parse", "--show-toplevel"], { cwd }).trim(), ".combgateignore");
-  return existsSync(p) ? readFileSync(p, "utf-8") : "";
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf-8" });
+  if (top.status === 0) {
+    const p = join(top.stdout.trim(), ".combgateignore");
+    return existsSync(p) ? readFileSync(p, "utf-8") : "";
+  }
+  const head = spawnSync("git", ["show", "HEAD:.combgateignore"], { cwd, encoding: "utf-8" });
+  return head.status === 0 ? head.stdout : "";
 }
 
 /**
