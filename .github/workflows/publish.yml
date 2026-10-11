@@ -1,0 +1,59 @@
+name: publish
+
+# Releases go out from here and nowhere else: push a tag `<package>@<version>`
+# (e.g. `comb@0.2.0`) on a commit that is on main.
+#
+# Trusted publishing (OIDC). There is no npm token in this repository or in
+# any secret: npm checks GitHub's signed identity for this workflow file in
+# this repo, against the trusted publisher configured on each package
+# (`npm trust github …`, see RELEASING.md). Provenance is attached
+# automatically, so every version on npm links back to the commit it was
+# built from.
+on:
+  push:
+    tags: ["*@[0-9]*"]
+
+permissions:
+  id-token: write # the OIDC identity npm verifies
+  contents: read
+
+concurrency: publish-${{ github.ref_name }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest # trusted publishing only works on GitHub-hosted runners
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # to check the tag is on main
+
+      - name: which package
+        id: pkg
+        run: |
+          tag="${GITHUB_REF_NAME}"; name="${tag%@*}"; version="${tag#*@}"
+          case "$name" in
+            comb|factory|foundation|apiary) dir="modules/$name" ;;
+            seldon)                         dir="tools/seldon" ;;
+            *) echo "::error::no package called '$name' (tag $tag)"; exit 1 ;;
+          esac
+          have=$(jq -r .version "$dir/package.json")
+          [ "$have" = "$version" ] || { echo "::error::$dir/package.json says $have, the tag says $version"; exit 1; }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$tag is not on main"; exit 1; }
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24" # ships npm 11.6+, and trusted publishing needs 11.5.1+
+          registry-url: "https://registry.npmjs.org"
+      - uses: ./.github/actions/system-deps
+
+      - name: test
+        working-directory: ${{ steps.pkg.outputs.dir }}
+        run: |
+          npm install --no-audit --no-fund
+          npm run build --if-present
+          npm test
+
+      - name: publish
+        working-directory: ${{ steps.pkg.outputs.dir }}
+        run: npm publish --access public

@@ -28,6 +28,11 @@
     "deterministic"
   ],
   "author": "gorlitzer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gorlitzer-labs/seldon.git",
+    "directory": "modules/foundation"
+  },
   "license": "MIT",
   "publishConfig": {
     "access": "public"

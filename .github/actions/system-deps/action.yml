@@ -1,0 +1,13 @@
+name: system deps
+description: External tools some suites exercise — comb (age + sops vault), apiary/factory (tmux).
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq age tmux
+        # 3.11+ for `sops set --value-stdin`; comb refuses older.
+        SOPS=3.13.3
+        sudo curl -fsSL "https://github.com/getsops/sops/releases/download/v${SOPS}/sops-v${SOPS}.linux.amd64" -o /usr/local/bin/sops
+        sudo chmod +x /usr/local/bin/sops
