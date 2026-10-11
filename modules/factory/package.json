@@ -24,6 +24,11 @@
     "24-7"
   ],
   "author": "gorlitzer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gorlitzer-labs/seldon.git",
+    "directory": "modules/factory"
+  },
   "license": "MIT",
   "scripts": {
     "test": "node --test test/*.test.mjs"

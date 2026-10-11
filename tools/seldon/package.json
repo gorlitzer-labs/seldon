@@ -25,6 +25,11 @@
     "factory"
   ],
   "author": "gorlitzer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gorlitzer-labs/seldon.git",
+    "directory": "tools/seldon"
+  },
   "license": "MIT",
   "publishConfig": {
     "access": "public"
