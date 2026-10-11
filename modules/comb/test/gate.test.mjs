@@ -79,6 +79,34 @@ describe("files that should never be committed", () => {
   });
 });
 
+describe("credentials written into code", () => {
+  const C = (...lines) => rules(check(commit([added("src/main.cpp", ...lines)])));
+
+  test("a hard-coded Wi-Fi SSID and password, as firmware writes them", () => {
+    assert.ok(C('const char *HARDCODED_SSID = "HomeNet-5G";').has("hardcoded-credential"));
+    assert.ok(C('const char *HARDCODED_PASSWORD = "s3cret-wifi-pw";').has("hardcoded-credential"));
+    assert.ok(C('WiFi.begin("HomeNet", "s3cret-wifi-pw");').has("hardcoded-credential"));
+  });
+
+  test("a password in config or JSON", () => {
+    assert.ok(C('"password": "hunter2hunter2"').has("hardcoded-credential"));
+    assert.ok(C("db_passwd = 'Tr0ub4dor&3'").has("hardcoded-credential"));
+  });
+
+  test("placeholders and non-assignments pass", () => {
+    for (const line of [
+      'const char *HARDCODED_PASSWORD = "YOUR_WIFI_PASSWORD";',
+      'const char *ssid = "your-ssid";',
+      'password = "<password>"',
+      'password: "${PASSWORD}"',
+      'password = "********"',
+      '<input type="password" name="password">',
+      'WiFi.begin(ssid, password);',
+      'config.setPassword(password);',
+    ]) assert.equal(C(line).size, 0, line);
+  });
+});
+
 describe("home network and this machine", () => {
   test("a *.lan hostname and a real MAC are caught", () => {
     const f = check(commit([added("out.json", '{"host":"the-pi.lan","mac":"02:42:ac:11:00:02"}')]));
@@ -138,7 +166,7 @@ describe("parsing git log -p", () => {
 });
 
 describe("a real push through the hook", () => {
-  let dir, repo, remote, bin, env;
+  let dir, repo, remote, bin, env, saved;
   const run = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: repo, env, encoding: "utf-8", ...opts });
   const commitFile = (path, body, msg) => {
     mkdirSync(join(repo, dirname(path)), { recursive: true });
@@ -158,15 +186,27 @@ describe("a real push through the hook", () => {
       GIT_AUTHOR_NAME: "dev", GIT_AUTHOR_EMAIL: "dev@users.noreply.github.com",
       GIT_COMMITTER_NAME: "dev", GIT_COMMITTER_EMAIL: "dev@users.noreply.github.com",
     };
+    // installRepo/status run git with this process's environment, not `env`. Isolate it too,
+    // or a machine with the gate installed globally (core.hooksPath) makes installRepo find
+    // that global hook, install nothing here, and every push below run unguarded.
+    saved = { g: process.env.GIT_CONFIG_GLOBAL, s: process.env.GIT_CONFIG_NOSYSTEM };
+    process.env.GIT_CONFIG_GLOBAL = env.GIT_CONFIG_GLOBAL; process.env.GIT_CONFIG_NOSYSTEM = "1";
     spawnSync("git", ["init", "-q", "--bare", remote], { env });
     run("git", ["init", "-q", "-b", "main"]);
     run("git", ["remote", "add", "origin", remote]);
     installRepo(repo);
   });
-  after(() => rmSync(dir, { recursive: true, force: true }));
+  after(() => {
+    rmSync(dir, { recursive: true, force: true });
+    for (const [k, v] of [["GIT_CONFIG_GLOBAL", saved.g], ["GIT_CONFIG_NOSYSTEM", saved.s]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
 
-  test("the hook is reported as installed", () => {
-    assert.equal(status(repo).guarded, true);
+  test("the hook is reported as installed — in this repo, not somewhere global", () => {
+    const st = status(repo);
+    assert.equal(st.guarded, true);
+    assert.ok(st.hook.startsWith(repo), `hook is at ${st.hook}`);
   });
 
   test("a clean push goes through", () => {
@@ -187,7 +227,27 @@ describe("a real push through the hook", () => {
   test("pushRange: a deletion publishes nothing; a new branch publishes what the remote lacks", () => {
     assert.equal(pushRange(`(delete) ${"0".repeat(40)} refs/heads/x ${"1".repeat(40)}`), null);
     const tip = run("git", ["rev-parse", "HEAD"]).stdout.trim();
-    const revs = pushRange(`refs/heads/main ${tip} refs/heads/main ${"0".repeat(40)}`);
+    const revs = pushRange(`refs/heads/main ${tip} refs/heads/main ${"0".repeat(40)}`, "origin");
+    assert.ok(revs.includes("--remotes=origin"));
     assert.equal(readCommits(revs, repo).length, 2, "the two unpushed commits, not the one already on the remote");
+  });
+
+  test("pushRange: an ordinary push checks exactly what follows the remote's own tip", () => {
+    const tip = run("git", ["rev-parse", "HEAD"]).stdout.trim();
+    const base = run("git", ["rev-parse", "HEAD~1"]).stdout.trim();
+    const revs = pushRange(`refs/heads/main ${tip} refs/heads/main ${base}`, "origin", () => true);
+    assert.deepEqual(revs, [tip, "--not", base]);
+  });
+
+  test("pushRange: a force push over history this clone never had checks everything", () => {
+    // What happened when a rewritten history was pushed from a clone of a local mirror: the
+    // remote-tracking refs said it was all published already. The server's sha is the truth.
+    const tip = run("git", ["rev-parse", "HEAD"]).stdout.trim();
+    assert.deepEqual(pushRange(`refs/heads/main ${tip} refs/heads/main ${"f".repeat(40)}`, "origin", () => false), [tip]);
+  });
+
+  test("a bare repository (a mirror) is checked instead of erroring", async () => {
+    const { readIgnoreFile } = await import("../src/gate-git.mjs");
+    assert.equal(readIgnoreFile(remote), "", "no working tree, no ignore file, no error");
   });
 });

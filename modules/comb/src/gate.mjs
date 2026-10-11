@@ -63,7 +63,26 @@ export const PATH_RULES = [
  * anything else in a diff is almost always a real device someone scanned.
  */
 const FAKE_MACS = /^(00:00:00:00:00:00|ff:ff:ff:ff:ff:ff|aa:bb:cc:dd:ee:ff|00:11:22:33:44:55|01:23:45:67:89:ab|de:ad:be:ef:[0-9a-f:]+|12:34:56:78:9a:bc)$/i;
+/**
+ * A credential written into code as a literal: a Wi-Fi SSID and password in firmware, a
+ * password in a config or a test. No scanner recognises these by shape (a Wi-Fi password
+ * is any 8+ characters), which is how two home networks' credentials sat in a repo's
+ * history unflagged. So this keys on the NAME being assigned, and lets placeholders
+ * through: YOUR_WIFI_PASSWORD, <ssid>, ${PASS}, ****, changeme and the like.
+ */
+const PLACEHOLDER = /^(your|my[_-]?|<|\$|\{|%|x{3,}|\*{3,}|\.{3}|change[_-]?me|example|placeholder|dummy|fake|sample|test|todo|tbd|null|none|undefined|redacted|password|passwd|secret|ssid|pass)/i;
+const literalValue = (m) => (m.match(/["']([^"']*)["']\s*\)?\s*$/) ?? [])[1] ?? "";
 export const CONTENT_RULES = [
+  {
+    id: "hardcoded-credential", why: "a password or Wi-Fi credential written into the code",
+    rx: /\b[\w.-]*(?:ssid|passw(?:or)?d|pwd|psk|wifi[_-]?pass|ap[_-]?pass)[\w.-]*["']?\s*[:=]\s*["'][^"'\s]{4,}["']/gi,
+    skip: (m) => PLACEHOLDER.test(literalValue(m)) || /YOUR/i.test(literalValue(m)),
+  },
+  {
+    id: "hardcoded-credential", why: "Wi-Fi credentials passed as literals",
+    rx: /WiFi\.begin\(\s*"[^"]+"\s*,\s*"[^"]{4,}"\s*\)/g,
+    skip: (m) => PLACEHOLDER.test(literalValue(m)) || /YOUR/i.test(m),
+  },
   { id: "lan-hostname", why: "a hostname on a home network (*.lan)", rx: /\b[a-z0-9][a-z0-9-]*\.lan\b/gi },
   { id: "mac-address", why: "a hardware (MAC) address", rx: /\b(?:[0-9a-f]{1,2}:){5}[0-9a-f]{1,2}\b/gi, skip: (m) => FAKE_MACS.test(m) },
 ];
