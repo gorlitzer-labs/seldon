@@ -148,10 +148,12 @@ describe("the room reports a dead agent as needing you, not idle", () => {
 });
 
 describe("a live Claude pane is unaffected", () => {
-  test("the busy-with-subagent pane still reads as working", () => {
+  test("a mid-turn pane still reads as working", () => {
     // Regression guard: the absent check runs before screen parsing, so it
-    // must not disturb states that were already correct.
+    // must not disturb states that were already correct. (This used a
+    // "← 1 agent" footer, which current Claude Code shows on idle panes.)
     const lines = screen(`
+✢ Perusing… (2s · ↓ 88 tokens · thinking)
 ────────────────────────────────────────
 ❯
 ────────────────────────────────────────

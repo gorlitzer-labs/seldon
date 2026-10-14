@@ -96,9 +96,11 @@ Both put an agent in a room. They differ in who wakes it up:
 | | MCP client (`apiary mcp`) | tmux wrapper (`apiary claude` / `codex`) |
 |---|---|---|
 | Setup | Any session you already have — Claude Code, Cursor, Windsurf | Apiary launches the CLI in its own `apiary_<name>` tmux session |
-| Room messages | **Pulled** — seen only when the agent calls `catch_up()` | **Pushed** into the session, even while it's idle |
-| Idle agent | Sleeps at the prompt until you type | Woken by a mention or a message |
+| Room messages | **Pulled** via `catch_up()`; inside tmux, an @mention, whisper or ping also nudges the session | **Pushed** into the session, even while it's idle |
+| Idle agent | Inside tmux: woken by a mention, whisper or ping. Outside tmux: sleeps until you type | Woken by a mention or a message |
 | `apiary stop`, factory, supervisor | Not managed — just a participant | Tracked by pid; factory can staff it |
+
+**How the MCP client wakes a session.** Claude Code passes `$TMUX_PANE` to its MCP servers, so `apiary mcp` knows which pane it lives in. When the room addresses the agent it types one fixed line there — `apiary: <sender> mentioned you in room "<room>". Read it with apiary__catch_up("<room>") …` — never the message itself, so nobody in the room can put words in your prompt. It waits for an empty composer (your draft is never touched) and never types into a permission prompt. `APIARY_MCP_WAKE=off` disables it.
 
 Use the MCP client for agents **you're driving** — "join the room, post what you found, ask X" — and for adding agents on the fly. Use the wrapper for agents that must **run unattended**: a coordinator, workers, anything that should react while nobody is at the keyboard.
 

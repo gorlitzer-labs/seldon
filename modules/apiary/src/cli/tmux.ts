@@ -7,8 +7,15 @@
 
 import { execFileSync, spawn } from "node:child_process";
 
-/** Sanitize a string for use as a tmux session name. Replaces tmux-special chars. */
+/**
+ * Sanitize a string for use as a tmux session name. Replaces tmux-special chars.
+ *
+ * A pane id (`%3`, what tmux puts in $TMUX_PANE) is already a valid target and
+ * passes through untouched — sanitising it to `_3` would aim every helper at a
+ * session that does not exist. `apiary mcp` targets the pane it was spawned in.
+ */
 function sanitizeSessionName(name: string): string {
+  if (/^%\d+$/.test(name)) return name;
   return name.replace(/[.:$%]/g, "_");
 }
 
@@ -160,6 +167,19 @@ export function tmuxCapturePane(session: string): string[] {
   try {
     const name = sanitizeSessionName(session);
     const output = execFileSync("tmux", ["capture-pane", "-t", name, "-p"], {
+      encoding: "utf-8",
+    });
+    return trimTrailingBlankLines(output.split("\n"));
+  } catch {
+    return [];
+  }
+}
+
+/** Capture visible screen content with its SGR styling kept (`capture-pane -e`). */
+export function tmuxCapturePaneStyled(session: string): string[] {
+  try {
+    const name = sanitizeSessionName(session);
+    const output = execFileSync("tmux", ["capture-pane", "-t", name, "-p", "-e"], {
       encoding: "utf-8",
     });
     return trimTrailingBlankLines(output.split("\n"));
