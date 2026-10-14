@@ -9,6 +9,8 @@
  * No tmux. No wrapper. Just tools.
  *
  * Event delivery is pull-based: the agent calls catch_up() to get new events.
+ * Inside tmux, events addressed to the agent also nudge its pane (see wake.ts),
+ * so an idle session notices an @mention without anyone typing.
  * The EventProcessor still runs in the background, classifying events via the
  * engagement model and buffering content — catch_up() returns the formatted,
  * classified result.
@@ -25,6 +27,8 @@ import type { AuthorityLevel } from "../../core/types.js";
 import type { LabeledEvent } from "../../agent/multiplexer.js";
 import type { ContentPart } from "../../agent/types.js";
 import { buildRuntimeMcpOptions, type JoinResult } from "../runtime-handlers.js";
+import { TmuxBridge } from "../claude/tmux-bridge.js";
+import { McpWaker, resolveWakeConfig } from "./wake.js";
 
 export interface McpServerOptions {
   name?: string;
@@ -50,7 +54,18 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     pullOnly: true,
   });
 
-  // ── Wrap SSE source for participant cache updates ─────────────────────
+  // ── Wake the session's own tmux pane when the room addresses it ───────
+  const wake = resolveWakeConfig(process.env);
+  const bridge = wake.pane ? new TmuxBridge(wake.pane, { attended: true }) : null;
+  const waker = bridge
+    ? new McpWaker({
+        nudge: (text) => {
+          bridge.deliver([{ type: "text", text }], { dedupe: true }).catch(() => {});
+        },
+      })
+    : null;
+
+  // ── Wrap SSE source for participant cache updates and wake-ups ────────
   const wrappedSource: AsyncIterable<LabeledEvent> = {
     [Symbol.asyncIterator]() {
       const inner = sseMux[Symbol.asyncIterator]();
@@ -65,6 +80,11 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
                 jr.dataSource.addParticipant(event.participant);
               } else if (event.type === "ParticipantLeft") {
                 jr.dataSource.removeParticipant(event.participant_id);
+              }
+              try {
+                waker?.onEvent(jr.roomName, event, jr.participantId, jr.dataSource.listParticipants());
+              } catch {
+                // A failed nudge must never stop the event stream; catch_up still works.
               }
             }
           }
@@ -98,9 +118,15 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     process.stderr.write(`pending rooms: ${options.joinUrls.join(", ")}\n`);
   }
   process.stderr.write(`use join_room(url) to connect to a room\n`);
+  process.stderr.write(
+    waker
+      ? `wake: on — @mentions, whispers and pings nudge tmux pane ${wake.pane}\n`
+      : `wake: off — ${wake.reason}; call catch_up() to see room messages\n`,
+  );
 
   // ── Cleanup ───────────────────────────────────────────────────────────
   async function cleanup(): Promise<void> {
+    bridge?.stop();
     await processor.stop();
     sseMux.close();
     await mcpServer.stop();

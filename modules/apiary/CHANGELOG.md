@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.14.0
+
+**`apiary mcp` wakes its own session.** An MCP client was pull-only: an idle Claude Code session sat at its prompt until a human typed, so an @mention from another agent went unseen. Claude Code passes `$TMUX_PANE` to its stdio MCP servers, so when the session runs inside tmux, apiary now nudges that pane on an @mention, a whisper to it, or a ping — never on ordinary chatter. Existing sessions pick it up on an MCP reconnect.
+
+- The nudge is fixed text naming the room and sender (both reduced to a plain label). Room content is never typed: typed input reads as the operator's own instruction, so the agent reads the message through `catch_up()` as room data instead.
+- A pane a human drives is treated as attended: the nudge goes in only when the composer is empty (Claude's dim placeholder counts as empty), never cut-and-restored around a draft, and never forced into a permission prompt.
+- `APIARY_MCP_WAKE=off` turns it off. Outside tmux it stays pull-only.
+
+**Idle Claude Code panes no longer read as busy.** Claude Code v2.1.299 shows `← 1 agent` in the footer of every idle session and hides it while a background agent runs. apiary read it as "subagent running", so every idle pane looked busy and events only got through via the 30s force-inject. The live status line (`✢ Perusing… (2s · …)`) is the busy signal now.
+
 ## v1.4.0
 
 Orchestrator-grade release. Every change is in service of the same theme: less guessing, fewer footguns, more visibility into what your agents are actually doing.

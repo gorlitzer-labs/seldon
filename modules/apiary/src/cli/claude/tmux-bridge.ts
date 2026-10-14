@@ -18,6 +18,7 @@
 import {
   tmuxPaneIsShell,
   tmuxCapturePane,
+  tmuxCapturePaneStyled,
   tmuxInjectText,
   tmuxSendEnter,
   tmuxSendKey,
@@ -40,19 +41,47 @@ export type TuiState =
 const SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 /**
- * Claude Code is busy in a way that shows NO spinner.
+ * Claude Code is mid-turn but shows none of the braille spinner glyphs.
  *
- * While a subagent runs, the main area is quiet and the only sign is the
- * footer: "⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent".
- * Spinner-only detection therefore read the pane as idle, so apiary pasted
- * into a composer that will not submit — verified against a live agent, where
- * even a manual Enter did nothing — and the message sat there as a draft until
- * the subagent finished. The room showed the agent as idle throughout.
+ * Current Claude Code (checked on v2.1.299) draws its live status with other
+ * glyphs — "✢ Perusing… (2s · ↓ 88 tokens · thinking)" — so the spinner scan
+ * misses it. The shape is stable even though the verb rotates: a word, an
+ * ellipsis, and a parenthesised elapsed time. The finished form ("✻ Brewed for
+ * 1s · done 11:33 AM") has no ellipsis and does not match.
+ *
+ * "← 1 agent" in the footer used to be read as "a subagent is running". On
+ * v2.1.299 it is the opposite: every idle session shows it (four live panes
+ * checked), and it disappears while a background agent runs. Treating it as
+ * busy made every idle Claude Code pane look busy forever, so events only got
+ * through via the 30s force-inject. A background agent also no longer blocks
+ * submission — a room nudge typed while one ran was answered normally.
  */
 const BUSY_PATTERNS: RegExp[] = [
-  // "← 1 agent" / "← 3 agents"
-  /←\s*\d+\s+agents?\b/,
+  /[A-Za-zÀ-ÿ]+…\s*\(\d+(?:m\s*\d+)?s\b/,
 ];
+
+/**
+ * Does Claude Code's composer hold nothing the human typed?
+ *
+ * A plain capture cannot tell a draft from the dim placeholder or suggestion
+ * Claude Code shows in an empty composer ("Try \"fix typecheck errors\"",
+ * "check the room for messages") — both read as text after ❯. The styled
+ * capture can: the placeholder is drawn dim (ESC[2m), a draft is not.
+ */
+export function composerHoldsOnlyGhost(styledLines: string[]): boolean {
+  const SGR = /\x1b\[[0-9;]*m/g;
+  for (let i = styledLines.length - 1; i >= 0; i--) {
+    const plain = styledLines[i].replace(SGR, "").trimStart();
+    if (!/^[❯›](\s|$)/.test(plain)) continue;
+    const afterPrompt = styledLines[i].slice(styledLines[i].search(/[❯›]/) + 1);
+    const typed = afterPrompt
+      .replace(/\x1b\[2m[\s\S]*?(?:\x1b\[(?:0|22)?m|$)/g, "")
+      .replace(SGR, "")
+      .trim();
+    return typed.length === 0;
+  }
+  return false;
+}
 
 // Patterns that indicate a selection/question dialog
 const DIALOG_PATTERNS = [
@@ -146,6 +175,17 @@ export interface TmuxBridgeOptions {
    * This is the hook that makes the difference visible to someone.
    */
   onUndelivered?: (text: string) => void;
+  /**
+   * A human drives this pane (`apiary mcp` inside their own session). Default
+   * false, for panes apiary launched and nobody types in.
+   *
+   * When true, text goes in only when the composer is empty — never cut and
+   * restored around a draft (Ctrl+U clears one line, so a wrapped draft was
+   * split in two and half of it sent with the event, seen live) — and never
+   * forced after ~30s: a human session can sit on a real permission prompt for
+   * minutes, and typing into it would answer the prompt on their behalf.
+   */
+  attended?: boolean;
 }
 
 /**
@@ -164,6 +204,7 @@ export class TmuxBridge {
   private pollIntervalMs: number;
   private keystrokeDelayMs: number;
   private onUndelivered: (text: string) => void;
+  private attended: boolean;
   private stopped = false;
   private blockedCount = 0;
   private static readonly BLOCKED_THRESHOLD = 150; // ~30s at 200ms poll — force inject if stuck
@@ -173,6 +214,7 @@ export class TmuxBridge {
     this.pollIntervalMs = opts?.pollIntervalMs ?? 200;
     this.keystrokeDelayMs = opts?.keystrokeDelayMs ?? 50;
     this.onUndelivered = opts?.onUndelivered ?? defaultUndeliveredWarning;
+    this.attended = opts?.attended ?? false;
   }
 
   /**
@@ -232,7 +274,7 @@ export class TmuxBridge {
    */
   private inject(text: string, dedupe: boolean): void {
     const flat = text.replace(/\n/g, " ");
-    const state = this.detectState();
+    const state = this.deliveryState();
 
     switch (state) {
       case "idle":
@@ -246,6 +288,17 @@ export class TmuxBridge {
         this.enqueue(flat, dedupe);
         break;
     }
+  }
+
+  /**
+   * The state delivery acts on. Unattended it is the screen state. Attended,
+   * "typing" splits in two: only placeholder text is idle; a real draft is the
+   * human's, so the event waits ("unknown" queues it).
+   */
+  private deliveryState(): TuiState {
+    const state = this.detectState();
+    if (!this.attended || state !== "typing") return state;
+    return composerHoldsOnlyGhost(tmuxCapturePaneStyled(this.session)) ? "idle" : "unknown";
   }
 
   /** Capture the screen via tmux capture-pane. */
@@ -348,7 +401,7 @@ export class TmuxBridge {
       return;
     }
 
-    const state = this.detectState();
+    const state = this.deliveryState();
     if (state === "idle" || state === "typing") {
       this.blockedCount = 0;
       const text = this.queue.shift()!;
@@ -366,7 +419,7 @@ export class TmuxBridge {
     } else {
       // Any non-injectable state (streaming, dialog, permission, unknown)
       this.blockedCount++;
-      if (this.blockedCount >= TmuxBridge.BLOCKED_THRESHOLD) {
+      if (!this.attended && this.blockedCount >= TmuxBridge.BLOCKED_THRESHOLD) {
         // Stuck too long — force inject to unblock
         this.blockedCount = 0;
         const text = this.queue.shift()!;
@@ -490,8 +543,11 @@ export function detectStateFromLines(
   // 3b. Busy with no spinner — a subagent is running. Checked after the
   //     dialog and permission patterns on purpose: a prompt that needs a human
   //     outranks "also busy", because only one of those the user can clear.
+  // Only the bottom of the screen: the live status sits just above the
+  // composer, and the same shape further up is output the agent printed.
+  const statusArea = tail.slice(-10).join("\n");
   for (const pattern of BUSY_PATTERNS) {
-    if (pattern.test(tailText)) return "streaming";
+    if (pattern.test(statusArea)) return "streaming";
   }
 
   // 4. Look for the ❯/› prompt line near the bottom.
