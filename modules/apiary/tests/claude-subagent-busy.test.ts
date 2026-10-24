@@ -29,7 +29,7 @@ const IDLE_PANE = screen(`
 ${RULE}
 ❯
 ${RULE}
-  PERSONAL · franco (Max) · Haiku 5.5
+  PERSONAL · sam (Max) · Haiku 5.5
   ⏵⏵ auto mode on (shift+tab to cycle) · ← 1 agent
 `);
 
@@ -40,7 +40,7 @@ const WORKING_PANE = screen(`
 ${RULE}
 ❯
 ${RULE}
-  PERSONAL · franco (Max) · Haiku 5.5
+  PERSONAL · sam (Max) · Haiku 5.5
   ⏵⏵ auto mode on (shift+tab to cycle) · ← 1 agent
 `);
 

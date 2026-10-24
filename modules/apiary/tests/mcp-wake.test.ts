@@ -21,12 +21,12 @@ import {
 
 const SELF = "agent_self";
 const OTHER = "agent_other";
-const HUMAN = "user_franco";
+const HUMAN = "user_sam";
 
 const PARTICIPANTS: Participant[] = [
   { id: SELF, name: "sprouts", status: "online", type: "agent" },
   { id: OTHER, name: "linkaroo", status: "online", type: "agent" },
-  { id: HUMAN, name: "franco", status: "online", type: "human" },
+  { id: HUMAN, name: "sam", status: "online", type: "human" },
 ];
 
 function message(id: string, senderId: string, content: string, recipients?: string[]) {
@@ -188,7 +188,7 @@ describe("McpWaker", () => {
 
   test("a ping names the pinger", () => {
     waker.onEvent("hive", pinged(SELF, HUMAN), SELF, PARTICIPANTS);
-    expect(nudges[0]).toContain("franco pinged you");
+    expect(nudges[0]).toContain("sam pinged you");
   });
 });
 
