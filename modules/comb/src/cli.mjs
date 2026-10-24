@@ -50,17 +50,37 @@ async function promptSecret(label) {
       let d = ""; process.stdin.on("data", (c) => (d += c)); process.stdin.on("end", () => r(d));
     })).trim();
   }
-  process.stdout.write(`${label}: `);
-  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-  // Silence the echo: the value should not be on screen, over a shoulder or in
-  // a screen recording.
-  const onData = () => process.stdout.write("\x1b[2K\r" + label + ": ");
-  process.stdin.on("data", onData);
-  const value = await new Promise((r) => rl.question("", r));
-  process.stdin.off("data", onData);
-  rl.close();
-  process.stdout.write("\n");
-  return value.trim();
+  // Tell the person exactly what to do: the old prompt gave no cue when to paste,
+  // and the masking hack redrew the label on every keystroke — so the Enter you
+  // pressed printed the label a second time and it read as a glitch.
+  process.stdout.write(`${label}\n  ${dim("paste it, then press Enter — hidden, never shown or logged")}\n  ${B("›")} `);
+  // Read the bytes ourselves in raw mode, rather than fighting readline's echo.
+  // The value NEVER goes to stdout — only a dot per character, as feedback — so it
+  // cannot leak to the screen, a shoulder, or a recording even on a fast paste.
+  const stdin = process.stdin;
+  stdin.setRawMode(true); stdin.resume(); stdin.setEncoding("utf8");
+  stdin.write?.("\x1b[?2004l"); // ask the terminal not to wrap pastes in bracket markers
+  return await new Promise((resolve) => {
+    let value = "";
+    const done = () => {
+      stdin.off("data", onData);
+      try { stdin.write?.("\x1b[?2004h"); } catch { /* restore paste mode */ }
+      stdin.setRawMode(false); stdin.pause();
+      process.stdout.write("\n");
+    };
+    const onData = (chunk) => {
+      // strip any terminal control sequences (bracketed-paste markers, arrow keys)
+      // so they never land in the value or show as stray dots
+      chunk = chunk.replace(/\x1b\[[0-9;]*[~A-Za-z]/g, "").replace(/\x1b./g, "");
+      for (const ch of chunk) {
+        if (ch === "\r" || ch === "\n") { done(); return resolve(value.trim()); }
+        if (ch === "\u0003") { done(); process.exit(130); }        // Ctrl-C
+        if (ch === "\u007f" || ch === "\b") { if (value) { value = value.slice(0, -1); process.stdout.write("\b \b"); } continue; }
+        if (ch >= " ") { value += ch; process.stdout.write(dim("•")); } // printable only
+      }
+    };
+    stdin.on("data", onData);
+  });
 }
 
 function help() {
