@@ -294,7 +294,9 @@ try {
           say(r.already ? `${green("✓")} already installed in ${B(r.hook)}` : `${green("✓")} gate installed in ${B(r.hook)}`);
         } else {
           const r = gateGit.installGlobal();
-          say(`${green("✓")} gate installed for every repository ${dim(`(core.hooksPath → ${r.hook.replace(/\/pre-push$/, "")})`)}`);
+          say(`${green("✓")} gate installed for every repository ${dim(`(core.hooksPath → ${r.dir})`)}`);
+          if (r.via) say(dim(`  another tool owns ${r.via} and runs the gate from ${r.hook}; updated it there`));
+          if (r.chained) say(dim(`  kept the pre-push that was there as ${r.chained}; it runs after the gate`));
           if (r.prev) say(yellow(`  ⚠ replaced a previous global core.hooksPath (${r.prev}) — move any hooks from there into the new directory`));
           say(dim("  repos with their own core.hooksPath (husky) skip it: run `comb gate install --repo` inside them"));
         }

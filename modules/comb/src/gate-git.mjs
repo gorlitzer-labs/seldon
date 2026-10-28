@@ -3,7 +3,7 @@
  * them, and the hook that runs the check.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync, mkdtempSync, rmSync, readdirSync, renameSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { SEP, parseLog } from "./gate.mjs";
@@ -105,10 +105,13 @@ export function gitleaks(revArgs, cwd) {
  * The hook. Plain sh so it runs wherever git does.
  *
  * It keeps the push's stdin, because git hands the ref list to the hook once
- * and both the gate and any project hook after it need it. If the repository
- * has its own pre-push (in .git/hooks, which a global hooks path otherwise
- * silences), that runs next, so installing the gate never disables a project's
- * own checks.
+ * and both the gate and any hook after it need it. Two hooks may run next:
+ *   - `pre-push.comb-chained` beside it: a pre-push that was already in the global
+ *     hooks directory when the gate was installed there (see installGlobal).
+ *   - the repository's own pre-push (in .git/hooks, which a global hooks path
+ *     otherwise silences), so installing the gate never disables a project's own
+ *     checks. Found through the common git dir: from a worktree, `--git-dir` is
+ *     .git/worktrees/<name>, which has no hooks, and the project's hook was skipped.
  *
  * Fails closed: if comb cannot be found the push is blocked, not waved
  * through. A gate that opens whenever its tool is missing protects nothing on
@@ -126,7 +129,10 @@ if ! command -v comb >/dev/null 2>&1; then
   exit 1
 fi
 printf '%s\\n' "$input" | comb gate check --hook "$@" || exit 1
-own="$(git rev-parse --git-dir)/hooks/pre-push"
+if [ -x "$0.comb-chained" ]; then
+  printf '%s\\n' "$input" | "$0.comb-chained" "$@" || exit 1
+fi
+own="$(git rev-parse --git-common-dir)/hooks/pre-push"
 if [ -x "$own" ] && [ "$(cd "$(dirname "$own")" && pwd -P)/pre-push" != "$(cd "$(dirname "$0")" && pwd -P)/pre-push" ]; then
   printf '%s\\n' "$input" | "$own" "$@"
 fi
@@ -146,12 +152,37 @@ export const globalHooksDir = () => join(process.env.COMB_HOME ?? join(homedir()
 export function installGlobal() {
   const dir = globalHooksDir();
   mkdirSync(dir, { recursive: true });
-  const hook = join(dir, "pre-push");
+  const { hook, chained, via } = placeGlobalHook(dir);
   writeFileSync(hook, hookScript());
   chmodSync(hook, 0o755);
   const prev = spawnSync("git", ["config", "--global", "--get", "core.hooksPath"], { encoding: "utf-8" }).stdout.trim();
   git(["config", "--global", "core.hooksPath", dir]);
-  return { hook, prev: prev && resolve(prev) !== resolve(dir) ? prev : null };
+  return { hook, dir, chained, via, prev: prev && resolve(prev) !== resolve(dir) ? prev : null };
+}
+
+/**
+ * Where the gate goes in a shared hooks directory, without evicting anyone.
+ *
+ * Other tools install into a global hooks path too. Entire, for one, moves the
+ * pre-push it finds to `pre-push.pre-entire` and puts its own in front, which
+ * then runs ours. Overwriting `pre-push` on a reinstall would silently drop that
+ * tool for every repository on the machine. So:
+ *   - our own pre-push: rewrite it (an upgrade).
+ *   - someone else's, already running a copy of the gate under another name:
+ *     rewrite that copy in place (`via`) and leave their hook alone.
+ *   - someone else's, not running the gate: keep it as `pre-push.comb-chained`,
+ *     which the gate runs after its check (`chained`).
+ */
+export function placeGlobalHook(dir) {
+  const hook = join(dir, "pre-push");
+  if (!existsSync(hook) || readFileSync(hook, "utf-8").includes(MARK)) return { hook };
+  const copy = readdirSync(dir).find((f) => f.startsWith("pre-push.") && statSync(join(dir, f)).isFile()
+    && readFileSync(join(dir, f), "utf-8").includes(MARK));
+  if (copy) return { hook: join(dir, copy), via: hook };
+  const keep = `${hook}.comb-chained`;
+  if (existsSync(keep)) throw new Error(`${hook} is not the gate's, and ${keep} already exists. Merge them by hand, then install again.`);
+  renameSync(hook, keep);
+  return { hook, chained: keep };
 }
 
 /** Install into one repository's effective hooks directory. */

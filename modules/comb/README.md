@@ -196,6 +196,13 @@ rules can be silenced. The vault and the personal list cannot: a secret is never
 a false positive worth keeping, and a file saying "my name may appear here" is
 itself a place the name appears.
 
+**It shares the hooks directory.** A repository's own `.git/hooks/pre-push` still
+runs after the gate, from worktrees too. A pre-push another tool already put in the
+global hooks directory is kept as `pre-push.comb-chained` and runs after the gate.
+A tool that installs itself in front of the gate and calls it under another name
+(Entire does, as `pre-push.pre-entire`) is left alone, and reinstalling updates the
+gate there.
+
 **One gap git leaves open:** a repository that sets its own `core.hooksPath`
 (husky does) overrides the global one, and git never runs the gate there.
 `comb gate status` shows it; `comb gate install --repo` inside that repository
