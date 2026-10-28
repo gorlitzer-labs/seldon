@@ -74,7 +74,27 @@ recorded in `~/.seldon/lanes.json`. A plan item shows the lane working on it.
 seldon lanes [--json]                                     # every agent here
 seldon lane start [dir] --task "fix the save crash" [--agent codex]
 seldon lane stop|resume|open <name or key>
+seldon lane why <name or key>                             # what Entire recorded: see below
 ```
+
+## Why each change was made: Entire
+
+[Entire](https://entire.com) (`entire` CLI, MIT) records the agent session behind every
+commit: the prompt, the redacted transcript, the files touched and the tokens. It links each one
+to its commit with an `Entire-Checkpoint` trailer, which survives rebase and squash. It works from
+lane worktrees, Claude's and seldon's alike.
+
+```bash
+brew install --cask entireio/tap/entire
+seldon setup entire [dir] [--remote origin]   # turns it on for every harness installed here
+git add .entire .claude && git commit -m "record agent sessions"   # lanes get it from now on
+seldon lane why fix-save-crash                # recorded commits, then the newest explained
+```
+
+Checkpoints are pushed to `--remote` with your branches, so **a public repository makes your
+agents' transcripts public**. Use a private remote. Redaction is best effort. With the
+[comb gate](../../modules/comb) installed globally, use comb 0.2.4 or later: earlier versions
+skipped Entire's pre-push from worktrees.
 
 ## Codex and opencode: let them report their state
 

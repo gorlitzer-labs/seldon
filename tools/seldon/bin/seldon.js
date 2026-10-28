@@ -10,6 +10,7 @@ import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "..
 import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
 import { readLanes, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
 import { openCommand, stopCommand, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
+import { enableSteps, parseCheckpointLog, laneRange, LOG_FORMAT } from "../lib/entire.mjs";
 import { startLane, stopLane, resumeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
@@ -1438,6 +1439,8 @@ ${C.bold("seldon")} — the agent factory: your projects, and the stack that run
   ${C.dim("go takes --agent claude|codex, --model <id>, --effort <lvl>, --name <n>,")}
   ${C.dim("        --no-staff (do not start an agent), --no-attach (do not open the room) and")}
   ${C.dim("        --attach (open it even with no terminal detected — inside tmux, or from a script).")}
+  ${C.bold("seldon setup entire")}    record ${C.gold("why")} each agent change was made (Entire), in this repo  ·  --remote <name>
+  ${C.bold("seldon lane why")} <lane>  a lane's recorded commits, and the prompt + transcript behind the newest
   ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules (no ids: the picker)
   ${C.bold("seldon uninstall")} ids…  remove the named modules (global CLI / isolated venv)
   ${C.bold("seldon uninstall --all")} remove the whole stack (also drops ~/.seldon)
@@ -1505,9 +1508,10 @@ function laneCmd(verb, arg, flags) {
     const r = startLane({ root, name: path.basename(root), task, harness: flags.agent || "claude" });
     return r.ok ? console.log(C.green(`✓ started ${r.slug}`) + C.dim(` (${flags.agent || "claude"}) in ${root}`)) : fail(`could not start: ${r.error}`);
   }
-  if (!["stop", "resume", "open"].includes(verb)) return fail('usage: seldon lane start [dir] --task "…" [--agent claude|codex|opencode] · seldon lane stop|resume|open <key>');
+  if (!["stop", "resume", "open", "why"].includes(verb)) return fail('usage: seldon lane start [dir] --task "…" [--agent claude|codex|opencode] · seldon lane stop|resume|open|why <key>');
   const lane = arg && findLane(arg);
   if (!lane) return fail(`no lane ${arg || ""} — see: seldon lanes`);
+  if (verb === "why") return laneWhy(lane, fail);
   if (verb === "open") {
     const how = openCommand(lane);
     if (how.why) return fail(`can't open ${lane.name}: ${how.why}`);
@@ -1518,6 +1522,40 @@ function laneCmd(verb, arg, flags) {
   if (r.why) return fail(`can't ${verb} ${lane.name}: ${r.why}`);
   if (!r.ok) return fail(`${verb} failed: ${r.error}`);
   console.log(C.green(`✓ ${verb === "stop" ? "stopped" : "resumed"} ${lane.name}`) + (r.fresh ? C.dim(" (new conversation, same task + worktree)") : ""));
+}
+
+// `seldon lane why <key>` — the lane's commits that Entire recorded, then the newest one
+// explained: the prompt, the files and the transcript that produced it.
+function laneWhy(lane, fail) {
+  if (!has("entire")) return fail("entire is not installed: brew install --cask entireio/tap/entire, then seldon setup entire");
+  const cwd = lane.cwd;
+  if (!cwd || !fs.existsSync(cwd)) return fail(`${lane.name}'s worktree is gone (${cwd || "unknown"})`);
+  const git = (args) => spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+  const range = laneRange(git(["rev-parse", "--abbrev-ref", "origin/HEAD"]).stdout);
+  const log = git(["log", range, `--format=${LOG_FORMAT}`]);
+  if (log.status !== 0) return fail(`can't read ${lane.name}'s commits: ${log.stderr.trim()}`);
+  const commits = parseCheckpointLog(log.stdout);
+  if (!commits.length) { console.log(C.dim(`${lane.name}: no recorded commits in ${range} yet. Is Entire on here? seldon setup entire`)); return; }
+  console.log(C.bold(lane.name) + C.dim(`  ${commits.length} recorded commit(s), newest first`));
+  for (const c of commits) console.log(`  ${C.cyan(c.sha)} ${c.subject}  ${C.dim(c.ids.join(", "))}`);
+  console.log("");
+  process.exitCode = spawnSync("entire", ["checkpoint", "explain", commits[0].ids[0]], { cwd, stdio: "inherit" }).status ?? 1;
+}
+
+// `seldon setup entire [dir] [--remote <name>]` — record why each agent change was made, in
+// this project. Entire's own output lists the files to commit; until they are committed, lane
+// worktrees (which check out committed files only) do not get the agent hooks.
+function entireSetupCmd(dir, flags) {
+  const fail = (msg) => { console.log(C.red(msg)); process.exitCode = 1; };
+  if (!has("entire")) return fail("entire is not installed: brew install --cask entireio/tap/entire (or curl -fsSL https://entire.com/install.sh | bash)");
+  const root = projectRoot(path.resolve(dir || "."));
+  if (!root) return fail("not inside a git repository");
+  const remote = typeof flags.remote === "string" ? flags.remote : "origin";
+  for (const [bin, args] of enableSteps({ remote, harnesses: HARNESSES.filter((h) => has(h)) })) {
+    if (spawnSync(bin, args, { cwd: root, stdio: "inherit" }).status !== 0) return fail(`${bin} ${args.join(" ")} failed`);
+  }
+  console.log("\n" + C.gold("before you push: ") + `checkpoints hold your agents' transcripts and go to ${C.bold(remote)}. If that repository is public, so are they; secret redaction is best effort.`);
+  console.log(C.dim("  commit the files Entire listed, so every new lane worktree gets the hooks · then: seldon lane why <lane>"));
 }
 
 // `seldon machines` — the other computers the panel shows (bifrost's realms, one list).
@@ -1556,7 +1594,8 @@ function stableSeldonBin() {
 // `seldon setup [codex|opencode] [--remove]` — install the reporter into each harness.
 const CODEX_HOOKS = path.join(process.env.HOME, ".codex", "hooks.json");
 const OPENCODE_PLUGIN = path.join(process.env.HOME, ".config", "opencode", "plugins", "seldon.js");
-function setupCmd(which, flags) {
+function setupCmd(which, flags, dir) {
+  if (which === "entire") return entireSetupCmd(dir, flags);
   const targets = which ? [which] : ["codex", "opencode"].filter((h) => has(h) || flags.remove);
   if (!targets.length) { console.log(C.dim("neither codex nor opencode is installed — Claude needs no setup")); return; }
   // The `seldon` on PATH (e.g. ~/Library/pnpm/bin/seldon), not the file running now: that one
@@ -1700,7 +1739,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "lanes") return lanesCmd(flags);
   if (cmd === "machines") return machinesCmd(tokens[0], tokens[1], tokens[2]);
   if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags);
-  if (cmd === "setup") return setupCmd(tokens[0], flags);
+  if (cmd === "setup") return setupCmd(tokens[0], flags, tokens[1]);
   if (cmd === "panel" || cmd === "board") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
   if (cmd === "install") return install_picker({ dev });   // `install` with no ids
