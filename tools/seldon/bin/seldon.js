@@ -10,7 +10,7 @@ import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "..
 import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
 import { readLanes, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
 import { openCommand, stopCommand, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
-import { startLane, stopLane, resumeLane, findLane } from "../lib/actions.mjs";
+import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
@@ -1505,7 +1505,7 @@ function laneCmd(verb, arg, flags) {
     const r = startLane({ root, name: path.basename(root), task, harness: flags.agent || "claude" });
     return r.ok ? console.log(C.green(`✓ started ${r.slug}`) + C.dim(` (${flags.agent || "claude"}) in ${root}`)) : fail(`could not start: ${r.error}`);
   }
-  if (!["stop", "resume", "open"].includes(verb)) return fail('usage: seldon lane start [dir] --task "…" [--agent claude|codex|opencode] · seldon lane stop|resume|open <key>');
+  if (!["stop", "resume", "open", "rm"].includes(verb)) return fail('usage: seldon lane start [dir] --task "…" [--agent claude|codex|opencode] · seldon lane stop|resume|open|rm <key>');
   const lane = arg && findLane(arg);
   if (!lane) return fail(`no lane ${arg || ""} — see: seldon lanes`);
   if (verb === "open") {
@@ -1513,6 +1513,13 @@ function laneCmd(verb, arg, flags) {
     if (how.why) return fail(`can't open ${lane.name}: ${how.why}`);
     process.exitCode = spawnSync(how.bin, how.args, { stdio: "inherit", cwd: how.cwd }).status ?? 1;
     return;
+  }
+  if (verb === "rm") {
+    const r = removeLane(lane, { force: !!flags.force });
+    if (r.why) return fail(`can't remove ${lane.name}: ${r.why}`);
+    if (!r.ok) return fail(`rm failed: ${r.error}`);
+    return console.log(C.green(`✓ removed ${lane.name}`) + C.dim(!r.branch ? "" : r.branchDeleted ? ` (merged branch ${r.branch} deleted too)`
+      : ` (kept branch ${r.branch}: git does not see it merged; if it was squash-merged: git branch -D ${r.branch})`));
   }
   const r = verb === "stop" ? stopLane(lane) : resumeLane(lane);
   if (r.why) return fail(`can't ${verb} ${lane.name}: ${r.why}`);

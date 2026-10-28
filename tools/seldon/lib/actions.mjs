@@ -1,13 +1,13 @@
-// What you can do to a lane, in one place: start, stop, resume. The panel calls these, and so
+// What you can do to a lane, in one place: start, stop, resume, remove. The panel calls these, and so
 // does `seldon lane …` — which is also how the panel acts on another machine (it runs
 // `ssh <machine> seldon lane …`). One implementation, so the two can never disagree.
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import {
-  readLanes, runSteps, run, harnessBins, recordLane, markLane, SELDON_HOME,
+  readLanes, runSteps, run, harnessBins, recordLane, markLane, forgetLane, projectRoot, SELDON_HOME,
 } from "./agents.mjs";
-import { startCommands, resumeCommands, stopCommand, slugify, uniqueSlug, HARNESSES } from "./lanes.mjs";
+import { startCommands, resumeCommands, stopCommand, removeCommands, slugify, uniqueSlug, HARNESSES } from "./lanes.mjs";
 
 const branchExists = (root, ref) => {
   try { execFileSync("git", ["-C", root, "rev-parse", "--verify", "--quiet", `refs/heads/${ref}`], { stdio: "ignore" }); return true; } catch { return false; }
@@ -43,6 +43,18 @@ export function resumeLane(lane) {
   const r = runSteps(how.cmds);
   if (r.ok && lane.tmuxSession) markLane(lane.tmuxSession, { stoppedAt: undefined, startedAt: Date.now() });
   return { ...r, fresh: !!how.fresh };
+}
+
+// Worktree gone, branch deleted only if merged. Says which branch it kept, and why.
+export function removeLane(lane, { force = false } = {}) {
+  const git = (...args) => { try { return execFileSync("git", ["-C", lane.cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; } };
+  const how = removeCommands(lane, { root: projectRoot(lane.cwd), branch: git("rev-parse", "--abbrev-ref", "HEAD"), dirty: !!git("status", "--porcelain"), force });
+  if (how.why) return { ok: false, why: how.why };
+  const r = runSteps(how.cmds);
+  if (!r.ok) return r;
+  if (lane.tmuxSession && lane.harness !== "claude") forgetLane(lane.tmuxSession);
+  const branch = how.branch?.args.at(-1) ?? null;
+  return { ok: true, branch, branchDeleted: !!how.branch && run(how.branch, { quiet: true }).ok };
 }
 
 export const allLanes = () => readLanes().flatMap((g) => g.lanes);
