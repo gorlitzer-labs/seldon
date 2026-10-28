@@ -74,6 +74,8 @@ recorded in `~/.seldon/lanes.json`. A plan item shows the lane working on it.
 seldon lanes [--json]                                     # every agent here
 seldon lane start [dir] --task "fix the save crash" [--agent codex]
 seldon lane stop|resume|open <name or key>
+seldon lane rm <name or key> [--force]                    # a stopped lane: its worktree goes,
+                                                          # its branch too if git sees it merged
 ```
 
 ## Codex and opencode: let them report their state

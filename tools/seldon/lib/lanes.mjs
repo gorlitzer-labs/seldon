@@ -233,6 +233,20 @@ export function resumeCommands(lane, { bins = {}, env = {} } = {}) {
   };
 }
 
+// ---- removing a finished lane ------------------------------------------------------
+// What a done lane leaves behind is a worktree and a branch. rm takes the worktree, and the
+// branch only when git can see it is merged (`git branch -d` refuses otherwise). A squash-merged
+// branch looks unmerged to git, so it is kept and named, never force-deleted.
+export function removeCommands(lane, { root, branch, dirty = false, force = false } = {}) {
+  if (!["stopped", "failed"].includes(lane.state)) return { why: `it is ${lane.state}, stop it first` };
+  if (!root || !lane.cwd || lane.cwd.replace(/\/+$/, "") === root.replace(/\/+$/, "")) return { why: "it works in the repo itself, not in a worktree of its own" };
+  if (dirty && !force) return { why: "its worktree has uncommitted changes: commit them, or --force to throw them away" };
+  return {
+    cmds: [{ bin: "git", args: ["-C", root, "worktree", "remove", ...(force ? ["--force"] : []), lane.cwd], quiet: true }],
+    branch: branch && branch !== "HEAD" ? { bin: "git", args: ["-C", root, "branch", "-d", branch], quiet: true } : null,
+  };
+}
+
 // ---- telling the human ----------------------------------------------------------------
 // What changed since the last look that a person should hear about: an agent that starts
 // waiting on them, fails, or finishes. Only TRANSITIONS — a lane that stays blocked is not

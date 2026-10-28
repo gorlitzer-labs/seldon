@@ -67,6 +67,11 @@ export function markLane(session, patch) {
   writeLanes(readJson(LANES_FILE, []).map((e) => (e.session === session ? { ...e, ...patch } : e)));
 }
 
+// Removed: the lane is gone for good, so it is not listed as stopped either.
+export function forgetLane(session) {
+  writeLanes(readJson(LANES_FILE, []).filter((e) => e.session !== session));
+}
+
 // tmux session -> { harness, task, startedAt }: seldon's lanes plus apiary's Codex agents.
 export function knownSessions() {
   const known = {};
