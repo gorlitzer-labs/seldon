@@ -8,12 +8,12 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync, symlinkSync, unlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, symlinkSync, unlinkSync, readFileSync, existsSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { check, parseDeny, parseIgnore, machineRules, parseLog, SEP } from "../src/gate.mjs";
-import { pushRange, readCommits, installRepo, status } from "../src/gate-git.mjs";
+import { pushRange, readCommits, installRepo, installGlobal, status, MARK } from "../src/gate-git.mjs";
 
 const SECRET = "cf-token-value-0123456789abcdefghij";
 const commit = (files, who = "dev <dev@users.noreply.github.com>") =>
@@ -255,5 +255,104 @@ describe("a real push through the hook", () => {
   test("a bare repository (a mirror) is checked instead of erroring", async () => {
     const { readIgnoreFile } = await import("../src/gate-git.mjs");
     assert.equal(readIgnoreFile(remote), "", "no working tree, no ignore file, no error");
+  });
+});
+
+describe("a global gate shares its hooks directory and worktrees with other tools", () => {
+  // Entire (agent session capture) is the real case: it keeps its own pre-push in
+  // .git/hooks, and when a global hooks path is set it installs itself there too,
+  // in front of whatever pre-push it finds.
+  let dir, repo, remote, bin, env, saved, hooks;
+  const run = (cmd, args, cwd = repo) => spawnSync(cmd, args, { cwd, env, encoding: "utf-8" });
+  const commitFile = (cwd, path, body, msg) => {
+    writeFileSync(join(cwd, path), body);
+    run("git", ["add", "-A"], cwd); run("git", ["commit", "-qm", msg], cwd);
+  };
+  // A stand-in for another tool's hook: records that it ran, and what stdin it got.
+  const marker = (name) => `#!/bin/sh\ncat > "${dir}/${name}.ran"\n`;
+  const ran = (name) => existsSync(join(dir, `${name}.ran`));
+  const reset = () => { for (const n of ["own", "other"]) rmSync(join(dir, `${n}.ran`), { force: true }); };
+
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), "comb-gate-shared-"));
+    repo = join(dir, "repo"); remote = join(dir, "remote.git"); bin = join(dir, "bin");
+    hooks = join(dir, "comb-home", "hooks");
+    mkdirSync(repo); mkdirSync(bin);
+    symlinkSync(fileURLToPath(new URL("../src/cli.mjs", import.meta.url)), join(bin, "comb"));
+    env = {
+      ...process.env, PATH: `${bin}:${process.env.PATH}`, COMB_HOME: join(dir, "comb-home"),
+      GIT_CONFIG_GLOBAL: join(dir, "gitconfig"), GIT_CONFIG_NOSYSTEM: "1",
+      GIT_AUTHOR_NAME: "dev", GIT_AUTHOR_EMAIL: "dev@users.noreply.github.com",
+      GIT_COMMITTER_NAME: "dev", GIT_COMMITTER_EMAIL: "dev@users.noreply.github.com",
+    };
+    // installGlobal writes the global git config and COMB_HOME of this process: isolate both.
+    saved = { g: process.env.GIT_CONFIG_GLOBAL, s: process.env.GIT_CONFIG_NOSYSTEM, c: process.env.COMB_HOME };
+    Object.assign(process.env, { GIT_CONFIG_GLOBAL: env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: "1", COMB_HOME: env.COMB_HOME });
+    spawnSync("git", ["init", "-q", "--bare", remote], { env });
+    run("git", ["init", "-q", "-b", "main"]);
+    run("git", ["remote", "add", "origin", remote]);
+    commitFile(repo, "README.md", "# weather\n", "first");
+  });
+  after(() => {
+    rmSync(dir, { recursive: true, force: true });
+    for (const [k, v] of [["GIT_CONFIG_GLOBAL", saved.g], ["GIT_CONFIG_NOSYSTEM", saved.s], ["COMB_HOME", saved.c]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
+
+  test("a pre-push already in the hooks directory is kept and still runs, after the gate", () => {
+    mkdirSync(hooks, { recursive: true });
+    writeFileSync(join(hooks, "pre-push"), marker("other")); chmodSync(join(hooks, "pre-push"), 0o755);
+    const r = installGlobal();
+    assert.equal(r.chained, join(hooks, "pre-push.comb-chained"));
+    assert.ok(readFileSync(join(hooks, "pre-push"), "utf-8").includes(MARK));
+    reset();
+    const p = run("git", ["push", "-q", "origin", "main"]);
+    assert.equal(p.status, 0, p.stderr);
+    assert.ok(ran("other"), "the hook that was there before must still run");
+    assert.match(readFileSync(join(dir, "other.ran"), "utf-8"), /refs\/heads\/main/, "and get the push's ref list on stdin");
+  });
+
+  test("installing again is an upgrade, not a second copy", () => {
+    const r = installGlobal();
+    assert.equal(r.chained, undefined);
+    assert.equal(r.hook, join(hooks, "pre-push"));
+  });
+
+  test("the repository's own pre-push runs when pushing from a worktree", () => {
+    // From a worktree, --git-dir is .git/worktrees/<name>: no hooks there. Entire's
+    // pre-push (which uploads its checkpoints) was silently skipped from every lane.
+    const own = join(repo, ".git", "hooks", "pre-push");
+    writeFileSync(own, marker("own")); chmodSync(own, 0o755);
+    const wt = join(dir, "lane");
+    run("git", ["worktree", "add", "-q", "-b", "lane/paris", wt]);
+    commitFile(wt, "paris.txt", "cloudy\n", "paris");
+    reset();
+    const p = run("git", ["push", "-q", "origin", "lane/paris"], wt);
+    assert.equal(p.status, 0, p.stderr);
+    assert.ok(ran("own"), "the repository's own pre-push must run from a worktree");
+  });
+
+  test("a gate that blocks still blocks the hooks after it", () => {
+    commitFile(repo, "cf.json", '{"city":"Somewhere"}', "oops");
+    reset();
+    const p = run("git", ["push", "origin", "main"]);
+    assert.notEqual(p.status, 0, "the push must be refused");
+    assert.ok(!ran("other") && !ran("own"), "nothing after a refusal runs");
+    run("git", ["reset", "-q", "--hard", "HEAD~1"]);
+  });
+
+  test("a tool that already runs the gate under another name is updated there, not evicted", () => {
+    // What Entire leaves: its pre-push in front, ours renamed to pre-push.pre-entire.
+    rmSync(hooks, { recursive: true, force: true }); mkdirSync(hooks, { recursive: true });
+    const theirs = `#!/bin/sh\n# Entire CLI hooks\n"$(dirname "$0")/pre-push.pre-entire" "$@"\n`;
+    writeFileSync(join(hooks, "pre-push"), theirs);
+    writeFileSync(join(hooks, "pre-push.pre-entire"), `#!/bin/sh\n${MARK} (an older copy)\n`);
+    const r = installGlobal();
+    assert.equal(r.hook, join(hooks, "pre-push.pre-entire"));
+    assert.equal(r.via, join(hooks, "pre-push"));
+    assert.equal(readFileSync(join(hooks, "pre-push"), "utf-8"), theirs, "their hook is left exactly as it was");
+    assert.match(readFileSync(join(hooks, "pre-push.pre-entire"), "utf-8"), /--git-common-dir/, "our copy is the current one");
+    assert.ok(!existsSync(join(hooks, "pre-push.comb-chained")));
   });
 });
