@@ -13,6 +13,7 @@ import { openCommand, stopCommand, transitions, laneForItem, slugify, HARNESSES 
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
+import { serve } from "../lib/serve.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -1527,6 +1528,23 @@ function laneCmd(verb, arg, flags) {
   console.log(C.green(`✓ ${verb === "stop" ? "stopped" : "resumed"} ${lane.name}`) + (r.fresh ? C.dim(" (new conversation, same task + worktree)") : ""));
 }
 
+// `seldon serve` — the panel for a phone. Loopback only; `--tailnet` puts it behind
+// `tailscale serve` (HTTPS, tailnet identity) on its own port so it never takes the voice's /.
+const SERVE_TAILNET_PORT = 8443;
+function serveCmd(flags) {
+  const port = Number(flags.port) || 7930;
+  const allowReply = !!flags["allow-reply"];
+  serve({ port, owner: typeof flags.owner === "string" ? flags.owner : null, allowReply });
+  console.log(C.green(`✓ seldon serve`) + C.dim(` on http://localhost:${port}`) + (allowReply ? C.gold("  · replies ON (the phone can type into agents)") : ""));
+  if (!flags.tailnet) { console.log(C.dim(`  for your phone: seldon serve --tailnet  (HTTPS on your tailnet, nothing on the internet)`)); return; }
+  const ts = tailscaleBin(); const dns = ts && tailnetDnsName(ts);
+  if (!dns) { console.log(C.red("  tailscale not found or not connected — serving on localhost only")); return; }
+  try {
+    execSync(`${ts} serve --bg --https=${SERVE_TAILNET_PORT} http://127.0.0.1:${port}`, { stdio: "ignore", timeout: 30000 });
+    console.log(C.green(`  phone → https://${dns}:${SERVE_TAILNET_PORT}`) + C.dim(`  (add to home screen)  ·  undo: tailscale serve --https=${SERVE_TAILNET_PORT} off`));
+  } catch (e) { console.log(C.red("  tailscale serve failed: " + ((e.stderr || e.message || "").toString().split("\n")[0]))); }
+}
+
 // `seldon machines` — the other computers the panel shows (bifrost's realms, one list).
 function machinesCmd(verb, name, target) {
   if (verb === "add") {
@@ -1653,7 +1671,7 @@ function holdsCmd() {
 // (`--no-attach`). The value form has to be CONSUMED: filtering out everything starting with
 // `--` and keeping the rest as positionals read `seldon go --agent claude` as the project
 // named "claude".
-const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task"]);
+const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task", "owner"]);
 function parseArgv(raw) {
   const flags = {}, positional = [];
   for (let i = 0; i < raw.length; i++) {
@@ -1707,6 +1725,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "lanes") return lanesCmd(flags);
   if (cmd === "machines") return machinesCmd(tokens[0], tokens[1], tokens[2]);
   if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags);
+  if (cmd === "serve") return serveCmd(flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
   if (cmd === "panel" || cmd === "board") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
