@@ -1432,6 +1432,7 @@ ${C.bold("seldon")} — the agent factory: your projects, and the stack that run
                          Idempotent, and it prints every step it skipped. Run it from inside a repo.
   ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
   ${C.bold("seldon up --tailnet")}    expose the voice over HTTPS (tailscale serve) so the mic works on your phone
+  ${C.bold("seldon serve")} [--tailnet] the panel as a phone web app (--allow-reply to answer agents)
   ${C.bold("seldon up --brain=X")}    pick the voice brain: qwen (in-process) | bonsai (local server); remembered
   ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
   ${C.bold("seldon adopt")} [dir]     put an existing repo on the line: foundation docs (never overwritten),
