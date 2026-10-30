@@ -141,21 +141,30 @@ instead of a terminal: what needs you first, the agent's screen, quick replies, 
 remove, new lanes and the plan, for this machine and every machine in `seldon machines`.
 
 ```bash
-seldon serve                    # http://localhost:7930 on this machine only
-seldon serve --tailnet          # + HTTPS on your tailnet: https://<machine>.<tailnet>.ts.net:8443
+seldon serve                    # http://localhost:7930/#t=<token> on this machine only
+seldon serve --tailnet          # + HTTPS on your tailnet, for your tailscale login only
+seldon serve --tailnet --owner you@example.com   # a different login than this machine's
 seldon serve --allow-reply      # let the phone type into agents (off by default)
-seldon serve --owner you@example.com   # only this tailscale login (needs --tailnet)
 ```
 
-- **Reach:** it listens on loopback only. `--tailnet` puts it behind `tailscale serve`, so it is
-  HTTPS, tailnet-only, and on its own port (8443): it never takes `/` from the voice. Undo with
-  `tailscale serve --https=8443 off`. Add it to the home screen and it opens like an app.
-- **Safety:** requests are accepted only for `localhost` or a `*.ts.net` name, every write
-  carries a header a cross-site page cannot send, and replies are a whitelist of keys or literal
-  text. Without `--allow-reply` the phone can read screens and stop/start lanes, but not type.
+- **Nothing is open by default.** It listens on loopback only. `--tailnet` puts it behind
+  `tailscale serve` (HTTPS, tailnet-only, never the internet, on its own port 8443 so it never
+  takes `/` from the voice) and lets in exactly one login: `--owner`, or this machine's
+  tailscale user. If it can't tell whose it is, it does not go on the tailnet. Undo with
+  `tailscale serve --https=8443 off`.
+- **A token on every call.** The first run makes one in `~/.seldon/serve-token` (0600). Every
+  API call, reads included, needs it; the phone gets it once from the link `serve` prints,
+  keeps it, and takes it out of the address bar. `rm ~/.seldon/serve-token` for a new one —
+  every device has to open the new link.
+- **A leftover tailnet mapping reaches nothing.** Started without `--tailnet`, it refuses every
+  request that comes in by a `*.ts.net` name.
+- **Replies are off unless `--allow-reply`,** and are a whitelist of keys or literal text. A
+  menu key ("1") is sent without Enter.
 - **What it can read:** lanes in tmux (Codex, opencode, and Claude lanes seldon started) show
   their screen and take replies. An interactive Claude session in a plain terminal has no pane
   to read: open it with `claude attach`, or from the Claude app with Remote Control.
+- **It acts with this machine's ssh keys:** a lane on another machine is stopped or started by
+  `ssh <machine> seldon lane …`, so whoever gets in reaches those machines' lanes too.
 - **Alerts:** while the page is open, the phone buzzes and notifies when an agent starts
   needing you.
 
