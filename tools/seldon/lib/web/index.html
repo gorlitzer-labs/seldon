@@ -149,10 +149,27 @@ const ago = (ms) => { if (!ms) return ""; const s = Math.max(0, (Date.now() - ms
 const detail = (l) => l.state === "needs-you" ? "needs you: " + (l.waitingFor || "input") : l.state === "running" ? "running (no state reported)" : l.state;
 
 let S = null, filter = "all", sheet = null, peekTimer = null, lastNeed = -1;
+// The token arrives once in the link seldon serve prints (#t=…), is kept on this device, and
+// is taken out of the address bar so it never ends up in a screenshot or a shared URL.
+const TOKEN = (() => {
+  const m = location.hash.match(/[#&]t=([A-Za-z0-9_-]+)/);
+  try { if (m) localStorage.setItem("seldon-token", m[1]); } catch {}
+  if (m) history.replaceState(null, "", location.pathname);
+  try { return m?.[1] || localStorage.getItem("seldon-token") || ""; } catch { return m?.[1] || ""; }
+})();
 const api = async (path, body) => {
-  const r = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json", "x-seldon": "1" }, body: JSON.stringify(body) } : {});
-  return r.json().catch(() => ({ ok: false, error: "bad reply (" + r.status + ")" }));
+  const headers = { "x-seldon-token": TOKEN, ...(body ? { "content-type": "application/json" } : {}) };
+  const r = await fetch(path, body ? { method: "POST", headers, body: JSON.stringify(body) } : { headers });
+  const j = await r.json().catch(() => ({ ok: false, error: "bad reply (" + r.status + ")" }));
+  if (r.status === 403) locked(j.error);
+  return j;
 };
+function locked(why) {
+  $("head").textContent = "locked";
+  $("main").innerHTML = `<div class="empty"><p><b>This device isn't let in.</b></p><p>${esc(why)}</p>
+    <p>Open the link <code>seldon serve</code> printed in your terminal (it carries the token).</p></div>`;
+  throw new Error(why);
+}
 const toast = (msg, err) => { const t = $("toast"); t.textContent = msg; t.className = "toast on" + (err ? " err" : ""); clearTimeout(toast.t); toast.t = setTimeout(() => t.className = "toast", 2600); };
 const allLanes = () => S ? S.groups.flatMap((g) => g.lanes.map((l) => ({ ...l, group: g }))) : [];
 const laneBy = (key) => allLanes().find((l) => l.key === key);

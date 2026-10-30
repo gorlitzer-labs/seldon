@@ -7,11 +7,12 @@
 //
 // Pure rules first (tested without a server), then the I/O.
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { execFile } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readLanes, readPlan, addToPlan, projectRoot } from "./agents.mjs";
+import { readLanes, readPlan, addToPlan, projectRoot, SELDON_HOME } from "./agents.mjs";
 import { startLane, stopLane, resumeLane, removeLane, findLane, allLanes } from "./actions.mjs";
 import { listMachines, fetchLanes, remoteGroups, sshArgs } from "./machines.mjs";
 import { listHolds } from "./holds-store.mjs";
@@ -28,15 +29,34 @@ export function splitKey(key) {
   return i > 0 && !s.slice(0, i).includes(":") ? { machine: s.slice(0, i), key: s.slice(i + 1) } : { machine: null, key: s };
 }
 
-// Who may talk to it. Loopback and tailnet names only (a DNS-rebinding page can't pose as
-// either), every write carries a header a cross-site form can't set, and with --owner the
-// identity tailscale serve stamps on the request must be that login.
-export function guard({ method, host, headers }, { owner = null } = {}) {
+// Who may talk to it:
+//   - the Host is loopback or a tailnet name (a DNS-rebinding page can pose as neither), and a
+//     tailnet name only when it was started with --tailnet (`tailnet`): a `tailscale serve`
+//     mapping left over from an earlier run reaches nothing;
+//   - on the tailnet, the login tailscale serve stamps on the request must be the owner;
+//   - every /api call, reads too, carries the token. That also stops cross-site pages: they
+//     can't read it, and can't set a custom header without a CORS preflight nobody answers.
+// The page itself (/) is static and holds no data, so it loads without one.
+export function guard({ path, host, headers }, { token, owner = null, tailnet = false } = {}) {
   const h = String(host || "").replace(/:\d+$/, "").toLowerCase();
-  if (!(h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h.endsWith(".ts.net"))) return "host not allowed";
-  if (owner && headers["tailscale-user-login"] !== owner) return "not the owner";
-  if (method !== "GET" && headers["x-seldon"] !== "1") return "missing x-seldon header";
+  const local = h === "localhost" || h === "127.0.0.1" || h === "[::1]";
+  if (!local && !h.endsWith(".ts.net")) return "host not allowed";
+  if (!local && !tailnet) return "not served on the tailnet (start with: seldon serve --tailnet)";
+  if (!local && (!owner || headers["tailscale-user-login"] !== owner)) return "not the owner";
+  if (String(path).startsWith("/api/") && !tokenOk(headers["x-seldon-token"], token)) return "bad or missing token";
   return null;
+}
+
+export function tokenOk(given, token) {
+  if (!token || typeof given !== "string") return false;
+  const a = Buffer.from(given), b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// The tailnet login of this machine's user: who --tailnet lets in when --owner is not given.
+export function ownerFromStatus(status) {
+  const id = status?.Self?.UserID;
+  return (id != null && status?.User?.[String(id)]?.LoginName) || null;
 }
 
 // Keys a phone may press into an agent. A whitelist, so a reply can't smuggle tmux syntax.
@@ -169,7 +189,19 @@ const readBody = (req) => new Promise((res) => {
   req.on("end", () => { try { res(JSON.parse(raw || "{}")); } catch { res({}); } });
 });
 
-export function serve({ port = 7930, owner = null, allowReply = false } = {}) {
+// The token, made once and kept owner-only (0600). Delete the file to change it.
+export function serveToken(home = SELDON_HOME) {
+  const file = join(home, "serve-token");
+  try { const t = readFileSync(file, "utf8").trim(); if (t.length >= 32) return t; } catch { /* first run */ }
+  const t = randomBytes(24).toString("base64url");
+  mkdirSync(home, { recursive: true });
+  writeFileSync(file, t + "\n", { mode: 0o600 }); chmodSync(file, 0o600);
+  return t;
+}
+
+export function serve({ port = 7930, token, owner = null, tailnet = false, allowReply = false } = {}) {
+  if (!token) throw new Error("seldon serve needs a token");
+  if (tailnet && !owner) throw new Error("seldon serve --tailnet needs an owner");
   const remote = remoteCache();
   const page = () => readFileSync(join(HERE, "web", "index.html"), "utf8");   // re-read: edit + reload
   const send = (res, code, body, type = "application/json") => {
@@ -179,7 +211,7 @@ export function serve({ port = 7930, owner = null, allowReply = false } = {}) {
   };
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, "http://x");
-    const denied = guard({ method: req.method, host: req.headers.host, headers: req.headers }, { owner });
+    const denied = guard({ path: url.pathname, host: req.headers.host, headers: req.headers }, { token, owner, tailnet });
     if (denied) return send(res, 403, { ok: false, error: denied });
     try {
       if (req.method === "GET" && url.pathname === "/") return send(res, 200, page(), "text/html; charset=utf-8");

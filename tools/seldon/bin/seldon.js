@@ -13,7 +13,7 @@ import { openCommand, stopCommand, transitions, laneForItem, slugify, HARNESSES 
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
-import { serve } from "../lib/serve.mjs";
+import { serve, serveToken, ownerFromStatus } from "../lib/serve.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -524,11 +524,11 @@ function tailscaleBin() {
   }
   return null;
 }
-function tailnetDnsName(ts) {
-  try {
-    const d = JSON.parse(execSync(`${ts} status --json`, { stdio: ["ignore", "pipe", "ignore"], timeout: 15000 }).toString());
-    return ((d.Self && d.Self.DNSName) || "").replace(/\.$/, "");
-  } catch { return null; }
+function tailscaleStatus(ts) {
+  try { return JSON.parse(execSync(`${ts} status --json`, { stdio: ["ignore", "pipe", "ignore"], timeout: 15000 }).toString()); } catch { return null; }
+}
+function tailnetDnsName(ts, status = tailscaleStatus(ts)) {
+  return status ? ((status.Self && status.Self.DNSName) || "").replace(/\.$/, "") : null;
 }
 function tailscaleServeUrl() {
   const ts = tailscaleBin(); if (!ts) return null;
@@ -1529,20 +1529,28 @@ function laneCmd(verb, arg, flags) {
   console.log(C.green(`✓ ${verb === "stop" ? "stopped" : "resumed"} ${lane.name}`) + (r.fresh ? C.dim(" (new conversation, same task + worktree)") : ""));
 }
 
-// `seldon serve` — the panel for a phone. Loopback only; `--tailnet` puts it behind
-// `tailscale serve` (HTTPS, tailnet identity) on its own port so it never takes the voice's /.
+// `seldon serve` — the panel for a phone. Loopback only, and every call needs the token.
+// `--tailnet` puts it behind `tailscale serve` (HTTPS, its own port so it never takes the
+// voice's /) and only ever for one login: --owner, or this machine's tailscale user.
 const SERVE_TAILNET_PORT = 8443;
 function serveCmd(flags) {
   const port = Number(flags.port) || 7930;
   const allowReply = !!flags["allow-reply"];
-  serve({ port, owner: typeof flags.owner === "string" ? flags.owner : null, allowReply });
-  console.log(C.green(`✓ seldon serve`) + C.dim(` on http://localhost:${port}`) + (allowReply ? C.gold("  · replies ON (the phone can type into agents)") : ""));
-  if (!flags.tailnet) { console.log(C.dim(`  for your phone: seldon serve --tailnet  (HTTPS on your tailnet, nothing on the internet)`)); return; }
-  const ts = tailscaleBin(); const dns = ts && tailnetDnsName(ts);
-  if (!dns) { console.log(C.red("  tailscale not found or not connected — serving on localhost only")); return; }
+  const token = serveToken();
+  let owner = null, dns = null, ts = null;
+  if (flags.tailnet) {
+    ts = tailscaleBin(); const status = ts && tailscaleStatus(ts);
+    dns = tailnetDnsName(ts, status);
+    owner = typeof flags.owner === "string" ? flags.owner : ownerFromStatus(status);
+    if (!dns || !owner) { console.log(C.red("  not serving on the tailnet: " + (!dns ? "tailscale not found or not connected" : "can't tell whose it is — pass --owner you@example.com"))); process.exitCode = 1; return; }
+  }
+  serve({ port, token, owner, tailnet: !!flags.tailnet, allowReply });
+  console.log(C.green(`✓ seldon serve`) + C.dim(` on http://localhost:${port}/#t=${token}`) + (allowReply ? C.gold("  · replies ON (the phone can type into agents)") : ""));
+  if (!flags.tailnet) { console.log(C.dim(`  for your phone: seldon serve --tailnet  (HTTPS on your tailnet, only for your login)`)); return; }
   try {
     execSync(`${ts} serve --bg --https=${SERVE_TAILNET_PORT} http://127.0.0.1:${port}`, { stdio: "ignore", timeout: 30000 });
-    console.log(C.green(`  phone → https://${dns}:${SERVE_TAILNET_PORT}`) + C.dim(`  (add to home screen)  ·  undo: tailscale serve --https=${SERVE_TAILNET_PORT} off`));
+    console.log(C.green(`  phone → https://${dns}:${SERVE_TAILNET_PORT}/#t=${token}`) + C.dim(`  only for ${owner} · open it once, then add to home screen`));
+    console.log(C.dim(`  undo: tailscale serve --https=${SERVE_TAILNET_PORT} off  ·  new token: rm ~/.seldon/serve-token`));
   } catch (e) { console.log(C.red("  tailscale serve failed: " + ((e.stderr || e.message || "").toString().split("\n")[0]))); }
 }
 

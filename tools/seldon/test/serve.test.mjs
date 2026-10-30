@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { splitKey, guard, replyArgs, laneCaps } from "../lib/serve.mjs";
+import { mkdtempSync, statSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { splitKey, guard, replyArgs, laneCaps, tokenOk, ownerFromStatus, serveToken } from "../lib/serve.mjs";
 
 test("splitKey: remote keys carry their machine, local keys do not", () => {
   assert.deepEqual(splitKey("mini/claude:ab12"), { machine: "mini", key: "claude:ab12" });
@@ -9,25 +12,55 @@ test("splitKey: remote keys carry their machine, local keys do not", () => {
   assert.deepEqual(splitKey(""), { machine: null, key: "" });
 });
 
-test("guard: loopback and tailnet hosts only", () => {
-  const get = (host) => guard({ method: "GET", host, headers: {} });
-  assert.equal(get("localhost:7930"), null);
-  assert.equal(get("127.0.0.1:7930"), null);
-  assert.equal(get("mini.tail1234.ts.net:8443"), null);
-  assert.equal(get("evil.example"), "host not allowed");
-  assert.equal(get("ts.net.evil.example"), "host not allowed");
+const T = "t".repeat(32);
+const req = (host, { path = "/api/state", token = T, login } = {}) =>
+  ({ path, host, headers: { ...(token ? { "x-seldon-token": token } : {}), ...(login ? { "tailscale-user-login": login } : {}) } });
+
+test("guard: loopback, or a tailnet name only when served on the tailnet", () => {
+  assert.equal(guard(req("localhost:7930"), { token: T }), null);
+  assert.equal(guard(req("127.0.0.1:7930"), { token: T }), null);
+  assert.equal(guard(req("evil.example"), { token: T }), "host not allowed");
+  assert.equal(guard(req("ts.net.evil.example"), { token: T }), "host not allowed");
+  // a tailscale serve mapping left from an earlier --tailnet run reaches nothing
+  assert.match(guard(req("mini.tail1234.ts.net", { login: "sam@example.com" }), { token: T }), /not served on the tailnet/);
 });
 
-test("guard: writes need the x-seldon header (a cross-site form cannot set it)", () => {
-  assert.equal(guard({ method: "POST", host: "localhost", headers: {} }), "missing x-seldon header");
-  assert.equal(guard({ method: "POST", host: "localhost", headers: { "x-seldon": "1" } }), null);
+test("guard: on the tailnet, only the owner's login", () => {
+  const on = { token: T, tailnet: true, owner: "sam@example.com" };
+  assert.equal(guard(req("mini.tail1234.ts.net:8443", { login: "sam@example.com" }), on), null);
+  assert.equal(guard(req("mini.tail1234.ts.net", { login: "ana@example.com" }), on), "not the owner");
+  assert.equal(guard(req("mini.tail1234.ts.net"), on), "not the owner");
+  assert.equal(guard(req("mini.tail1234.ts.net", { login: "sam@example.com" }), { token: T, tailnet: true }), "not the owner");   // no owner = nobody
 });
 
-test("guard: --owner pins the tailscale identity", () => {
-  const req = (login) => ({ method: "GET", host: "m.t.ts.net", headers: login ? { "tailscale-user-login": login } : {} });
-  assert.equal(guard(req("sam@example.com"), { owner: "sam@example.com" }), null);
-  assert.equal(guard(req("ana@example.com"), { owner: "sam@example.com" }), "not the owner");
-  assert.equal(guard(req(null), { owner: "sam@example.com" }), "not the owner");
+test("guard: every /api call needs the token, reads included; the empty page does not", () => {
+  assert.equal(guard(req("localhost", { token: null }), { token: T }), "bad or missing token");
+  assert.equal(guard(req("localhost", { token: "x".repeat(32) }), { token: T }), "bad or missing token");
+  assert.equal(guard(req("localhost", { path: "/api/lane/stop", token: null }), { token: T }), "bad or missing token");
+  assert.equal(guard(req("localhost", { path: "/", token: null }), { token: T }), null);
+});
+
+test("tokenOk: exact match only, and no token configured means no", () => {
+  assert.equal(tokenOk(T, T), true);
+  assert.equal(tokenOk(T.slice(1), T), false);
+  assert.equal(tokenOk(undefined, T), false);
+  assert.equal(tokenOk("", ""), false);
+});
+
+test("ownerFromStatus: this machine's tailscale login", () => {
+  assert.equal(ownerFromStatus({ Self: { UserID: 42 }, User: { 42: { LoginName: "sam@example.com" } } }), "sam@example.com");
+  assert.equal(ownerFromStatus({ Self: {} }), null);
+  assert.equal(ownerFromStatus(null), null);
+});
+
+test("serveToken: made once, kept, owner-only", () => {
+  const home = mkdtempSync(join(tmpdir(), "seldon-serve-"));
+  try {
+    const t = serveToken(home);
+    assert.ok(t.length >= 32);
+    assert.equal(serveToken(home), t);
+    assert.equal(statSync(join(home, "serve-token")).mode & 0o777, 0o600);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
 test("replyArgs: whitelisted keys, or literal text then Enter", () => {
