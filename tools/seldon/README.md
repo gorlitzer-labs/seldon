@@ -134,6 +134,31 @@ seldon machines                                    # each one, and whether it an
 - **From a phone:** `ssh` to any one machine and run `seldon`. Below 70 columns it switches to
   one line per lane.
 
+## On your phone — `seldon serve`
+
+The panel as a web app, for a phone (or any browser). Same lanes, same actions, a touch screen
+instead of a terminal: what needs you first, the agent's screen, quick replies, stop / resume /
+remove, new lanes and the plan, for this machine and every machine in `seldon machines`.
+
+```bash
+seldon serve                    # http://localhost:7930 on this machine only
+seldon serve --tailnet          # + HTTPS on your tailnet: https://<machine>.<tailnet>.ts.net:8443
+seldon serve --allow-reply      # let the phone type into agents (off by default)
+seldon serve --owner you@example.com   # only this tailscale login (needs --tailnet)
+```
+
+- **Reach:** it listens on loopback only. `--tailnet` puts it behind `tailscale serve`, so it is
+  HTTPS, tailnet-only, and on its own port (8443): it never takes `/` from the voice. Undo with
+  `tailscale serve --https=8443 off`. Add it to the home screen and it opens like an app.
+- **Safety:** requests are accepted only for `localhost` or a `*.ts.net` name, every write
+  carries a header a cross-site page cannot send, and replies are a whitelist of keys or literal
+  text. Without `--allow-reply` the phone can read screens and stop/start lanes, but not type.
+- **What it can read:** lanes in tmux (Codex, opencode, and Claude lanes seldon started) show
+  their screen and take replies. An interactive Claude session in a plain terminal has no pane
+  to read: open it with `claude attach`, or from the Claude app with Remote Control.
+- **Alerts:** while the page is open, the phone buzzes and notifies when an agent starts
+  needing you.
+
 ## Holds — taking turns on shared things
 
 Agents on different projects share one machine: one boots the Android emulator, another
