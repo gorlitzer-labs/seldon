@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { chunks, chatFromUpdates, mediaKind } from "../lib/telegram.mjs";
 
@@ -26,11 +29,14 @@ test("chatFromUpdates: the private chat that wrote last", () => {
 });
 
 test("seldon tell without a token says how to store it, and never runs on", () => {
-  const env = { ...process.env, SELDON_TELL_VIA_COMB: "1" };
+  const home = mkdtempSync(join(tmpdir(), "seldon-tell-"));    // never the real ~/.seldon
+  const env = { ...process.env, SELDON_HOME: home, SELDON_TELL_VIA_COMB: "1" };
   delete env.TELEGRAM_BOT_TOKEN;
-  const r = spawnSync(process.execPath, [BIN, "tell", "hi"], { env, encoding: "utf8" });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /comb set TELEGRAM_BOT_TOKEN/);
+  try {
+    const r = spawnSync(process.execPath, [BIN, "tell", "hi"], { env, encoding: "utf8" });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /comb set TELEGRAM_BOT_TOKEN/);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
 test("mediaKind: each file shows up the way it should", () => {
