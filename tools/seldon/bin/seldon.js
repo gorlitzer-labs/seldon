@@ -1641,10 +1641,10 @@ async function inboxCmd(flags) {
           if (f.size && f.size > MAX_DOWNLOAD) throw new Error(`${f.name} is over 20 MB — a bot can't fetch it; share it another way`);
           const name = inboxName(f.name, when);
           await downloadFile(t.token, f.fileId, path.join(dir, name));
-          fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { file: name, text }));
+          fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { file: name, text }), { mode: 0o600 });
           console.log(`${stamp()} saved ${name}`);
         } else if (text && !text.startsWith("/")) {
-          fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { text }));
+          fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { text }), { mode: 0o600 });
           console.log(`${stamp()} noted`);
         } else continue;
         await react(t.token, chat.id, m.message_id, "👍");
