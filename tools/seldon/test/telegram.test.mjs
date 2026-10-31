@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { chunks, chatFromUpdates, mediaKind } from "../lib/telegram.mjs";
+import { chunks, chatFromUpdates, mediaKind, fileFromMessage, inboxName, noteLine } from "../lib/telegram.mjs";
 
 const BIN = fileURLToPath(new URL("../bin/seldon.js", import.meta.url));
 
@@ -46,4 +46,30 @@ test("mediaKind: each file shows up the way it should", () => {
   assert.equal(mediaKind("vo.mp3").method, "sendAudio");
   assert.equal(mediaKind("report.pdf").method, "sendDocument");
   assert.equal(mediaKind("Makefile").method, "sendDocument");
+});
+
+test("fileFromMessage: the file a message carries, the largest photo size", () => {
+  const photo = { photo: [{ file_id: "s", file_size: 1 }, { file_id: "l", file_size: 9 }] };
+  assert.deepEqual(fileFromMessage(photo), { fileId: "l", size: 9, name: "photo.jpg" });
+  assert.equal(fileFromMessage({ document: { file_id: "d", file_name: "report.pdf" } }).name, "report.pdf");
+  assert.equal(fileFromMessage({ video: { file_id: "v" } }).name, "video.mp4");
+  assert.equal(fileFromMessage({ voice: { file_id: "o" } }).name, "voice.ogg");
+  assert.equal(fileFromMessage({ text: "hi" }), null);
+  assert.equal(fileFromMessage(undefined), null);
+});
+
+test("inboxName: time first, and never a path out of the folder", () => {
+  const at = new Date(2026, 9, 31, 9, 15, 2);
+  assert.equal(inboxName("shot.png", at), "20261031-091502-shot.png");
+  assert.equal(inboxName("../../.ssh/authorized_keys", at), "20261031-091502-authorized_keys");
+  assert.equal(inboxName("..\\..\\x.png", at), "20261031-091502-x.png");
+  assert.equal(inboxName(".env", at), "20261031-091502-env");
+  assert.equal(inboxName("My Shot (1).png", at), "20261031-091502-My_Shot_1_.png");
+});
+
+test("noteLine: one line per thing, a link for files", () => {
+  const at = new Date(2026, 9, 31, 9, 15);
+  assert.equal(noteLine(at, { text: "look\nat this" }), "- 2026-10-31 09:15 · look ⏎ at this\n");
+  assert.equal(noteLine(at, { file: "a b.png", text: "bug" }), "- 2026-10-31 09:15 · [a b.png](a%20b.png) — bug\n");
+  assert.equal(noteLine(at, { file: "x.png" }), "- 2026-10-31 09:15 · [x.png](x.png)\n");
 });

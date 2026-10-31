@@ -5,9 +5,9 @@
 // chat id is not a secret (it is useless without the token), so `seldon tell --setup` finds it
 // once and keeps it in ~/.seldon/telegram.json.
 //
-// Sending only. Many sessions can send through one bot at once; reading a bot's messages is
-// one-reader-only — Claude Code's own Telegram channel, on the same bot, for one session.
-// --setup reads once (getUpdates), so it runs before that channel starts.
+// Sending is open to any number of sessions at once. Reading a bot's messages is one reader
+// only: `seldon inbox` (what you send the bot lands in a folder on this machine — no agent in
+// between), or Claude Code's own Telegram channel, never both. --setup reads once.
 import { readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 import { SELDON_HOME } from "./agents.mjs";
@@ -60,6 +60,10 @@ async function call(token, method, body) {
 }
 
 export const getUpdates = (token) => call(token, "getUpdates", { allowed_updates: ["message"] });
+// Long polling: Telegram holds the request until something arrives (or `timeout` seconds pass).
+// Asking with `offset` = last update_id + 1 also tells Telegram the earlier ones are handled.
+export const pollUpdates = (token, offset, timeout = 50) =>
+  call(token, "getUpdates", { offset, timeout, allowed_updates: ["message"] });
 
 export async function sendText(token, chatId, text) {
   for (const part of chunks(text)) await call(token, "sendMessage", { chat_id: chatId, text: part, disable_web_page_preview: true });
@@ -87,3 +91,41 @@ export async function sendFile(token, chatId, path, caption = "") {
   form.set(field, new Blob([readFileSync(path)]), basename(path));
   await call(token, method, form);
 }
+
+// ---- the inbox: what you send the bot, saved on this machine ------------------------
+export const MAX_DOWNLOAD = 20 * 1024 * 1024;   // a bot may download up to 20 MB
+
+// The one file in a message, if it carries one. A photo comes in several sizes: the largest.
+export function fileFromMessage(m) {
+  if (!m) return null;
+  const pick = (f, fallback) => f && { fileId: f.file_id, size: f.file_size ?? null, name: f.file_name || fallback };
+  if (m.photo?.length) return pick(m.photo.at(-1), "photo.jpg");
+  return pick(m.document, "file") || pick(m.video, "video.mp4") || pick(m.animation, "animation.mp4")
+    || pick(m.audio, "audio.mp3") || pick(m.voice, "voice.ogg") || pick(m.video_note, "video-note.mp4") || null;
+}
+
+// A name that is safe on disk and sorts by time: 20261031-091502-screenshot.png
+export function inboxName(name, date) {
+  const base = String(name).split(/[\\/]/).pop().replace(/[^\w.-]+/g, "_").replace(/^\.+/, "").slice(-120) || "file";
+  const d = new Date(date), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-${base}`;
+}
+
+// One line in notes.md per thing received, so the folder reads as a log.
+export function noteLine(date, { file, text }) {
+  const d = new Date(date), p = (n) => String(n).padStart(2, "0");
+  const when = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const body = String(text || "").replace(/\s*\n\s*/g, " ⏎ ").trim();
+  return `- ${when} · ${file ? `[${file}](${encodeURI(file)})${body ? ` — ${body}` : ""}` : body}\n`;
+}
+
+export async function downloadFile(token, fileId, dest) {
+  const { result } = await call(token, "getFile", { file_id: fileId });
+  const r = await fetch(`https://api.telegram.org/file/bot${token}/${result.file_path}`);
+  if (!r.ok) throw new Error(`telegram download: ${r.status}`);
+  writeFileSync(dest, Buffer.from(await r.arrayBuffer()), { mode: 0o600 });
+}
+
+// A reaction on your message says it is saved, without a reply cluttering the chat.
+export const react = (token, chatId, messageId, emoji) =>
+  call(token, "setMessageReaction", { chat_id: chatId, message_id: messageId, reaction: [{ type: "emoji", emoji }] }).catch(() => {});

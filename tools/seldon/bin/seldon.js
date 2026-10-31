@@ -14,7 +14,7 @@ import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/ac
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
 import { serve, serveToken, ownerFromStatus } from "../lib/serve.mjs";
-import { tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile } from "../lib/telegram.mjs";
+import { tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -1435,6 +1435,7 @@ ${C.bold("seldon")} — the agent factory: your projects, and the stack that run
   ${C.bold("seldon up --tailnet")}    expose the voice over HTTPS (tailscale serve) so the mic works on your phone
   ${C.bold("seldon serve")} [--tailnet] the panel as a phone web app (--allow-reply to answer agents)
   ${C.bold("seldon tell")} "…"         message yourself on Telegram (--file to send one; --setup once)
+  ${C.bold("seldon inbox")} [--dir d]   save what you send the bot to a folder here (no agent, no tokens)
   ${C.bold("seldon up --brain=X")}    pick the voice brain: qwen (in-process) | bonsai (local server); remembered
   ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
   ${C.bold("seldon adopt")} [dir]     put an existing repo on the line: foundation docs (never overwritten),
@@ -1569,19 +1570,26 @@ function serveCmd(flags) {
 // `seldon tell "…"` — message the operator on Telegram, from any agent. The token comes from
 // comb in the environment: without it, seldon re-runs itself under `comb run`, so the value
 // is never in an argument, a file seldon writes, or the agent's transcript.
-async function tellCmd(words, flags) {
-  const fail = (msg) => { console.error(C.red(msg)); process.exitCode = 1; };
+// The bot token, from the environment. Without it, re-run this same command under
+// `comb run` (which puts it there) and return null: the child does the work.
+function telegramToken(flags) {
+  const fail = (msg) => { console.error(C.red(msg)); process.exitCode = 1; return null; };
   const name = typeof flags["token-name"] === "string" ? flags["token-name"] : tokenName();
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return fail(`not a secret name: ${name}`);
-  const token = process.env[name];
-  if (!token) {
-    if (process.env.SELDON_TELL_VIA_COMB) return fail(`comb has no ${name} — store it once: comb set ${name}`);
-    if (!has("comb")) return fail(`no ${name} in the environment, and comb is not installed (seldon install comb)`);
-    const r = spawnSync("comb", ["run", "--with", name, "--", process.execPath, process.argv[1], ...process.argv.slice(2)],
-      { stdio: "inherit", env: { ...process.env, SELDON_TELL_VIA_COMB: "1" } });
-    process.exitCode = r.status ?? 1;
-    return;
-  }
+  if (process.env[name]) return { token: process.env[name], name };
+  if (process.env.SELDON_TELL_VIA_COMB) return fail(`comb has no ${name} — store it once: comb set ${name}`);
+  if (!has("comb")) return fail(`no ${name} in the environment, and comb is not installed (seldon install comb)`);
+  const r = spawnSync("comb", ["run", "--with", name, "--", process.execPath, process.argv[1], ...process.argv.slice(2)],
+    { stdio: "inherit", env: { ...process.env, SELDON_TELL_VIA_COMB: "1" } });
+  process.exitCode = r.status ?? 1;
+  return null;
+}
+
+async function tellCmd(words, flags) {
+  const fail = (msg) => { console.error(C.red(msg)); process.exitCode = 1; };
+  const t = telegramToken(flags);
+  if (!t) return;
+  const { token, name } = t;
   try {
     if (flags.setup) {
       const chat = chatFromUpdates(await getUpdates(token));
@@ -1599,6 +1607,53 @@ async function tellCmd(words, flags) {
     else return fail('usage: seldon tell "message"  ·  … | seldon tell  ·  seldon tell --file shot.png "caption"  ·  seldon tell --setup');
     console.log(C.green("✓ sent"));
   } catch (e) { fail(e.message); }
+}
+
+// `seldon inbox` — what you send the bot from your phone lands in a folder here: photos,
+// videos, files, voice notes, and text into notes.md. Plain code, no agent in between, no
+// tokens. Only your chat (from `seldon tell --setup`) is listened to; anyone else is ignored.
+async function inboxCmd(flags) {
+  const fail = (msg) => { console.error(C.red(msg)); process.exitCode = 1; };
+  const chat = readChat();
+  if (!chat) return fail("not set up yet — send your bot /start in Telegram, then: seldon tell --setup");
+  const t = telegramToken(flags);
+  if (!t) return;
+  const dir = path.resolve(typeof flags.dir === "string" ? flags.dir : path.join(process.env.HOME, "Downloads", "seldon-inbox"));
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = () => new Date().toTimeString().slice(0, 8);
+  console.log(`${stamp()} seldon inbox → ${dir}`);
+  let offset;
+  for (;;) {
+    let updates;
+    try { updates = (await pollUpdates(t.token, offset)).result; }
+    catch (e) {
+      console.log(`${stamp()} ${e.message}`);
+      if (/terminated by other getUpdates/i.test(e.message)) return fail("another reader has this bot (a second inbox, or Claude's Telegram channel) — stop it first");
+      await new Promise((r) => setTimeout(r, 5000)); continue;
+    }
+    for (const u of updates) {
+      offset = u.update_id + 1;
+      const m = u.message;
+      if (!m || m.chat?.id !== chat.id) continue;
+      const when = m.date * 1000, f = fileFromMessage(m), text = m.caption || m.text || "";
+      try {
+        if (f) {
+          if (f.size && f.size > MAX_DOWNLOAD) throw new Error(`${f.name} is over 20 MB — a bot can't fetch it; share it another way`);
+          const name = inboxName(f.name, when);
+          await downloadFile(t.token, f.fileId, path.join(dir, name));
+          fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { file: name, text }));
+          console.log(`${stamp()} saved ${name}`);
+        } else if (text && !text.startsWith("/")) {
+          fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { text }));
+          console.log(`${stamp()} noted`);
+        } else continue;
+        await react(t.token, chat.id, m.message_id, "👍");
+      } catch (e) {
+        console.log(`${stamp()} ${e.message}`);
+        await sendText(t.token, chat.id, `✗ not saved: ${e.message}`).catch(() => {});
+      }
+    }
+  }
 }
 
 // `seldon machines` — the other computers the panel shows (bifrost's realms, one list).
@@ -1783,6 +1838,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags);
   if (cmd === "serve") return serveCmd(flags);
   if (cmd === "tell") return tellCmd(tokens, flags);
+  if (cmd === "inbox") return inboxCmd(flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
   if (cmd === "panel" || cmd === "board") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
