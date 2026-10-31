@@ -175,10 +175,17 @@ watcher sends its news there too (needs you, failed, finished), so the phone hea
 with the app closed.
 
 ```bash
-seldon tell "the build is green"              # text (long text is split)
-pnpm test 2>&1 | tail -20 | seldon tell       # or from stdin
-seldon tell --file out/pitch.mp4 "first cut"  # a file, with a caption
+seldon tell --done "PR #19 merged"                       # 🟢 a card: kind · project · branch · machine
+seldon tell --need "which domain should staging use?"    # 🟠  (--fail 🔴 · --wip 🟡 · --info 🔵, the default)
+pnpm test 2>&1 | seldon tell --fail "tests broke"        # a piped log shows its tail as code
+seldon tell --file out/pitch.mp4 --info "first cut"      # a file, the card as its caption
+seldon tell --plain "just text"                          # no card
 ```
+
+Every message is a card that reads at a glance: a coloured dot for what kind of news it is,
+then where it comes from (the repo, branch and machine it was sent from), then what happened.
+The watcher's cards also name the agent, what it is waiting for, how long it has run, and link
+to the phone app when `seldon serve --tailnet` is on.
 
 Images show inline, videos play, GIFs animate, audio plays, anything else is a document; a
 bot can send up to 50 MB per file.

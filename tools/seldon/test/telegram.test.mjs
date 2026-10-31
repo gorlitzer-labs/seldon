@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { chunks, chatFromUpdates, mediaKind, fileFromMessage, inboxName, noteLine } from "../lib/telegram.mjs";
+import { chunks, chatFromUpdates, mediaKind, fileFromMessage, inboxName, noteLine, card, watchCard } from "../lib/telegram.mjs";
 
 const BIN = fileURLToPath(new URL("../bin/seldon.js", import.meta.url));
 
@@ -72,4 +72,31 @@ test("noteLine: one line per thing, a link for files", () => {
   assert.equal(noteLine(at, { text: "look\nat this" }), "- 2026-10-31 09:15 · look ⏎ at this\n");
   assert.equal(noteLine(at, { file: "a b.png", text: "bug" }), "- 2026-10-31 09:15 · [a b.png](a%20b.png) — bug\n");
   assert.equal(noteLine(at, { file: "x.png" }), "- 2026-10-31 09:15 · [x.png](x.png)\n");
+});
+
+test("card: a coloured kind, where it is from, and what happened — escaped", () => {
+  const c = card({ kind: "done", project: "weather", branch: "lane/add-cache", text: "PR #4 merged <ok>", machine: "mini" });
+  assert.equal(c, "🟢 <b>DONE</b> · <b>weather</b> <i>(lane/add-cache)</i>\nPR #4 merged &lt;ok&gt;\n<i>💻 mini</i>");
+  assert.match(card({ kind: "need" }), /^🟠 <b>NEEDS YOU<\/b>$/);
+  assert.match(card({ kind: "nonsense" }), /^🔵 <b>INFO/);
+  assert.match(card({ link: 'https://x.ts.net:8443/"><b>' }), /href="https:\/\/x\.ts\.net:8443\/&quot;&gt;&lt;b&gt;"/);
+});
+
+test("card: a log shows its tail, and the whole stays inside the limit", () => {
+  const log = Array.from({ length: 2000 }, (_, i) => `line ${i}`).join("\n");
+  const c = card({ kind: "fail", text: "tests broke", log, max: 1024 });
+  const visible = c.replace(/<[^>]+>/g, "").replace(/&(lt|gt|amp|quot);/g, "x");
+  assert.ok(visible.length <= 1024, `visible ${visible.length}`);
+  assert.match(c, /line 1999<\/pre>/);       // the end of the log, not the start
+  assert.doesNotMatch(c, /line 0\n/);
+});
+
+test("watchCard: the watcher's events in words", () => {
+  const lane = { name: "fix-save", harness: "codex", project: "/w/stranded", waitingFor: "permission: Bash", startedAt: 0 };
+  const need = watchCard({ to: "needs-you", lane }, { machine: "mini", link: "https://m.ts.net:8443/", now: 12 * 60_000 });
+  assert.deepEqual(need, { kind: "need", project: "stranded", lane: "fix-save", harness: "codex", detail: "permission: Bash", age: null, machine: "mini", link: "https://m.ts.net:8443/" });
+  const done = watchCard({ to: "idle", lane: { ...lane, startedAt: 60_000 } }, { now: 12 * 60_000 });
+  assert.equal(done.kind, "done");
+  assert.equal(done.age, "running 11m");
+  assert.equal(watchCard({ to: "failed", lane }).kind, "fail");
 });
