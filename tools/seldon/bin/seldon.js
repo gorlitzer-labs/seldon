@@ -5,6 +5,7 @@ import { execSync, spawnSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
 import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
@@ -14,7 +15,7 @@ import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/ac
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
 import { serve, serveToken, ownerFromStatus } from "../lib/serve.mjs";
-import { tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
+import { card, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -1469,10 +1470,19 @@ const startWatch = () => startDaemon("seldon-watch", process.execPath, [SELF, "w
 
 // The watcher's news on the phone too, once `seldon tell --setup` has been run. A child
 // `seldon tell` per event, so the token goes through comb exactly as it does for an agent.
-function tellInBackground(text) {
+function tellInBackground(fields) {
   if (process.env.SELDON_NO_NOTIFY || !readChat()) return;
-  const child = spawn(process.execPath, [process.argv[1], "tell", text], { stdio: "ignore", detached: true });
+  const child = spawn(process.execPath, [process.argv[1], "tell", "--card", JSON.stringify(fields)], { stdio: "ignore", detached: true });
   child.on("error", () => {}); child.unref();
+}
+
+function phoneAppUrl() {
+  const ts = tailscaleBin(); if (!ts) return null;
+  try {
+    const out = execSync(`${ts} serve status`, { stdio: ["ignore", "pipe", "ignore"], timeout: 10000 }).toString();
+    const m = out.match(new RegExp(`https://\\S+:${SERVE_TAILNET_PORT}`));
+    return m ? m[0] + "/" : null;
+  } catch { return null; }
 }
 
 async function watchCmd(flags) {
@@ -1481,6 +1491,7 @@ async function watchCmd(flags) {
   let prev = new Map();
   const stamp = () => new Date().toTimeString().slice(0, 8);
   console.log(`${stamp()} seldon watch — every ${every / 1000}s`);
+  const phone = phoneAppUrl();   // once: the link the phone cards carry
   for (;;) {
     let lanes = [];
     try { lanes = readLanes().flatMap((g) => g.lanes); } catch (e) { console.log(`${stamp()} read failed: ${e.message}`); }
@@ -1488,7 +1499,7 @@ async function watchCmd(flags) {
       console.log(`${stamp()} ${e.text}`);
       const where = path.basename(e.lane.project || e.lane.cwd || "");
       notify(e.to === "needs-you" ? "Seldon · needs you" : "Seldon", `${e.text} — ${where}`);
-      tellInBackground(`${e.to === "needs-you" ? "⚑" : e.to === "failed" ? "✗" : "✓"} ${e.text} — ${where}`);
+      tellInBackground(watchCard(e, { machine: os.hostname().split(".")[0], link: phone }));
     }
     prev = new Map(lanes.map((l) => [l.key, l.state]));
     if (flags.once) return;
@@ -1585,6 +1596,15 @@ function telegramToken(flags) {
   return null;
 }
 
+// Where a message comes from: the project (a worktree counts as its main repo), the branch,
+// and this machine's short name.
+function tellContext(cwd = process.cwd()) {
+  const git = (...a) => { try { return execSync(`git ${a.join(" ")}`, { cwd, stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch { return null; } };
+  const root = projectRoot(cwd);
+  const branch = root ? git("rev-parse", "--abbrev-ref", "HEAD") : null;
+  return { project: root ? path.basename(root) : null, branch: branch && branch !== "HEAD" ? branch : null, machine: os.hostname().split(".")[0] };
+}
+
 async function tellCmd(words, flags) {
   const fail = (msg) => { console.error(C.red(msg)); process.exitCode = 1; };
   const t = telegramToken(flags);
@@ -1600,11 +1620,22 @@ async function tellCmd(words, flags) {
     }
     const chat = readChat();
     if (!chat) return fail("not set up yet — send your bot /start in Telegram, then: seldon tell --setup");
-    let text = words.join(" ");
-    if (!text && !process.stdin.isTTY) { for await (const c of process.stdin) text += c; text = text.trim(); }
-    if (typeof flags.file === "string") await sendFile(token, chat.id, flags.file, text);
-    else if (text) await sendText(token, chat.id, text);
-    else return fail('usage: seldon tell "message"  ·  … | seldon tell  ·  seldon tell --file shot.png "caption"  ·  seldon tell --setup');
+    const text = words.join(" ");
+    let log = "";
+    if (!process.stdin.isTTY && !flags.card) { for await (const c of process.stdin) log += c; log = log.trim(); }
+    const file = typeof flags.file === "string" ? flags.file : null;
+    if (!text && !log && !file && !flags.card) return fail('usage: seldon tell [--done|--need|--fail|--wip|--info] "what happened"  ·  … | seldon tell  ·  --file shot.png  ·  --plain  ·  --setup');
+    if (flags.plain) {
+      const body = [text, log].filter(Boolean).join("\n");
+      if (file) await sendFile(token, chat.id, file, body); else await sendText(token, chat.id, body);
+    } else {
+      // A card: the kind, then where it comes from — this repo, branch and machine — so the
+      // phone says what is going on without the agent having to spell it out.
+      const kind = Object.keys(KINDS).find((k) => flags[k]) || "info";
+      const fields = typeof flags.card === "string" ? JSON.parse(flags.card) : { kind, text, log, ...tellContext() };
+      if (file) await sendFile(token, chat.id, file, card({ ...fields, max: 1024 }), { html: true });
+      else await sendText(token, chat.id, card(fields), { html: true });
+    }
     console.log(C.green("✓ sent"));
   } catch (e) { fail(e.message); }
 }
@@ -1782,7 +1813,7 @@ function holdsCmd() {
 // (`--no-attach`). The value form has to be CONSUMED: filtering out everything starting with
 // `--` and keeping the rest as positionals read `seldon go --agent claude` as the project
 // named "claude".
-const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task", "owner", "file", "token-name"]);
+const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task", "owner", "file", "token-name", "card"]);
 function parseArgv(raw) {
   const flags = {}, positional = [];
   for (let i = 0; i < raw.length; i++) {
