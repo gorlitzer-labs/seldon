@@ -168,6 +168,44 @@ seldon serve --allow-reply      # let the phone type into agents (off by default
 - **Alerts:** while the page is open, the phone buzzes and notifies when an agent starts
   needing you.
 
+## On Telegram — `seldon tell`
+
+Any agent, on any machine, can message you — text, screenshots, videos, files — and the
+watcher sends its news there too (needs you, failed, finished), so the phone hears about it
+with the app closed.
+
+```bash
+seldon tell "the build is green"              # text (long text is split)
+pnpm test 2>&1 | tail -20 | seldon tell       # or from stdin
+seldon tell --file out/pitch.mp4 "first cut"  # a file, with a caption
+```
+
+Images show inline, videos play, GIFs animate, audio plays, anything else is a document; a
+bot can send up to 50 MB per file.
+
+**Once:** make a bot with [@BotFather](https://t.me/BotFather), store its token in comb —
+`comb set TELEGRAM_BOT_TOKEN` — send your bot `/start`, then `seldon tell --setup` (it finds
+your chat and keeps its id in `~/.seldon/telegram.json`). Stored it under another name?
+`seldon tell --setup --token-name MY_NAME` — seldon remembers it.
+
+- **The token never shows.** seldon does not store it: without it in the environment,
+  `seldon tell` re-runs itself under `comb run --with TELEGRAM_BOT_TOKEN`, so an agent can send
+  without ever seeing it. Every machine with comb synced can send.
+- **Sending only.** Any number of sessions can send through one bot. Writing *to* an agent from
+  Telegram (text, or a screenshot from your phone) is Claude Code's own Telegram channel
+  (`claude --channels plugin:telegram@claude-plugins-official`), and the same bot works for
+  both: sending never competes with its one reader. Run `seldon tell --setup` before starting
+  that channel — setup reads the bot's messages once to find your chat.
+
+Tell your agents once, in `~/.claude/CLAUDE.md` / `AGENTS.md`:
+
+```markdown
+## Telegram
+Send the operator what they'd want to see on their phone with `seldon tell "…"` /
+`seldon tell --file <path> "caption"`: a finished piece of work, a screenshot or video of it,
+a link, a blocker. Short. Never a secret.
+```
+
 ## Holds — taking turns on shared things
 
 Agents on different projects share one machine: one boots the Android emulator, another

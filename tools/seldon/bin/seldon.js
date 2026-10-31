@@ -14,6 +14,7 @@ import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/ac
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
 import { serve, serveToken, ownerFromStatus } from "../lib/serve.mjs";
+import { tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -1433,6 +1434,7 @@ ${C.bold("seldon")} — the agent factory: your projects, and the stack that run
   ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
   ${C.bold("seldon up --tailnet")}    expose the voice over HTTPS (tailscale serve) so the mic works on your phone
   ${C.bold("seldon serve")} [--tailnet] the panel as a phone web app (--allow-reply to answer agents)
+  ${C.bold("seldon tell")} "…"         message yourself on Telegram (--file to send one; --setup once)
   ${C.bold("seldon up --brain=X")}    pick the voice brain: qwen (in-process) | bonsai (local server); remembered
   ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
   ${C.bold("seldon adopt")} [dir]     put an existing repo on the line: foundation docs (never overwritten),
@@ -1464,6 +1466,14 @@ ${C.bold("seldon")} — the agent factory: your projects, and the stack that run
 const SELF = fileURLToPath(import.meta.url);
 const startWatch = () => startDaemon("seldon-watch", process.execPath, [SELF, "watch"]);
 
+// The watcher's news on the phone too, once `seldon tell --setup` has been run. A child
+// `seldon tell` per event, so the token goes through comb exactly as it does for an agent.
+function tellInBackground(text) {
+  if (process.env.SELDON_NO_NOTIFY || !readChat()) return;
+  const child = spawn(process.execPath, [process.argv[1], "tell", text], { stdio: "ignore", detached: true });
+  child.on("error", () => {}); child.unref();
+}
+
 async function watchCmd(flags) {
   ensureSiblingPath();
   const every = parseDuration(flags.interval, 5000) || 5000;
@@ -1475,7 +1485,9 @@ async function watchCmd(flags) {
     try { lanes = readLanes().flatMap((g) => g.lanes); } catch (e) { console.log(`${stamp()} read failed: ${e.message}`); }
     for (const e of transitions(prev, lanes)) {
       console.log(`${stamp()} ${e.text}`);
-      notify(e.to === "needs-you" ? "Seldon · needs you" : "Seldon", `${e.text} — ${path.basename(e.lane.project || e.lane.cwd || "")}`);
+      const where = path.basename(e.lane.project || e.lane.cwd || "");
+      notify(e.to === "needs-you" ? "Seldon · needs you" : "Seldon", `${e.text} — ${where}`);
+      tellInBackground(`${e.to === "needs-you" ? "⚑" : e.to === "failed" ? "✗" : "✓"} ${e.text} — ${where}`);
     }
     prev = new Map(lanes.map((l) => [l.key, l.state]));
     if (flags.once) return;
@@ -1552,6 +1564,41 @@ function serveCmd(flags) {
     console.log(C.green(`  phone → https://${dns}:${SERVE_TAILNET_PORT}/#t=${token}`) + C.dim(`  only for ${owner} · open it once, then add to home screen`));
     console.log(C.dim(`  undo: tailscale serve --https=${SERVE_TAILNET_PORT} off  ·  new token: rm ~/.seldon/serve-token`));
   } catch (e) { console.log(C.red("  tailscale serve failed: " + ((e.stderr || e.message || "").toString().split("\n")[0]))); }
+}
+
+// `seldon tell "…"` — message the operator on Telegram, from any agent. The token comes from
+// comb in the environment: without it, seldon re-runs itself under `comb run`, so the value
+// is never in an argument, a file seldon writes, or the agent's transcript.
+async function tellCmd(words, flags) {
+  const fail = (msg) => { console.error(C.red(msg)); process.exitCode = 1; };
+  const name = typeof flags["token-name"] === "string" ? flags["token-name"] : tokenName();
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return fail(`not a secret name: ${name}`);
+  const token = process.env[name];
+  if (!token) {
+    if (process.env.SELDON_TELL_VIA_COMB) return fail(`comb has no ${name} — store it once: comb set ${name}`);
+    if (!has("comb")) return fail(`no ${name} in the environment, and comb is not installed (seldon install comb)`);
+    const r = spawnSync("comb", ["run", "--with", name, "--", process.execPath, process.argv[1], ...process.argv.slice(2)],
+      { stdio: "inherit", env: { ...process.env, SELDON_TELL_VIA_COMB: "1" } });
+    process.exitCode = r.status ?? 1;
+    return;
+  }
+  try {
+    if (flags.setup) {
+      const chat = chatFromUpdates(await getUpdates(token));
+      if (!chat) return fail("no message to the bot yet — open your bot in Telegram, send it /start, then run this again");
+      writeChat({ ...chat, ...(name !== "TELEGRAM_BOT_TOKEN" ? { tokenName: name } : {}) });
+      await sendText(token, chat.id, "✓ seldon is connected. Agents can reach you here with: seldon tell \"…\"");
+      return console.log(C.green(`✓ connected to ${chat.name || "your chat"}`) + C.dim(" — try: seldon tell \"hello\""));
+    }
+    const chat = readChat();
+    if (!chat) return fail("not set up yet — send your bot /start in Telegram, then: seldon tell --setup");
+    let text = words.join(" ");
+    if (!text && !process.stdin.isTTY) { for await (const c of process.stdin) text += c; text = text.trim(); }
+    if (typeof flags.file === "string") await sendFile(token, chat.id, flags.file, text);
+    else if (text) await sendText(token, chat.id, text);
+    else return fail('usage: seldon tell "message"  ·  … | seldon tell  ·  seldon tell --file shot.png "caption"  ·  seldon tell --setup');
+    console.log(C.green("✓ sent"));
+  } catch (e) { fail(e.message); }
 }
 
 // `seldon machines` — the other computers the panel shows (bifrost's realms, one list).
@@ -1680,7 +1727,7 @@ function holdsCmd() {
 // (`--no-attach`). The value form has to be CONSUMED: filtering out everything starting with
 // `--` and keeping the rest as positionals read `seldon go --agent claude` as the project
 // named "claude".
-const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task", "owner"]);
+const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task", "owner", "file", "token-name"]);
 function parseArgv(raw) {
   const flags = {}, positional = [];
   for (let i = 0; i < raw.length; i++) {
@@ -1735,6 +1782,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "machines") return machinesCmd(tokens[0], tokens[1], tokens[2]);
   if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags);
   if (cmd === "serve") return serveCmd(flags);
+  if (cmd === "tell") return tellCmd(tokens, flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
   if (cmd === "panel" || cmd === "board") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
