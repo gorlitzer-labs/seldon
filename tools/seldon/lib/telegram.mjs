@@ -6,7 +6,8 @@
 // once and keeps it in ~/.seldon/telegram.json.
 //
 // Sending only. Many sessions can send through one bot at once; reading a bot's messages is
-// one-reader-only, which is what Claude Code's own Telegram channel does for one session.
+// one-reader-only — Claude Code's own Telegram channel, on the same bot, for one session.
+// --setup reads once (getUpdates), so it runs before that channel starts.
 import { readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 import { SELDON_HOME } from "./agents.mjs";

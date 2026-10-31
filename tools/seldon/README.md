@@ -191,8 +191,10 @@ your chat and keeps its id in `~/.seldon/telegram.json`).
   `seldon tell` re-runs itself under `comb run --with TELEGRAM_BOT_TOKEN`, so an agent can send
   without ever seeing it. Every machine with comb synced can send.
 - **Sending only.** Any number of sessions can send through one bot. Writing *to* an agent from
-  Telegram is Claude Code's own Telegram channel, and a bot has one reader: give that one
-  session its own bot.
+  Telegram (text, or a screenshot from your phone) is Claude Code's own Telegram channel
+  (`claude --channels plugin:telegram@claude-plugins-official`), and the same bot works for
+  both: sending never competes with its one reader. Run `seldon tell --setup` before starting
+  that channel — setup reads the bot's messages once to find your chat.
 
 Tell your agents once, in `~/.claude/CLAUDE.md` / `AGENTS.md`:
 
