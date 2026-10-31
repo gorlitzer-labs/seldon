@@ -84,6 +84,64 @@ export const KINDS = {
 export const escHtml = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
+// ---- Markdown → Telegram HTML -----------------------------------------------------
+// Agents write Markdown; Telegram renders a small HTML set. This turns the common subset into
+// it: **bold** *italic* _italic_ ~~strike~~ ||spoiler|| `code`, ```lang fenced blocks```,
+// [text](https://…), # headings, - lists, 1. lists, > quotes, ---. Everything is escaped
+// first, so text can never inject a tag; what isn't Markdown is shown as written.
+// Telegram rejects badly nested tags — sendCard falls back to plain text when it does.
+const SAFE_URL = /^(https?:\/\/|tg:\/\/|mailto:)/i;
+
+function inline(line) {
+  const keep = [];
+  const hold = (html) => `\u0000${keep.push(html) - 1}\u0000`;
+  let s = escHtml(line)
+    .replace(/`([^`\n]+)`/g, (_, c) => hold(`<code>${c}</code>`))
+    .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (m, label, url) => SAFE_URL.test(url) ? hold(`<a href="${url}">${label}</a>`) : m)
+    .replace(/\*\*(?=\S)([^*\n]+?)\*\*/g, "<b>$1</b>")
+    .replace(/__(?=\S)([^_\n]+?)__/g, "<b>$1</b>")
+    .replace(/~~(?=\S)([^~\n]+?)~~/g, "<s>$1</s>")
+    .replace(/\|\|(?=\S)([^|\n]+?)\|\|/g, "<tg-spoiler>$1</tg-spoiler>")
+    .replace(/(^|[\s(])\*(?=\S)([^*\n]+?)\*(?=$|[\s).,:;!?])/g, "$1<i>$2</i>")
+    .replace(/(^|[\s(])_(?=\S)([^_\n]+?)_(?=$|[\s).,:;!?])/g, "$1<i>$2</i>");   // not snake_case
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => keep[i]);
+}
+
+export function mdToHtml(text) {
+  const out = [];
+  const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  let quote = [];
+  const flush = () => { if (quote.length) { out.push(`<blockquote>${quote.join("\n")}</blockquote>`); quote = []; } };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fence = line.match(/^\s*```\s*([\w+#.-]*)\s*$/);
+    if (fence) {                                   // a fenced block, to its closing fence (or the end)
+      flush();
+      const body = [];
+      while (++i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i]);
+      const lang = fence[1] ? ` class="language-${escHtml(fence[1])}"` : "";
+      out.push(`<pre><code${lang}>${escHtml(body.join("\n"))}</code></pre>`);
+      continue;
+    }
+    const q = line.match(/^\s*>\s?(.*)$/);
+    if (q) { quote.push(inline(q[1])); continue; }
+    flush();
+    let m;
+    if ((m = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/))) out.push(`<b>${inline(m[1])}</b>`);
+    else if ((m = line.match(/^(\s*)[-*+]\s+(.*)$/))) out.push(`${m[1].replace(/\t/g, "  ")}• ${inline(m[2])}`);
+    else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) out.push("──────────");
+    else out.push(inline(line));
+  }
+  flush();
+  return out.join("\n");
+}
+
+// The same card without tags: what is sent when Telegram rejects the HTML.
+export const htmlToPlain = (html) => String(html)
+  .replace(/<a href="([^"]*)">([^<]*)<\/a>/g, (_, url, label) => (label === url ? label : `${label} (${url})`))
+  .replace(/<[^>]+>/g, "")
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+
 // Every part is optional but the kind. `log` is shown as code (its tail: the end of a log is
 // what matters). `max` keeps the whole card under Telegram's limit — 1024 for a caption.
 export function card({ kind = "info", text, log, project, branch, lane, harness, detail, age, machine, link, max = MAX } = {}) {
@@ -98,10 +156,13 @@ export function card({ kind = "info", text, log, project, branch, lane, harness,
   const bottom = [meta && `<i>${meta}</i>`, link && `👉 <a href="${e(link)}">open the app</a>`].filter(Boolean);
   // The free text gets whatever room the frame leaves (escaping can grow it, hence the margin).
   const room = Math.max(0, max - [...top, ...bottom].join("\n").length - 60);
-  const words = text && e(clip(String(text).trim(), Math.floor(room * (log ? 0.4 : 1) / 1.2)));
+  const words = text && mdToHtml(clip(String(text).trim(), Math.floor(room * (log ? 0.4 : 1) / 1.2)));
   const tail = log && String(log).trimEnd();
   const logRoom = Math.floor(room * 0.55 / 1.2);
-  const code = tail && `<pre>${e(tail.length > logRoom ? "…" + tail.slice(-logRoom) : tail)}</pre>`;
+  const shown = tail && (tail.length > logRoom ? "…" + tail.slice(-logRoom) : tail);
+  // A short log shows as is; a long one folds away (tap to open), so the card stays readable.
+  const folds = shown && (shown.split("\n").length > 8 || shown.length > 500);
+  const code = shown && (folds ? `<blockquote expandable><pre>${e(shown)}</pre></blockquote>` : `<pre>${e(shown)}</pre>`);
   return [...top, words, code, ...bottom].filter(Boolean).join("\n");
 }
 
@@ -180,4 +241,17 @@ export function watchCard(e, { machine = null, link = null, now = Date.now() } =
     age: e.lane.startedAt ? `running ${ago(e.lane.startedAt, now)}` : null,
     machine, link,
   };
+}
+
+// Send a card — as a message, or as a file's caption. If Telegram rejects the formatting (badly
+// nested Markdown), the same card goes out as plain text: a message is never lost to styling.
+export async function sendCard(token, chatId, fields, file = null) {
+  const html = card({ ...fields, max: file ? 1024 : MAX });
+  try {
+    return file ? await sendFile(token, chatId, file, html, { html: true }) : await sendText(token, chatId, html, { html: true });
+  } catch (e) {
+    if (!/can't parse entities/i.test(e.message)) throw e;
+    const plain = htmlToPlain(html);
+    return file ? await sendFile(token, chatId, file, plain) : await sendText(token, chatId, plain);
+  }
 }

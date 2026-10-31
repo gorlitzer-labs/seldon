@@ -182,6 +182,12 @@ seldon tell --file out/pitch.mp4 --info "first cut"      # a file, the card as i
 seldon tell --plain "just text"                          # no card
 ```
 
+**Write Markdown — it renders.** `**bold**` `*italic*` `~~strike~~` `||spoiler||` `` `code` ``,
+fenced blocks with a language, `[links](https://…)`, `#` headings, `-` lists, `>` quotes, `---`.
+Anything else is shown exactly as written (`snake_case`, `2*3`, `<tags>` stay literal), and if
+Telegram ever rejects the formatting the card is resent as plain text, so nothing is lost. A
+piped log over a few lines folds away — tap it to open.
+
 Every message is a card that reads at a glance: a coloured dot for what kind of news it is,
 then where it comes from (the repo, branch and machine it was sent from), then what happened.
 The watcher's cards also name the agent, what it is waiting for, how long it has run, and link

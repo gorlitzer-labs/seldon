@@ -15,7 +15,7 @@ import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/ac
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
 import { serve, serveToken, ownerFromStatus } from "../lib/serve.mjs";
-import { card, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
+import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -1605,6 +1605,13 @@ function tellContext(cwd = process.cwd()) {
   return { project: root ? path.basename(root) : null, branch: branch && branch !== "HEAD" ? branch : null, machine: os.hostname().split(".")[0] };
 }
 
+// Something was piped or redirected in (`cmd | seldon tell`, `< file`). Not "stdin is not a
+// terminal": an agent's shell hands its commands an open socket that never sends or closes,
+// and reading that would hang the agent forever.
+function pipedIn() {
+  try { const s = fs.fstatSync(0); return s.isFIFO() || s.isFile(); } catch { return false; }
+}
+
 async function tellCmd(words, flags) {
   const fail = (msg) => { console.error(C.red(msg)); process.exitCode = 1; };
   const t = telegramToken(flags);
@@ -1612,17 +1619,21 @@ async function tellCmd(words, flags) {
   const { token, name } = t;
   try {
     if (flags.setup) {
-      const chat = chatFromUpdates(await getUpdates(token));
+      const updates = await getUpdates(token).catch((e) => {
+        if (/conflict|terminated by other getUpdates/i.test(e.message)) throw new Error("something else is reading this bot (seldon inbox?) — stop it, run --setup, then start it again");
+        throw e;
+      });
+      const chat = chatFromUpdates(updates);
       if (!chat) return fail("no message to the bot yet — open your bot in Telegram, send it /start, then run this again");
       writeChat({ ...chat, ...(name !== "TELEGRAM_BOT_TOKEN" ? { tokenName: name } : {}) });
-      await sendText(token, chat.id, "✓ seldon is connected. Agents can reach you here with: seldon tell \"…\"");
+      await sendCard(token, chat.id, { kind: "done", text: "**seldon is connected.**\nAgents reach you here with `seldon tell --done \"…\"`; send this chat a photo, file or note and `seldon inbox` saves it on your machine.", machine: os.hostname().split(".")[0] });
       return console.log(C.green(`✓ connected to ${chat.name || "your chat"}`) + C.dim(" — try: seldon tell \"hello\""));
     }
     const chat = readChat();
     if (!chat) return fail("not set up yet — send your bot /start in Telegram, then: seldon tell --setup");
     const text = words.join(" ");
     let log = "";
-    if (!process.stdin.isTTY && !flags.card) { for await (const c of process.stdin) log += c; log = log.trim(); }
+    if (pipedIn() && !flags.card) { for await (const c of process.stdin) log += c; log = log.trim(); }
     const file = typeof flags.file === "string" ? flags.file : null;
     if (!text && !log && !file && !flags.card) return fail('usage: seldon tell [--done|--need|--fail|--wip|--info] "what happened"  ·  … | seldon tell  ·  --file shot.png  ·  --plain  ·  --setup');
     if (flags.plain) {
@@ -1633,8 +1644,7 @@ async function tellCmd(words, flags) {
       // phone says what is going on without the agent having to spell it out.
       const kind = Object.keys(KINDS).find((k) => flags[k]) || "info";
       const fields = typeof flags.card === "string" ? JSON.parse(flags.card) : { kind, text, log, ...tellContext() };
-      if (file) await sendFile(token, chat.id, file, card({ ...fields, max: 1024 }), { html: true });
-      else await sendText(token, chat.id, card(fields), { html: true });
+      await sendCard(token, chat.id, fields, file);
     }
     console.log(C.green("✓ sent"));
   } catch (e) { fail(e.message); }
@@ -1681,7 +1691,7 @@ async function inboxCmd(flags) {
         await react(t.token, chat.id, m.message_id, "👍");
       } catch (e) {
         console.log(`${stamp()} ${e.message}`);
-        await sendText(t.token, chat.id, `✗ not saved: ${e.message}`).catch(() => {});
+        await sendCard(t.token, chat.id, { kind: "fail", text: `**Not saved:** ${e.message}`, machine: os.hostname().split(".")[0] }).catch(() => {});
       }
     }
   }
