@@ -191,6 +191,12 @@ your chat and keeps its id in `~/.seldon/telegram.json`). Stored it under anothe
 - **The token never shows.** seldon does not store it: without it in the environment,
   `seldon tell` re-runs itself under `comb run --with TELEGRAM_BOT_TOKEN`, so an agent can send
   without ever seeing it. Every machine with comb synced can send.
+- **Your phone → this machine: `seldon inbox`.** Send the bot a screenshot, video, file, voice
+  note or a line of text and it lands in `~/Downloads/seldon-inbox/` (`--dir` for another),
+  with a 👍 on your message once it is saved and one line per item in `notes.md`. Plain code,
+  no agent in between, no tokens; only your chat is listened to. A bot can fetch up to 20 MB,
+  and Telegram compresses photos — *Send as File* for the original. Telegram itself still
+  carries everything (a bot chat is not end-to-end encrypted).
 - **Sending only.** Any number of sessions can send through one bot. Writing *to* an agent from
   Telegram (text, or a screenshot from your phone) is Claude Code's own Telegram channel
   (`claude --channels plugin:telegram@claude-plugins-official`), and the same bot works for
