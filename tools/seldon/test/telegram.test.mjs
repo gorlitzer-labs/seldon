@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { chunks, chatFromUpdates, mediaKind, fileFromMessage, inboxName, noteLine, card, watchCard } from "../lib/telegram.mjs";
+import { chunks, chatFromUpdates, mediaKind, fileFromMessage, inboxName, noteLine, card, watchCard, mdToHtml, htmlToPlain, sendCard } from "../lib/telegram.mjs";
 
 const BIN = fileURLToPath(new URL("../bin/seldon.js", import.meta.url));
 
@@ -99,4 +99,74 @@ test("watchCard: the watcher's events in words", () => {
   assert.equal(done.kind, "done");
   assert.equal(done.age, "running 11m");
   assert.equal(watchCard({ to: "failed", lane }).kind, "fail");
+});
+
+test("mdToHtml: the Markdown agents write, as Telegram shows it", () => {
+  assert.equal(mdToHtml("**bold** *it* _it_ ~~gone~~ ||hush|| `x<y`"),
+    "<b>bold</b> <i>it</i> <i>it</i> <s>gone</s> <tg-spoiler>hush</tg-spoiler> <code>x&lt;y</code>");
+  assert.equal(mdToHtml("# Title"), "<b>Title</b>");
+  assert.equal(mdToHtml("- one\n  * two\n1. three"), "• one\n  • two\n1. three");
+  assert.equal(mdToHtml("> a\n> b\nafter"), "<blockquote>a\nb</blockquote>\nafter");
+  assert.equal(mdToHtml("---"), "──────────");
+  assert.equal(mdToHtml("see [PR](https://github.com/o/r/pull/1?a=1&b=2)"), 'see <a href="https://github.com/o/r/pull/1?a=1&amp;b=2">PR</a>');
+});
+
+test("mdToHtml: code blocks keep their language and their text as written", () => {
+  assert.equal(mdToHtml("```js\nif (a < b && c) **x**\n```"), '<pre><code class="language-js">if (a &lt; b &amp;&amp; c) **x**</code></pre>');
+  assert.equal(mdToHtml("```\nnever closed"), "<pre><code>never closed</code></pre>");
+});
+
+test("mdToHtml: what is not Markdown stays as written, and nothing injects a tag", () => {
+  assert.equal(mdToHtml("snake_case_name and 2*3*4"), "snake_case_name and 2*3*4");
+  assert.equal(mdToHtml("<b>raw</b> & <script>"), "&lt;b&gt;raw&lt;/b&gt; &amp; &lt;script&gt;");
+  assert.equal(mdToHtml("[x](javascript:alert(1))"), "[x](javascript:alert(1))");     // only http(s), tg, mailto links
+  assert.equal(mdToHtml('[x](https://a.b/"onmouseover=1)'), '<a href="https://a.b/&quot;onmouseover=1">x</a>');
+  assert.equal(mdToHtml("`**not bold**`"), "<code>**not bold**</code>");
+});
+
+test("htmlToPlain: the same card without tags", () => {
+  assert.equal(htmlToPlain('<b>DONE</b> · <a href="https://x.y/1">PR</a> &lt;3 &amp;'), "DONE · PR (https://x.y/1) <3 &");
+});
+
+test("card: a long log folds away, a short one does not", () => {
+  assert.match(card({ log: "one\ntwo" }), /\n<pre>one\ntwo<\/pre>$/);
+  assert.match(card({ log: Array.from({ length: 30 }, (_, i) => `l${i}`).join("\n") }), /<blockquote expandable><pre>[\s\S]*l29<\/pre><\/blockquote>$/);
+});
+
+test("sendCard: when Telegram rejects the HTML, the card still arrives as plain text", async () => {
+  const sent = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    sent.push(body);
+    const ok = !body.parse_mode;
+    return { status: ok ? 200 : 400, json: async () => (ok ? { ok: true, result: {} } : { ok: false, description: "Bad Request: can't parse entities: Unmatched end tag" }) };
+  };
+  try {
+    await sendCard("T", 1, { kind: "done", text: "**a *b** c*" });
+  } finally { globalThis.fetch = real; }
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].parse_mode, "HTML");
+  assert.equal(sent[1].parse_mode, undefined);
+  assert.match(sent[1].text, /^🟢 DONE\n/);
+  assert.doesNotMatch(sent[1].text, /</);
+});
+
+test("seldon tell never waits on a stdin nothing is piped into (an agent's shell)", async () => {
+  const { spawn } = await import("node:child_process");
+  const { createServer, connect } = await import("node:net");
+  const home = mkdtempSync(join(tmpdir(), "seldon-tell-"));
+  writeFileSync(join(home, "telegram.json"), JSON.stringify({ id: 1 }));   // set up, so it gets as far as reading stdin
+  // stdin = an open socket that never sends: exactly what an agent's shell hands its commands
+  const server = createServer(() => {}).listen(0);
+  await new Promise((r) => server.once("listening", r));
+  const sock = connect(server.address().port);
+  await new Promise((r) => sock.once("connect", r));
+  try {
+    const child = spawn(process.execPath, [BIN, "tell", "hi"], {
+      env: { ...process.env, SELDON_HOME: home, SELDON_TELL_VIA_COMB: "1", TELEGRAM_BOT_TOKEN: "0:fake" }, stdio: [sock, "pipe", "pipe"] });
+    const code = await Promise.race([new Promise((r) => child.on("exit", r)), new Promise((r) => setTimeout(() => r("hung"), 5000))]);
+    if (code === "hung") child.kill();
+    assert.notEqual(code, "hung");
+  } finally { sock.destroy(); server.close(); rmSync(home, { recursive: true, force: true }); }
 });
