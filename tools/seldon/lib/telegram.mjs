@@ -13,6 +13,8 @@ import { join, basename } from "node:path";
 import { SELDON_HOME } from "./agents.mjs";
 
 export const TOKEN_NAME = "TELEGRAM_BOT_TOKEN";
+// The comb name the token is stored under: TELEGRAM_BOT_TOKEN unless setup was told another.
+export const tokenName = (chat = readChat()) => chat?.tokenName || TOKEN_NAME;
 export const MAX = 4096;                  // Telegram's limit per message
 export const MAX_UPLOAD = 50 * 1024 * 1024;   // a bot may upload up to 50 MB
 const CONFIG = () => join(SELDON_HOME, "telegram.json");

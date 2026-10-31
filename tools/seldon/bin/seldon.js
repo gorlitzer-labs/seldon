@@ -14,7 +14,7 @@ import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/ac
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
 import { serve, serveToken, ownerFromStatus } from "../lib/serve.mjs";
-import { TOKEN_NAME, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile } from "../lib/telegram.mjs";
+import { tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -1571,11 +1571,13 @@ function serveCmd(flags) {
 // is never in an argument, a file seldon writes, or the agent's transcript.
 async function tellCmd(words, flags) {
   const fail = (msg) => { console.error(C.red(msg)); process.exitCode = 1; };
-  const token = process.env[TOKEN_NAME];
+  const name = typeof flags["token-name"] === "string" ? flags["token-name"] : tokenName();
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return fail(`not a secret name: ${name}`);
+  const token = process.env[name];
   if (!token) {
-    if (process.env.SELDON_TELL_VIA_COMB) return fail(`comb has no ${TOKEN_NAME} — store it once: comb set ${TOKEN_NAME}`);
-    if (!has("comb")) return fail(`no ${TOKEN_NAME} in the environment, and comb is not installed (seldon install comb)`);
-    const r = spawnSync("comb", ["run", "--with", TOKEN_NAME, "--", process.execPath, process.argv[1], ...process.argv.slice(2)],
+    if (process.env.SELDON_TELL_VIA_COMB) return fail(`comb has no ${name} — store it once: comb set ${name}`);
+    if (!has("comb")) return fail(`no ${name} in the environment, and comb is not installed (seldon install comb)`);
+    const r = spawnSync("comb", ["run", "--with", name, "--", process.execPath, process.argv[1], ...process.argv.slice(2)],
       { stdio: "inherit", env: { ...process.env, SELDON_TELL_VIA_COMB: "1" } });
     process.exitCode = r.status ?? 1;
     return;
@@ -1584,7 +1586,7 @@ async function tellCmd(words, flags) {
     if (flags.setup) {
       const chat = chatFromUpdates(await getUpdates(token));
       if (!chat) return fail("no message to the bot yet — open your bot in Telegram, send it /start, then run this again");
-      writeChat(chat);
+      writeChat({ ...chat, ...(name !== "TELEGRAM_BOT_TOKEN" ? { tokenName: name } : {}) });
       await sendText(token, chat.id, "✓ seldon is connected. Agents can reach you here with: seldon tell \"…\"");
       return console.log(C.green(`✓ connected to ${chat.name || "your chat"}`) + C.dim(" — try: seldon tell \"hello\""));
     }
@@ -1725,7 +1727,7 @@ function holdsCmd() {
 // (`--no-attach`). The value form has to be CONSUMED: filtering out everything starting with
 // `--` and keeping the rest as positionals read `seldon go --agent claude` as the project
 // named "claude".
-const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task", "owner", "file"]);
+const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task", "owner", "file", "token-name"]);
 function parseArgv(raw) {
   const flags = {}, positional = [];
   for (let i = 0; i < raw.length; i++) {

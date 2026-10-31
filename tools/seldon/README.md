@@ -185,7 +185,8 @@ bot can send up to 50 MB per file.
 
 **Once:** make a bot with [@BotFather](https://t.me/BotFather), store its token in comb —
 `comb set TELEGRAM_BOT_TOKEN` — send your bot `/start`, then `seldon tell --setup` (it finds
-your chat and keeps its id in `~/.seldon/telegram.json`).
+your chat and keeps its id in `~/.seldon/telegram.json`). Stored it under another name?
+`seldon tell --setup --token-name MY_NAME` — seldon remembers it.
 
 - **The token never shows.** seldon does not store it: without it in the environment,
   `seldon tell` re-runs itself under `comb run --with TELEGRAM_BOT_TOKEN`, so an agent can send
