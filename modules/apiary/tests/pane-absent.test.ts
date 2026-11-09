@@ -63,12 +63,30 @@ describe("tmuxPaneIsShell against a REAL shell pane", () => {
   const SESSION = `apiary_test_shell_${process.pid}`;
   let available = false;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     try {
       execFileSync("tmux", ["new-session", "-d", "-s", SESSION], { stdio: "ignore", timeout: 10_000 });
       available = true;
     } catch {
       available = false; // no tmux in this environment
+      return;
+    }
+    // Wait for the pane to have started its shell. Until tmux's forked child
+    // execs it, the pane reports "tmux" as its command — on a loaded CI runner
+    // that window was hit (`pane reports "tmux"`), failing the test for a
+    // pane that was simply not up yet. This asks tmux, not the code under
+    // test, so it cannot make the assertions below pass on its own.
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      let cmd = "";
+      try {
+        cmd = execFileSync("tmux", ["display-message", "-p", "-t", SESSION, "#{pane_current_command}"], {
+          encoding: "utf-8",
+          timeout: 5_000,
+        }).trim();
+      } catch { /* not ready */ }
+      if (cmd && cmd !== "tmux") return;
+      await new Promise((r) => setTimeout(r, 25));
     }
   });
 
@@ -82,8 +100,7 @@ describe("tmuxPaneIsShell against a REAL shell pane", () => {
     if (!available) return;
     const cmd = tmuxPaneCommand(SESSION);
     expect(cmd).toBeTruthy();
-    const listing = execFileSync("tmux", ["list-panes", "-a", "-F", "#{session_name} #{pane_pid} #{pane_current_command} #{pane_start_command}"], { encoding: "utf-8" });
-    expect(tmuxPaneIsShell(SESSION), `pane reports "${cmd}"; SHELL=${process.env.SHELL}; panes:\n${listing}`).toBe(true);
+    expect(tmuxPaneIsShell(SESSION), `pane reports "${cmd}"`).toBe(true);
   });
 
   test("and the Codex bridge reports it absent rather than idle", () => {
