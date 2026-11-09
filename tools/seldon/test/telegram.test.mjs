@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { chunks, chatFromUpdates, mediaKind, fileFromMessage, inboxName, noteLine, card, watchCard, mdToHtml, htmlToPlain, sendCard } from "../lib/telegram.mjs";
+import { chunks, chatFromUpdates, mediaKind, fileFromMessage, inboxName, freeName, noteLine, card, watchCard, mdToHtml, htmlToPlain, sendCard } from "../lib/telegram.mjs";
 
 const BIN = fileURLToPath(new URL("../bin/seldon.js", import.meta.url));
 
@@ -169,4 +169,13 @@ test("seldon tell never waits on a stdin nothing is piped into (an agent's shell
     if (code === "hung") child.kill();
     assert.notEqual(code, "hung");
   } finally { sock.destroy(); server.close(); rmSync(home, { recursive: true, force: true }); }
+});
+
+test("freeName: an album's photos in the same second each keep their own file", () => {
+  const have = new Set();
+  const take = (n) => { const f = freeName(n, (x) => have.has(x)); have.add(f); return f; };
+  assert.equal(take("20261109-152025-photo.jpg"), "20261109-152025-photo.jpg");
+  assert.equal(take("20261109-152025-photo.jpg"), "20261109-152025-photo-2.jpg");
+  assert.equal(take("20261109-152025-photo.jpg"), "20261109-152025-photo-3.jpg");
+  assert.equal(freeName("20261109-152025-file", (x) => x === "20261109-152025-file"), "20261109-152025-file-2");
 });

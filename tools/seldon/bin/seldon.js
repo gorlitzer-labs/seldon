@@ -15,7 +15,7 @@ import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/ac
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
 import { serve, serveToken, ownerFromStatus } from "../lib/serve.mjs";
-import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
+import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -1680,7 +1680,7 @@ async function inboxCmd(flags) {
       try {
         if (f) {
           if (f.size && f.size > MAX_DOWNLOAD) throw new Error(`${f.name} is over 20 MB — a bot can't fetch it; share it another way`);
-          const name = inboxName(f.name, when);
+          const name = freeName(inboxName(f.name, when), (n) => fs.existsSync(path.join(dir, n)));
           await downloadFile(t.token, f.fileId, path.join(dir, name));
           fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { file: name, text }), { mode: 0o600 });
           console.log(`${stamp()} saved ${name}`);

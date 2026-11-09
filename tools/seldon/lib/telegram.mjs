@@ -209,6 +209,14 @@ export function inboxName(name, date) {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-${base}`;
 }
 
+// A name not already in the folder: an album arrives as several files in the same second, so the second and later
+// ones get -2, -3… before the extension (20261031-091502-photo-2.jpg). `taken` says whether a name is in use.
+export function freeName(name, taken) {
+  if (!taken(name)) return name;
+  const dot = name.lastIndexOf("."), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  for (let n = 2; ; n++) { const next = `${stem}-${n}${ext}`; if (!taken(next)) return next; }
+}
+
 // One line in notes.md per thing received, so the folder reads as a log.
 export function noteLine(date, { file, text }) {
   const d = new Date(date), p = (n) => String(n).padStart(2, "0");
