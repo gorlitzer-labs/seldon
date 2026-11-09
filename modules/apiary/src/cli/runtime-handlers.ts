@@ -27,9 +27,23 @@ import {
 } from "../agent/wait-for-agent.js";
 import { type EngagementMode } from "../agent/engagement.js";
 import type { Participant, AuthorityLevel } from "../core/types.js";
+import type { RoomEvent } from "../core/events.js";
 import type { RuntimeMcpServerOptions, JoinRoomResult } from "../agent/mcp/runtime.js";
+import type { RoomConnectionError } from "../agent/remote-room-data-source.js";
+import {
+  RoomRejoiner,
+  localTierOf,
+  readLocalRoomSession,
+  type RejoinDeps,
+  type RejoinInfo,
+} from "./rejoin.js";
 
-/** A room the agent has joined, tracked for cache updates + cleanup. */
+/**
+ * A room the agent has joined, tracked for cache updates + cleanup.
+ *
+ * `serverUrl`, `sessionToken` and `participantId` change when the room is
+ * re-joined (see rejoin.ts): read them from here each time, never copy them.
+ */
 export interface JoinResult {
   serverUrl: string;
   sessionToken: string;
@@ -39,6 +53,32 @@ export interface JoinResult {
   authority: string;
   participants: Participant[];
   dataSource: RemoteRoomDataSource;
+  /** What joining took (share URL and token, name, type), to re-join unattended. */
+  rejoin: RejoinInfo;
+  /** Restores a lost session; installed on the data source and the SSE stream. */
+  rejoiner?: RoomRejoiner;
+  /** Set when the event stream reported this agent kicked: it is never re-joined. */
+  removedBy?: string;
+}
+
+/**
+ * Keep a joined room's local view in step with one of its events: the
+ * participant cache, and whether this agent was kicked (so it is not
+ * re-joined behind the admin's back). Both runtimes' event wrappers call it.
+ */
+export function trackRoomEvent(jr: JoinResult, event: RoomEvent): void {
+  if (event.type === "ParticipantJoined") {
+    jr.dataSource.addParticipant(event.participant);
+  } else if (event.type === "ParticipantLeft") {
+    jr.dataSource.removeParticipant(event.participant_id);
+  } else if (event.type === "ParticipantKicked") {
+    if (event.participant_id === jr.participantId) jr.removedBy = safeName(event.kicked_by);
+    jr.dataSource.removeParticipant(event.participant_id);
+  }
+}
+
+function safeName(name: string): string {
+  return String(name ?? "").replace(/[^A-Za-z0-9 _.-]/g, "").trim().slice(0, 40) || "an admin";
 }
 
 export interface RuntimeHandlerContext {
@@ -50,6 +90,12 @@ export interface RuntimeHandlerContext {
   authority: AuthorityLevel | undefined;
   /** Fired after a successful join (the tmux/HTTP path repaints its UI). */
   onRoomJoined?: () => void | Promise<void>;
+  /** Re-join and URL-fallback lines (stderr in `apiary mcp`). Default: silent. */
+  log?: (line: string) => void;
+  /** Told once when a room is lost for good and will not be re-joined. */
+  onRoomLost?: (jr: JoinResult, error: RoomConnectionError) => void;
+  /** Test seam for the rejoiner (timings, fetch, session-file reader). */
+  rejoinOverrides?: Partial<Omit<RejoinDeps, "sseMux" | "processor" | "log" | "onLost">>;
 }
 
 /**
@@ -58,6 +104,33 @@ export interface RuntimeHandlerContext {
  */
 export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpServerOptions {
   const { processor, sseMux, joinResults, agentName, authority, onRoomJoined } = ctx;
+
+  // A dropped event stream that retrying alone cannot fix (401/403 after a
+  // server restart, or a dead URL) goes to that room's rejoiner.
+  const rejoinerFor = (roomId: string) => joinResults.find((j) => j.roomId === roomId)?.rejoiner;
+  sseMux.setRecoveryHandler({
+    authRejected: async (roomId, status, usedToken) => {
+      const r = rejoinerFor(roomId);
+      return r ? r.authRejected(status, usedToken) : false;
+    },
+    unreachable: async (roomId) => (await rejoinerFor(roomId)?.unreachable()) ?? false,
+  });
+
+  /** POST to the room server through the data source (re-joins on a lost session). */
+  const post = async (ds: RemoteRoomDataSource, path: string, body: Record<string, unknown>) => {
+    try {
+      const res = await ds.request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return { success: false, error: await res.text() };
+      return { success: true };
+    } catch (err) {
+      const msg = err instanceof Error && err.name === "RoomConnectionError" ? err.message : "Server unreachable.";
+      return { success: false, error: msg };
+    }
+  };
 
   /** Resolve a room + named participant, then POST to the apiary server. */
   const adminAction = (build: (id: string) => { path: string; body: Record<string, unknown> }) =>
@@ -68,17 +141,7 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
       const p = conn.dataSource.listParticipants().find((pp) => pp.name === participant);
       if (!p) return { success: false, error: `Unknown participant "${participant}".` };
       const { path, body } = build(p.id);
-      try {
-        const res = await fetch(`${ds.serverUrl}${path}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) return { success: false, error: await res.text() };
-        return { success: true };
-      } catch {
-        return { success: false, error: "Server unreachable." };
-      }
+      return post(ds, path, body);
     };
 
   return {
@@ -95,17 +158,11 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
       const conn = processor.resolve(room);
       if (!conn) return { success: false, error: `Unknown room "${room}".` };
       processor.setModeForRoom(conn.dataSource.roomId, mode as EngagementMode, false);
-      try {
-        const ds = conn.dataSource as RemoteRoomDataSource;
-        const res = await fetch(`${ds.serverUrl}/set-mode`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
-          body: JSON.stringify({ mode }),
-        });
-        if (!res.ok) return { success: false, error: `Server rejected: ${await res.text()}` };
-      } catch {
-        // Server unreachable, local mode still set
+      const result = await post(conn.dataSource as RemoteRoomDataSource, "/set-mode", { mode });
+      if (!result.success && result.error !== "Server unreachable.") {
+        return { success: false, error: `Server rejected: ${result.error}` };
       }
+      // Server unreachable: the local mode is still set.
       return { success: true };
     },
 
@@ -126,10 +183,7 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
 
       const readState = async (): Promise<AgentWaitState> => {
         try {
-          const res = await fetch(`${ds.serverUrl}/participants`, {
-            headers: { Authorization: `Bearer ${ds.sessionToken}` },
-            signal: AbortSignal.timeout(10_000),
-          });
+          const res = await ds.request("/participants", { signal: AbortSignal.timeout(10_000) });
           if (!res.ok) return "unknown";
           const data = (await res.json()) as {
             participants?: Array<{ id: string; agentState?: string }>;
@@ -157,17 +211,7 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
       const ds = conn.dataSource as RemoteRoomDataSource;
       const p = conn.dataSource.listParticipants().find((pp) => pp.name === participant);
       if (!p) return { success: false, error: `Unknown participant "${participant}".` };
-      try {
-        const res = await fetch(`${ds.serverUrl}/ping`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ds.sessionToken}` },
-          body: JSON.stringify({ participantId: p.id }),
-        });
-        if (!res.ok) return { success: false, error: await res.text() };
-        return { success: true };
-      } catch {
-        return { success: false, error: "Server unreachable." };
-      }
+      return post(ds, "/ping", { participantId: p.id });
     },
 
     onJoinRoom: async (url, alias, nameOverride) => {
@@ -202,6 +246,16 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
         const participants = (data.participants as Participant[]) ?? [];
         const newParticipantId = String(data.participantId ?? "");
 
+        // Joining a room this agent is already in (e.g. with a new share URL
+        // after its old one stopped working) replaces that entry: the
+        // processor and SSE stream ignore a second registration for the room.
+        const existingIdx = joinResults.findIndex((j) => j.roomId === roomId);
+        if (existingIdx >= 0) {
+          sseMux.removeConnection(roomId);
+          processor.disconnectRemoteRoom(roomId);
+          joinResults.splice(existingIdx, 1);
+        }
+
         const dataSource = new RemoteRoomDataSource(serverUrl, sessionToken, roomId);
         dataSource.setParticipants(participants);
         dataSource.setSelf(newParticipantId, joinName);
@@ -218,6 +272,7 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
         sseMux.addConnection(serverUrl, sessionToken, roomName, roomId);
 
         // Track for cleanup
+        const serverRoomName = String(data.roomName ?? "");
         const jr: JoinResult = {
           serverUrl,
           sessionToken,
@@ -227,7 +282,26 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
           authority: roomAuthority,
           participants,
           dataSource,
+          rejoin: {
+            joinUrl: url,
+            shareToken: token ?? undefined,
+            name: joinName,
+            type: "agent",
+            serverRoomName,
+            localTier: localTierOf(
+              token ?? undefined,
+              (ctx.rejoinOverrides?.readRoomSession ?? readLocalRoomSession)(serverRoomName),
+            ),
+          },
         };
+        jr.rejoiner = new RoomRejoiner(jr, {
+          ...ctx.rejoinOverrides,
+          sseMux,
+          processor,
+          log: ctx.log,
+          onLost: ctx.onRoomLost ? (_room, err) => ctx.onRoomLost!(jr, err) : undefined,
+        });
+        dataSource.setRecovery(jr.rejoiner);
         joinResults.push(jr);
 
         // Build recent activity lines for the response
@@ -288,6 +362,7 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
       const idx = joinResults.findIndex((jr) => jr.roomId === roomId);
       if (idx >= 0) {
         const jr = joinResults[idx];
+        jr.dataSource.setRecovery(null); // leaving on purpose: never re-join
         sseMux.removeConnection(roomId);
         processor.disconnectRemoteRoom(roomId);
 

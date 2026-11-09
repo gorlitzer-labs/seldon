@@ -74,6 +74,11 @@ export interface RuntimeMcpServerOptions {
   authority?: AuthorityLevel;
   /** Called when the agent requests joining a new room mid-session. */
   onJoinRoom?: (url: string, alias?: string, name?: string) => Promise<JoinRoomResult>;
+  /**
+   * Called after the agent read a room with catch_up(room). The `apiary mcp`
+   * waker re-arms that room's nudge here.
+   */
+  onCatchUp?: (room: string) => void;
   /** Called when the agent requests leaving a room. */
   onLeaveRoom?: (room: string) => Promise<{ success: boolean; error?: string }>;
   /** Called when the agent changes its own mode. */
@@ -219,7 +224,9 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
         }
         return textResult(lines.join("\n"));
       }
-      return handleCatchUp(resolver, { room }, toolOptions);
+      const result = await handleCatchUp(resolver, { room }, toolOptions);
+      opts.onCatchUp?.(room);
+      return result;
     },
   );
 

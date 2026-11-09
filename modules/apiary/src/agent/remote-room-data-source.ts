@@ -7,16 +7,59 @@
  *
  * Participant list is cached locally and updated by the agent runtime
  * when it processes ParticipantJoined/Left events from the SSE stream.
+ *
+ * The server URL and session token can change under a live source: when the
+ * room server restarts, every session token it issued is gone, and when the
+ * URL the agent joined with dies (an expired tunnel) the room may still answer
+ * on localhost. A `SessionRecovery` (see cli/rejoin.ts) handles both; every
+ * request goes through `request()`, which asks it for help once and retries.
  */
 
 import type { RoomEvent } from "../core/events.js";
 import type { EventCategory, Message, PaginatedResult, Participant } from "../core/types.js";
 import type { RoomDataSource } from "./room-data-source.js";
 
+/**
+ * The room connection is lost and could not be restored automatically.
+ *
+ * Reads that used to answer "nothing" on any failure let this through, so the
+ * agent is told the room is unreachable instead of being shown an empty room.
+ * `permanent` means retrying will not help (the share link no longer works,
+ * or the agent was removed); the agent has to join again.
+ */
+export class RoomConnectionError extends Error {
+  constructor(message: string, readonly permanent: boolean) {
+    super(message);
+    this.name = "RoomConnectionError";
+  }
+}
+
+/** Restores a lost session. Implemented by the CLI runtime's RoomRejoiner. */
+export interface SessionRecovery {
+  /**
+   * The server answered 401 (the session token is no longer valid). Put a new
+   * session in place with `setSession()` and resolve, or throw a
+   * RoomConnectionError saying why that was not possible. `usedToken` is the
+   * token the rejected request carried: if it is no longer the current one,
+   * someone else already re-joined and there is nothing to do.
+   */
+  sessionInvalid(usedToken?: string): Promise<void>;
+  /**
+   * A request never reached the server (network error). Resolve true when the
+   * source now points at a URL that answers, false otherwise. Never throws.
+   */
+  unreachable(): Promise<boolean>;
+}
+
+function isAbort(err: unknown): boolean {
+  return err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError");
+}
+
 export class RemoteRoomDataSource implements RoomDataSource {
   private _participants: Participant[] = [];
   private _selfId = "";
   private _selfName = "";
+  private _recovery: SessionRecovery | null = null;
 
   constructor(
     private _serverUrl: string,
@@ -28,6 +71,17 @@ export class RemoteRoomDataSource implements RoomDataSource {
   setSelf(id: string, name: string): void {
     this._selfId = id;
     this._selfName = name;
+  }
+
+  /** Swap in a new server URL and/or session token (after a re-join or URL fallback). */
+  setSession(serverUrl: string, sessionToken: string): void {
+    this._serverUrl = serverUrl;
+    this._sessionToken = sessionToken;
+  }
+
+  /** Install the handler that restores a lost session. */
+  setRecovery(recovery: SessionRecovery | null): void {
+    this._recovery = recovery;
   }
 
   get roomId(): string {
@@ -69,18 +123,52 @@ export class RemoteRoomDataSource implements RoomDataSource {
     return [...this._participants];
   }
 
+  // ── HTTP ──────────────────────────────────────────────────────────────────
+
+  /**
+   * An authenticated request to the room server, with the CURRENT URL and
+   * token. On a network error or a 401 it asks the recovery handler once, then
+   * retries once with whatever URL and token are in place afterwards.
+   *
+   * Throws RoomConnectionError when the session was invalid and could not be
+   * restored; rethrows a network error that no fallback could route around.
+   */
+  async request(path: string, init: RequestInit & { headers?: Record<string, string> } = {}): Promise<Response> {
+    let usedToken = this._sessionToken;
+    const attempt = () => {
+      usedToken = this._sessionToken;
+      return fetch(`${this._serverUrl}${path}`, {
+        ...init,
+        headers: { ...(init.headers ?? {}), Authorization: `Bearer ${usedToken}` },
+      });
+    };
+
+    let res: Response;
+    try {
+      res = await attempt();
+    } catch (err) {
+      if (isAbort(err) || !this._recovery) throw err;
+      if (!(await this._recovery.unreachable())) throw err;
+      res = await attempt();
+    }
+    if (res.status === 401 && this._recovery) {
+      await res.body?.cancel().catch(() => {});
+      await this._recovery.sessionInvalid(usedToken);
+      res = await attempt();
+    }
+    return res;
+  }
+
   // ── HTTP-backed data access ───────────────────────────────────────────────
 
   async getMessage(id: string): Promise<Message | null> {
     try {
-      const res = await fetch(
-        `${this._serverUrl}/message/${encodeURIComponent(id)}`,
-        { headers: { Authorization: `Bearer ${this._sessionToken}` } },
-      );
+      const res = await this.request(`/message/${encodeURIComponent(id)}`);
       if (!res.ok) return null;
       const data = (await res.json()) as { message: Message };
       return data.message;
-    } catch {
+    } catch (err) {
+      if (err instanceof RoomConnectionError) throw err;
       return null;
     }
   }
@@ -94,12 +182,11 @@ export class RemoteRoomDataSource implements RoomDataSource {
     if (cursor) params.set("cursor", cursor);
 
     try {
-      const res = await fetch(`${this._serverUrl}/search?${params}`, {
-        headers: { Authorization: `Bearer ${this._sessionToken}` },
-      });
+      const res = await this.request(`/search?${params}`);
       if (!res.ok) return { items: [], has_more: false, next_cursor: null };
       return (await res.json()) as PaginatedResult<Message>;
-    } catch {
+    } catch (err) {
+      if (err instanceof RoomConnectionError) throw err;
       return { items: [], has_more: false, next_cursor: null };
     }
   }
@@ -112,12 +199,11 @@ export class RemoteRoomDataSource implements RoomDataSource {
     if (cursor) params.set("cursor", cursor);
 
     try {
-      const res = await fetch(`${this._serverUrl}/messages?${params}`, {
-        headers: { Authorization: `Bearer ${this._sessionToken}` },
-      });
+      const res = await this.request(`/messages?${params}`);
       if (!res.ok) return { items: [], has_more: false, next_cursor: null };
       return (await res.json()) as PaginatedResult<Message>;
-    } catch {
+    } catch (err) {
+      if (err instanceof RoomConnectionError) throw err;
       return { items: [], has_more: false, next_cursor: null };
     }
   }
@@ -132,12 +218,11 @@ export class RemoteRoomDataSource implements RoomDataSource {
     if (cursor) params.set("cursor", cursor);
 
     try {
-      const res = await fetch(`${this._serverUrl}/events/history?${params}`, {
-        headers: { Authorization: `Bearer ${this._sessionToken}` },
-      });
+      const res = await this.request(`/events/history?${params}`);
       if (!res.ok) return { items: [], has_more: false, next_cursor: null };
       return (await res.json()) as PaginatedResult<RoomEvent>;
-    } catch {
+    } catch (err) {
+      if (err instanceof RoomConnectionError) throw err;
       return { items: [], has_more: false, next_cursor: null };
     }
   }
@@ -155,9 +240,9 @@ export class RemoteRoomDataSource implements RoomDataSource {
     if (attachments?.length) body.attachments = attachments;
     if (recipients?.length) body.recipients = recipients;
 
-    const res = await fetch(`${this._serverUrl}/message`, {
+    const res = await this.request("/message", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._sessionToken}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
 
@@ -180,9 +265,9 @@ export class RemoteRoomDataSource implements RoomDataSource {
   }
 
   async emitEvent(event: RoomEvent): Promise<void> {
-    const res = await fetch(`${this._serverUrl}/event`, {
+    const res = await this.request("/event", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._sessionToken}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event }),
     });
 

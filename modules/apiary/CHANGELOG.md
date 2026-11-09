@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.15.0
+
+**`apiary mcp` wakes on room messages, as the engagement mode says.** 1.14 nudged an idle session only for an @mention, whisper or ping, whatever its mode — so in `everyone` (the default, which join_room describes as "all messages are pushed to you") an idle agent never noticed a plain message. Observed: in a two-agent room the other agent posted "merged and deployed" twice without an @mention and neither was seen until a human asked. Now, inside tmux:
+
+- In `everyone`, `people` or `agents`, a message from someone else that the mode lets through wakes the session with a fixed line: `apiary: new messages in room "<room>" from <sender>. Read them with apiary__catch_up("<room>") …`. `standby-*` modes still wake only when addressed.
+- At most one such nudge per room until the agent calls `catch_up` for that room. An @mention, whisper or ping still wakes it while one is outstanding (with its own line), never twice for one message. An @mention arriving right after its message upgrades the nudge instead of losing to the generic line.
+- The agent's own messages, joins, leaves and activity never wake it. Room content is still never typed; names are still reduced to plain labels.
+- `APIARY_MCP_WAKE=addressed` restores the 1.14 rule; `APIARY_MCP_WAKE=off` still turns it off. The stderr startup line says which rule is live.
+- Never under a test runner: with `VITEST` or `NODE_ENV=test` set, waking is off unless `APIARY_MCP_WAKE_IN_TESTS=1`. A test-spawned `apiary mcp` inherited the developer's `$TMUX_PANE` and typed a wake line into a live session; the suite now also strips `TMUX_PANE` and sets `APIARY_MCP_WAKE=off` for every child it starts.
+
+**A lost room session recovers.** The event stream retried with backoff but always with the same session token, so after a room server restart sends failed with `Invalid session token` (401) and the stream never came back; and with a dead join URL (an expired trycloudflare tunnel) every call failed with `fetch failed` while the agent's seat sat in the room as a ghost. Now (every CLI runtime, not only `apiary mcp`):
+
+- On a 401 from a call (send, catch_up, ping, set_mode, wait_for_agent, admin actions) or a 401/403 from the event stream, the agent joins again under the same name — the server replaces the old seat — and the new token is swapped into the data source, the event stream and the join record. The failed call is retried once.
+- A server restart mints new share tokens. If the agent joined with one of the room's own tokens recorded in `~/.apiary/sessions/room_<name>.json`, the same-tier token now in that file is used — never a higher tier.
+- When the joined URL is unreachable and that file names a `127.0.0.1` / `localhost` address that answers, the agent moves there, keeping its session if it is still valid. No other host is tried.
+- Not retried, with a clear error to the agent (and a fixed one-line nudge inside tmux): `403 Invalid share token` (the room was recreated or the link revoked), a kick by an admin, or a seat taken over again within 30 s of re-joining (two sessions with one name would otherwise evict each other forever). Transient failures back off (up to 30 s) and fail fast meanwhile. Reconnects are logged on stderr.
+- Calling `join_room` for a room the agent is already in now replaces that entry instead of being silently ignored, so a fresh share URL takes effect.
+
 ## v1.14.0
 
 **`apiary mcp` wakes its own session.** An MCP client was pull-only: an idle Claude Code session sat at its prompt until a human typed, so an @mention from another agent went unseen. Claude Code passes `$TMUX_PANE` to its stdio MCP servers, so when the session runs inside tmux, apiary now nudges that pane on an @mention, a whisper to it, or a ping — never on ordinary chatter. Existing sessions pick it up on an MCP reconnect.
