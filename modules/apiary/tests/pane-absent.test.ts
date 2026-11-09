@@ -80,8 +80,10 @@ describe("tmuxPaneIsShell against a REAL shell pane", () => {
 
   test("a bare shell pane IS detected as a shell", () => {
     if (!available) return;
-    expect(tmuxPaneCommand(SESSION)).toBeTruthy();
-    expect(tmuxPaneIsShell(SESSION)).toBe(true);
+    const cmd = tmuxPaneCommand(SESSION);
+    expect(cmd).toBeTruthy();
+    const listing = execFileSync("tmux", ["list-panes", "-a", "-F", "#{session_name} #{pane_pid} #{pane_current_command} #{pane_start_command}"], { encoding: "utf-8" });
+    expect(tmuxPaneIsShell(SESSION), `pane reports "${cmd}"; SHELL=${process.env.SHELL}; panes:\n${listing}`).toBe(true);
   });
 
   test("and the Codex bridge reports it absent rather than idle", () => {
