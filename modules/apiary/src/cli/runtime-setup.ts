@@ -23,7 +23,7 @@ import type { AuthorityLevel } from "../core/types.js";
 import type { EngagementMode } from "../agent/engagement.js";
 import type { LabeledEvent } from "../agent/multiplexer.js";
 import type { ContentPart } from "../agent/types.js";
-import { buildRuntimeMcpOptions, type JoinResult } from "./runtime-handlers.js";
+import { buildRuntimeMcpOptions, trackRoomEvent, type JoinResult } from "./runtime-handlers.js";
 
 export type { JoinResult };
 
@@ -120,13 +120,7 @@ export async function setupAgentRuntime(options: AgentRuntimeOptions): Promise<A
           if (!result.done) {
             const { roomId, event } = result.value;
             const jr = joinResults.find((j) => j.roomId === roomId);
-            if (jr) {
-              if (event.type === "ParticipantJoined") {
-                jr.dataSource.addParticipant(event.participant);
-              } else if (event.type === "ParticipantLeft") {
-                jr.dataSource.removeParticipant(event.participant_id);
-              }
-            }
+            if (jr) trackRoomEvent(jr, event);
           }
           return result;
         },

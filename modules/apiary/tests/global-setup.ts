@@ -17,5 +17,9 @@ export default function setup(): () => void {
   process.env.APIARY_TEST_REAL_HOME = process.env.HOME ?? "";
   process.env.HOME = home;
   process.env.USERPROFILE = home;
+  // No test may reach the developer's tmux pane: `apiary mcp` nudges
+  // $TMUX_PANE, and a spawned one inherited it and typed into a live session.
+  delete process.env.TMUX_PANE;
+  process.env.APIARY_MCP_WAKE = "off";
   return () => rmSync(home, { recursive: true, force: true });
 }

@@ -260,7 +260,11 @@ function joinHeadless(
  * client (Claude Code, Cursor) drives it. `tool()` returns the text result.
  */
 async function startMcpClient(): Promise<{ tool: (name: string, args: Record<string, unknown>) => Promise<string>; stop: () => void }> {
-  const child = spawn(NODE, [CLI_PATH, "mcp"], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env } });
+  // Never let a test's `apiary mcp` find a real pane: run under tmux, it
+  // inherited the developer's $TMUX_PANE and typed wake lines into it.
+  const env: NodeJS.ProcessEnv = { ...process.env, APIARY_MCP_WAKE: "off" };
+  delete env.TMUX_PANE;
+  const child = spawn(NODE, [CLI_PATH, "mcp"], { stdio: ["pipe", "pipe", "pipe"], env });
   const pending = new Map<number, (msg: Record<string, unknown>) => void>();
   const rl = createInterface({ input: child.stdout!, terminal: false });
   rl.on("line", (line) => {
@@ -1221,6 +1225,52 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
       b.stop();
     }
   }, 30_000);
+
+  test("an `apiary mcp` agent re-joins after the room server restarts and can still send", async () => {
+    // The server keeps session tokens in memory and mints new share tokens on
+    // boot, so after a restart the agent's session answered 401 forever. It
+    // re-joins (same name, so the server replaces the seat) using the room's
+    // own same-tier token from the local session file, then retries the send.
+    const port = getPort();
+    const roomName = `restart-${port}`;
+    const first = await startServer({ port, room: roomName });
+    const a = await startMcpClient();
+    let b: Awaited<ReturnType<typeof startMcpClient>> | null = null;
+    let second: ServerHandle | null = null;
+    try {
+      const url = `${first.serverUrl}/?token=${first.memberToken}`;
+      expect(await a.tool("apiary__join_room", { url, name: "Restarter" })).toContain("Joined");
+
+      await new Promise<void>((resolve) => {
+        first.process.once("exit", () => resolve());
+        first.cleanup();
+      });
+      second = await startServer({ port, room: roomName });
+      servers.push(second);
+      expect(second.memberToken).not.toBe(first.memberToken);
+
+      expect(await a.tool("apiary__send_message", { room: roomName, content: "still here after the restart" }))
+        .toMatch(/Message sent/);
+
+      b = await startMcpClient();
+      // The join response's "Recent" block shows the room's latest messages.
+      const joinedWitness = await b.tool("apiary__join_room", {
+        url: `${second.serverUrl}/?token=${second.memberToken}`,
+        name: "Witness",
+      });
+      expect(joinedWitness).toContain("Joined");
+      expect(joinedWitness).toContain("still here after the restart");
+
+      // One seat for the agent, not a ghost plus a new one.
+      const admin = await httpJoin(second.serverUrl, second.adminToken, { name: "Admin" });
+      const names = (await httpParticipants(second.serverUrl, admin.sessionToken)).map((p) => p.name);
+      expect(names.filter((n) => n === "Restarter")).toHaveLength(1);
+    } finally {
+      a.stop();
+      b?.stop();
+      if (!second) first.cleanup();
+    }
+  }, 45_000);
 
   // ── Headless readiness ────────────────────────────────────────────────
 

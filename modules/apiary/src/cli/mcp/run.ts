@@ -9,8 +9,9 @@
  * No tmux. No wrapper. Just tools.
  *
  * Event delivery is pull-based: the agent calls catch_up() to get new events.
- * Inside tmux, events addressed to the agent also nudge its pane (see wake.ts),
- * so an idle session notices an @mention without anyone typing.
+ * Inside tmux, room messages also nudge its pane as its engagement mode says
+ * (see wake.ts), so an idle session notices them without anyone typing.
+ * A lost session (server restart, dead URL) is re-joined (see rejoin.ts).
  * The EventProcessor still runs in the background, classifying events via the
  * engagement model and buffering content — catch_up() returns the formatted,
  * classified result.
@@ -26,9 +27,9 @@ import { createStdioRuntimeMcpServer } from "../../agent/mcp/runtime.js";
 import type { AuthorityLevel } from "../../core/types.js";
 import type { LabeledEvent } from "../../agent/multiplexer.js";
 import type { ContentPart } from "../../agent/types.js";
-import { buildRuntimeMcpOptions, type JoinResult } from "../runtime-handlers.js";
+import { buildRuntimeMcpOptions, trackRoomEvent, type JoinResult } from "../runtime-handlers.js";
 import { TmuxBridge } from "../claude/tmux-bridge.js";
-import { McpWaker, resolveWakeConfig } from "./wake.js";
+import { McpWaker, describeWake, lostLine, resolveWakeConfig } from "./wake.js";
 
 export interface McpServerOptions {
   name?: string;
@@ -54,15 +55,14 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     pullOnly: true,
   });
 
-  // ── Wake the session's own tmux pane when the room addresses it ───────
+  // ── Wake the session's own tmux pane when the room has something for it ─
   const wake = resolveWakeConfig(process.env);
-  const bridge = wake.pane ? new TmuxBridge(wake.pane, { attended: true }) : null;
-  const waker = bridge
-    ? new McpWaker({
-        nudge: (text) => {
-          bridge.deliver([{ type: "text", text }], { dedupe: true }).catch(() => {});
-        },
-      })
+  const bridge = wake.pane && wake.policy !== "off" ? new TmuxBridge(wake.pane, { attended: true }) : null;
+  const nudge = (text: string) => {
+    bridge?.deliver([{ type: "text", text }], { dedupe: true }).catch(() => {});
+  };
+  const waker = bridge && wake.policy !== "off"
+    ? new McpWaker({ nudge }, { policy: wake.policy })
     : null;
 
   // ── Wrap SSE source for participant cache updates and wake-ups ────────
@@ -76,13 +76,15 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
             const { roomId, event } = result.value;
             const jr = joinResults.find((j) => j.roomId === roomId);
             if (jr) {
-              if (event.type === "ParticipantJoined") {
-                jr.dataSource.addParticipant(event.participant);
-              } else if (event.type === "ParticipantLeft") {
-                jr.dataSource.removeParticipant(event.participant_id);
-              }
+              trackRoomEvent(jr, event);
               try {
-                waker?.onEvent(jr.roomName, event, jr.participantId, jr.dataSource.listParticipants());
+                waker?.onEvent(
+                  jr.roomName,
+                  event,
+                  jr.participantId,
+                  jr.dataSource.listParticipants(),
+                  processor.getModeForRoom(roomId),
+                );
               } catch {
                 // A failed nudge must never stop the event stream; catch_up still works.
               }
@@ -95,9 +97,30 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   };
 
   // ── Create stdio MCP server (shared handler set) ──────────────────────
-  const mcpServer = await createStdioRuntimeMcpServer(
-    buildRuntimeMcpOptions({ processor, sseMux, joinResults, agentName, authority }),
-  );
+  // Re-joins after a server restart or a dead URL are logged on stderr; a
+  // room lost for good also nudges the pane (fixed text) so an idle agent
+  // finds out without waiting for its next call.
+  const log = (line: string) => process.stderr.write(`apiary: ${line}\n`);
+  const mcpOptions = buildRuntimeMcpOptions({
+    processor,
+    sseMux,
+    joinResults,
+    agentName,
+    authority,
+    log,
+    onRoomLost: (jr) => {
+      if (waker) nudge(lostLine(jr.roomName));
+    },
+  });
+  const mcpServer = await createStdioRuntimeMcpServer({
+    ...mcpOptions,
+    // Reading a room re-arms its wake-up.
+    onCatchUp: (room) => {
+      const roomId = processor.resolve(room)?.dataSource.roomId;
+      const jr = joinResults.find((j) => j.roomId === roomId);
+      if (jr) waker?.caughtUp(jr.roomName);
+    },
+  });
 
   // ── Start event loop in background ────────────────────────────────────
   // Delivery is a no-op: events are buffered in the EventProcessor and
@@ -118,14 +141,11 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     process.stderr.write(`pending rooms: ${options.joinUrls.join(", ")}\n`);
   }
   process.stderr.write(`use join_room(url) to connect to a room\n`);
-  process.stderr.write(
-    waker
-      ? `wake: on — @mentions, whispers and pings nudge tmux pane ${wake.pane}\n`
-      : `wake: off — ${wake.reason}; call catch_up() to see room messages\n`,
-  );
+  process.stderr.write(`${describeWake(wake)}\n`);
 
   // ── Cleanup ───────────────────────────────────────────────────────────
   async function cleanup(): Promise<void> {
+    waker?.stop();
     bridge?.stop();
     await processor.stop();
     sseMux.close();
