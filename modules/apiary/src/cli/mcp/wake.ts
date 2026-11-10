@@ -178,11 +178,38 @@ export interface McpWakerOptions {
    * instead of losing to the generic one. 0 types it at once.
    */
   plainDelayMs?: number;
+  /**
+   * Has the agent already been shown this event (join's recent activity,
+   * catch_up)? Such an event is not news and never wakes it.
+   */
+  isSeen?: (eventId: string) => boolean;
+}
+
+/** Per-event context the stream knows and the event does not carry. */
+export interface WakeContext {
+  /**
+   * Server time (ms) at which this agent joined the room. Anything stamped
+   * earlier is history the server replays on every stream connect, not news.
+   */
+  liveSince?: number;
+  /** The agent's own name: identifies its own messages when no self id is known yet. */
+  selfName?: string;
+}
+
+/** Let a replayed event through only if it happened after the join (1 s for the Date header's rounding). */
+function isBeforeJoin(event: RoomEvent, liveSince: number | undefined): boolean {
+  if (liveSince === undefined) return false;
+  const t = new Date((event as { timestamp?: Date | string }).timestamp ?? NaN).getTime();
+  if (Number.isNaN(t)) return false;
+  return t < liveSince - 1000;
 }
 
 /**
  * Turns room events into nudges.
  *
+ * - Only live events: the server replays the room's last 50 events on every
+ *   stream connect, so an event the stream already delivered, one the agent
+ *   was already shown, or one older than the join never wakes it.
  * - One nudge per message: a whisper that also @mentions the agent arrives as
  *   two events and must not wake it twice.
  * - One outstanding plain nudge per room: a busy room produces one line, not
@@ -190,6 +217,9 @@ export interface McpWakerOptions {
  */
 export class McpWaker {
   private seen = new Set<string>();
+  /** Every event id the stream has offered, so a replay after a reconnect is not news. */
+  private offered = new Set<string>();
+  private readonly isSeen: (eventId: string) => boolean;
   /** Rooms with a nudge the agent has not answered with catch_up yet. */
   private pending = new Set<string>();
   /** Plain nudges waiting out `plainDelayMs`, by room. */
@@ -200,6 +230,15 @@ export class McpWaker {
   constructor(private nudger: Nudger, options: McpWakerOptions = {}) {
     this.policy = options.policy ?? "mode";
     this.plainDelayMs = options.plainDelayMs ?? 300;
+    this.isSeen = options.isSeen ?? (() => false);
+  }
+
+  /** Is this event history or a repeat, rather than something that just happened? */
+  private isReplay(event: RoomEvent, ctx: WakeContext): boolean {
+    if (this.offered.has(event.id)) return true;
+    this.offered.add(event.id);
+    if (this.offered.size > 2000) this.offered.delete(this.offered.values().next().value as string);
+    return this.isSeen(event.id) || isBeforeJoin(event, ctx.liveSince);
   }
 
   /**
@@ -213,7 +252,9 @@ export class McpWaker {
     selfId: string,
     participants: Participant[],
     mode: EngagementMode = "everyone",
+    ctx: WakeContext = {},
   ): boolean {
+    if (this.isReplay(event, ctx)) return false;
     const kind = addressedKind(event, selfId, participants);
     if (kind) {
       const key = event.type === "Pinged" ? event.id : (event as { message: { id: string } }).message.id;
@@ -233,6 +274,8 @@ export class McpWaker {
     if (this.policy !== "mode") return false;
     if (!isRoomMessageFor(event, selfId, participants, mode)) return false;
     const message = (event as Extract<RoomEvent, { type: "MessageSent" }>).message;
+    // No self id to compare yet: the agent's own name is the next best "that's me".
+    if (!selfId && ctx.selfName && message.sender_name === ctx.selfName) return false;
     if (this.seen.has(message.id)) return false;
     // Coalesce: the room already has a nudge out (or one about to go out).
     if (this.pending.has(roomName) || this.scheduled.has(roomName)) return false;
@@ -240,6 +283,8 @@ export class McpWaker {
     const fire = () => {
       this.scheduled.delete(roomName);
       if (this.seen.has(message.id) || this.pending.has(roomName)) return;
+      // Shown to the agent while the nudge waited (join's recent block, catch_up).
+      if (this.isSeen(event.id)) return;
       this.remember(message.id);
       this.pending.add(roomName);
       this.nudger.nudge(roomMessageLine(roomName, message.sender_name));

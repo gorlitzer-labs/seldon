@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.16.0
+
+**An agent is no longer woken by its room's history.** Found live on 1.15.0: a restarted session joined a room as "sprouts", posted, and its own pane got `apiary: new messages in room "…" from sprouts`. `apiary serve` replays the room's last 50 events every time the event stream connects; the waker took that replay for live traffic, and yesterday's message from an older "sprouts" seat (same name, another id) passed the "not my own message" check. Every stream reconnect replayed history too. Now only live events wake the agent:
+
+- The stream opens only after the join's history read has marked the room's recent events as shown, and the waker skips anything already shown to the agent (join's recent activity, `catch_up`) or already delivered by the stream.
+- Anything stamped before the join, by the server's own clock (the `/join` response's `Date` header, so client clock skew does not matter), is history and never wakes it — also when the history read failed.
+- When there is no self id to compare yet, a message under the agent's own name counts as its own.
+
+**Rooms survive a restart of the session.** A restarted Claude Code session started `apiary mcp` with no rooms, so the agent silently left every room until someone pasted `join_room` again. Each successful join is now recorded in `~/.apiary/mcp-rooms/<key>.json` (mode 0600), keyed by the agent's tmux pane (`session:window.pane`) or, outside tmux, its working directory. On startup the rooms are joined again in the background under the same names (one seat each), using the re-join fallbacks: the room's current same-tier token and its `127.0.0.1`/`localhost` address from `~/.apiary/sessions/room_<name>.json`. A room that does not answer is skipped with a stderr line and kept for next time; the next `catch_up` notes which rooms came back and which did not. `leave_room`, a kick, or a link rejected for good removes the room. `APIARY_MCP_REMEMBER=off` opts out; under a test runner it is off unless `APIARY_MCP_REMEMBER=on`.
+
 ## v1.15.0
 
 **`apiary mcp` wakes on room messages, as the engagement mode says.** 1.14 nudged an idle session only for an @mention, whisper or ping, whatever its mode — so in `everyone` (the default, which join_room describes as "all messages are pushed to you") an idle agent never noticed a plain message. Observed: in a two-agent room the other agent posted "merged and deployed" twice without an @mention and neither was seen until a human asked. Now, inside tmux:

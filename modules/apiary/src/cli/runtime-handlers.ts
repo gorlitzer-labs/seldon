@@ -59,6 +59,12 @@ export interface JoinResult {
   rejoiner?: RoomRejoiner;
   /** Set when the event stream reported this agent kicked: it is never re-joined. */
   removedBy?: string;
+  /**
+   * Server time (ms, from the /join response's Date header) when this agent
+   * joined. The stream replays older events on every connect; they are
+   * history, never a reason to wake the agent.
+   */
+  liveSince?: number;
 }
 
 /**
@@ -75,6 +81,12 @@ export function trackRoomEvent(jr: JoinResult, event: RoomEvent): void {
     if (event.participant_id === jr.participantId) jr.removedBy = safeName(event.kicked_by);
     jr.dataSource.removeParticipant(event.participant_id);
   }
+}
+
+/** The server's clock at response time, from its Date header (ms), or undefined. */
+export function serverTimeOf(res: Response): number | undefined {
+  const t = Date.parse(res.headers.get("date") ?? "");
+  return Number.isNaN(t) ? undefined : t;
 }
 
 function safeName(name: string): string {
@@ -94,6 +106,10 @@ export interface RuntimeHandlerContext {
   log?: (line: string) => void;
   /** Told once when a room is lost for good and will not be re-joined. */
   onRoomLost?: (jr: JoinResult, error: RoomConnectionError) => void;
+  /** After every successful join and automatic re-join (room memory records it). */
+  onJoined?: (jr: JoinResult) => void;
+  /** After leave_room (room memory forgets it). */
+  onLeft?: (jr: JoinResult) => void;
   /** Test seam for the rejoiner (timings, fetch, session-file reader). */
   rejoinOverrides?: Partial<Omit<RejoinDeps, "sseMux" | "processor" | "log" | "onLost">>;
 }
@@ -269,7 +285,9 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
         // Register in EventProcessor and SSE multiplexer
         const mode = processor.getModeForRoom(roomId) ?? "everyone";
         processor.connectRemoteRoom(dataSource, roomName);
-        sseMux.addConnection(serverUrl, sessionToken, roomName, roomId);
+        // The event stream opens only after the history read below has marked
+        // the room's recent events as shown: the server replays them on
+        // connect, and they must arrive as already-seen, not as news.
 
         // Track for cleanup
         const serverRoomName = String(data.roomName ?? "");
@@ -282,6 +300,7 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
           authority: roomAuthority,
           participants,
           dataSource,
+          liveSince: serverTimeOf(res),
           rejoin: {
             joinUrl: url,
             shareToken: token ?? undefined,
@@ -300,6 +319,7 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
           processor,
           log: ctx.log,
           onLost: ctx.onRoomLost ? (_room, err) => ctx.onRoomLost!(jr, err) : undefined,
+          onRejoined: ctx.onJoined ? () => ctx.onJoined!(jr) : undefined,
         });
         dataSource.setRecovery(jr.rejoiner);
         joinResults.push(jr);
@@ -318,6 +338,8 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
           // path doesn't support image content blocks yet. Wire up when adding
           // image delivery to the tmux/HTTP agent path.
         }
+        sseMux.addConnection(serverUrl, sessionToken, roomName, roomId);
+        try { ctx.onJoined?.(jr); } catch { /* a failed record must not fail the join */ }
 
         await onRoomJoined?.();
 
@@ -377,6 +399,7 @@ export function buildRuntimeMcpOptions(ctx: RuntimeHandlerContext): RuntimeMcpSe
         }
 
         joinResults.splice(idx, 1);
+        try { ctx.onLeft?.(jr); } catch { /* best effort */ }
       }
       return { success: true };
     },

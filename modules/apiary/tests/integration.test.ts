@@ -8,8 +8,9 @@
 import { describe, test, expect, beforeAll, afterEach } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { HEADLESS_READY } from "../src/cli/join.js";
 
 const CLI_PATH = resolve(__dirname, "../dist/cli/index.js");
@@ -259,12 +260,20 @@ function joinHeadless(
  * A standalone `apiary mcp` process driven over stdio JSON-RPC, the way an MCP
  * client (Claude Code, Cursor) drives it. `tool()` returns the text result.
  */
-async function startMcpClient(): Promise<{ tool: (name: string, args: Record<string, unknown>) => Promise<string>; stop: () => void }> {
+async function startMcpClient(opts: { env?: Record<string, string>; cwd?: string } = {}): Promise<{
+  tool: (name: string, args: Record<string, unknown>) => Promise<string>;
+  stop: () => Promise<void>;
+  stderr: () => string;
+}> {
   // Never let a test's `apiary mcp` find a real pane: run under tmux, it
   // inherited the developer's $TMUX_PANE and typed wake lines into it.
-  const env: NodeJS.ProcessEnv = { ...process.env, APIARY_MCP_WAKE: "off" };
+  // Room memory is off too unless a test opts in, so clients never rejoin
+  // each other's rooms through it.
+  const env: NodeJS.ProcessEnv = { ...process.env, APIARY_MCP_WAKE: "off", APIARY_MCP_REMEMBER: "off", ...(opts.env ?? {}) };
   delete env.TMUX_PANE;
-  const child = spawn(NODE, [CLI_PATH, "mcp"], { stdio: ["pipe", "pipe", "pipe"], env });
+  const child = spawn(NODE, [CLI_PATH, "mcp"], { stdio: ["pipe", "pipe", "pipe"], env, cwd: opts.cwd });
+  let stderr = "";
+  child.stderr!.on("data", (c: Buffer) => { stderr += c.toString(); });
   const pending = new Map<number, (msg: Record<string, unknown>) => void>();
   const rl = createInterface({ input: child.stdout!, terminal: false });
   rl.on("line", (line) => {
@@ -288,8 +297,31 @@ async function startMcpClient(): Promise<{ tool: (name: string, args: Record<str
       const content = (r.result as { content: Array<{ text: string }> }).content;
       return content.map((c) => c.text).join("\n");
     },
-    stop: () => { child.stdin!.end(); child.kill("SIGTERM"); },
+    stop: () => new Promise<void>((resolve) => {
+      if (child.exitCode !== null) return resolve();
+      child.once("exit", () => resolve());
+      child.stdin!.end();
+      child.kill("SIGTERM");
+    }),
+    stderr: () => stderr,
   };
+}
+
+/** Poll `catch_up()` (no room) until it satisfies `ok`, as an agent would. */
+async function catchUpUntil(
+  client: { tool: (name: string, args: Record<string, unknown>) => Promise<string> },
+  ok: (text: string) => boolean,
+  timeoutMs = 10_000,
+): Promise<string[]> {
+  const seen: string[] = [];
+  const start = Date.now();
+  for (;;) {
+    const text = await client.tool("apiary__catch_up", {});
+    seen.push(text);
+    if (ok(text)) return seen;
+    if (Date.now() - start > timeoutMs) throw new Error(`catch_up never matched; saw:\n${seen.join("\n---\n")}`);
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
 describe.skipIf(!HAS_BUILD)("Integration", () => {
@@ -1269,6 +1301,99 @@ describe.skipIf(!HAS_BUILD)("Integration", () => {
       a.stop();
       b?.stop();
       if (!second) first.cleanup();
+    }
+  }, 45_000);
+
+  // ── Room memory across a session restart ──────────────────────────────
+
+  /** An `apiary mcp` that remembers rooms, as one agent identity (its own cwd). */
+  function rememberingClient(cwd: string) {
+    return startMcpClient({ cwd, env: { APIARY_MCP_REMEMBER: "on" } });
+  }
+
+  test("a restarted `apiary mcp` session rejoins its rooms under the same name, with one seat", async () => {
+    const server = await startServer();
+    servers.push(server);
+    const cwd = mkdtempSync(join(tmpdir(), "apiary-agent-"));
+    const url = `${server.serverUrl}/?token=${server.memberToken}`;
+
+    const first = await rememberingClient(cwd);
+    expect(await first.tool("apiary__join_room", { url, name: "Rememberer" })).toContain("Joined");
+    await first.stop(); // the Claude Code session restarts
+
+    const second = await rememberingClient(cwd);
+    try {
+      const seen = await catchUpUntil(second, (t) => t.includes(server.roomName));
+      expect(seen.join("\n")).toContain(`Rejoined room "${server.roomName}" from your last session, as "Rememberer".`);
+      expect(await second.tool("apiary__send_message", { room: server.roomName, content: "back after a restart" }))
+        .toMatch(/Message sent/);
+      const admin = await httpJoin(server.serverUrl, server.adminToken, { name: "Admin" });
+      const names = (await httpParticipants(server.serverUrl, admin.sessionToken)).map((p) => p.name);
+      expect(names.filter((n) => n === "Rememberer")).toHaveLength(1);
+      expect(second.stderr()).toMatch(/rejoined room ".*" from the last session as "Rememberer"/);
+      expect(second.stderr()).not.toContain(server.memberToken); // tokens never logged
+    } finally {
+      await second.stop();
+    }
+  }, 45_000);
+
+  test("after both the session and the room server restart, the rooms come back with the room's new token", async () => {
+    const port = getPort();
+    const roomName = `remember-${port}`;
+    const before = await startServer({ port, room: roomName });
+    const cwd = mkdtempSync(join(tmpdir(), "apiary-agent-"));
+    const first = await rememberingClient(cwd);
+    expect(await first.tool("apiary__join_room", { url: `${before.serverUrl}/?token=${before.memberToken}`, name: "Rememberer" }))
+      .toContain("Joined");
+    await first.stop();
+    await new Promise<void>((resolve) => { before.process.once("exit", () => resolve()); before.cleanup(); });
+    const after = await startServer({ port, room: roomName });
+    servers.push(after);
+
+    const second = await rememberingClient(cwd);
+    try {
+      await catchUpUntil(second, (t) => t.includes(roomName));
+      expect(await second.tool("apiary__send_message", { room: roomName, content: "both restarted" })).toMatch(/Message sent/);
+    } finally {
+      await second.stop();
+    }
+  }, 45_000);
+
+  test("a room the agent left is not rejoined after a restart", async () => {
+    const server = await startServer();
+    servers.push(server);
+    const cwd = mkdtempSync(join(tmpdir(), "apiary-agent-"));
+    const first = await rememberingClient(cwd);
+    await first.tool("apiary__join_room", { url: `${server.serverUrl}/?token=${server.memberToken}`, name: "Leaver" });
+    await first.tool("apiary__leave_room", { room: server.roomName });
+    await first.stop();
+
+    const second = await rememberingClient(cwd);
+    try {
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(await second.tool("apiary__catch_up", {})).toBe("Not connected to any rooms.");
+      expect(second.stderr()).not.toMatch(/rejoining/);
+    } finally {
+      await second.stop();
+    }
+  }, 45_000);
+
+  test("a remembered room whose server is gone is skipped, with a note, and no error", async () => {
+    const server = await startServer();
+    const cwd = mkdtempSync(join(tmpdir(), "apiary-agent-"));
+    const first = await rememberingClient(cwd);
+    await first.tool("apiary__join_room", { url: `${server.serverUrl}/?token=${server.memberToken}`, name: "Orphan" });
+    await first.stop();
+    await new Promise<void>((resolve) => { server.process.once("exit", () => resolve()); server.cleanup(); });
+
+    const second = await rememberingClient(cwd);
+    try {
+      const seen = await catchUpUntil(second, (t) => t.includes("did not answer"));
+      expect(seen.at(-1)).toContain(`Room "${server.roomName}" from your last session did not answer, so you are not in it.`);
+      expect(seen.at(-1)).toContain("Not connected to any rooms.");
+      expect(second.stderr()).toMatch(/from the last session is unreachable; skipped/);
+    } finally {
+      await second.stop();
     }
   }, 45_000);
 
