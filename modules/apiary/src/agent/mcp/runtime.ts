@@ -79,6 +79,11 @@ export interface RuntimeMcpServerOptions {
    * waker re-arms that room's nudge here.
    */
   onCatchUp?: (room: string) => void;
+  /**
+   * Notices the agent should read once (e.g. rooms rejoined or skipped from
+   * the last session). Drained by the next catch_up, with or without a room.
+   */
+  takeNotices?: () => string[];
   /** Called when the agent requests leaving a room. */
   onLeaveRoom?: (room: string) => Promise<{ success: boolean; error?: string }>;
   /** Called when the agent changes its own mode. */
@@ -211,10 +216,15 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
     { readOnlyHint: true },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ room }: { room?: string }) => {
+      const notices = opts.takeNotices?.() ?? [];
+      const withNotices = <T extends { content: Array<{ type: string; text?: string }> }>(r: T): T => {
+        if (notices.length === 0) return r;
+        return { ...r, content: [{ type: "text" as const, text: notices.join("\n") + "\n" }, ...r.content] };
+      };
       if (!room) {
         const rooms = resolver.listAll();
         if (rooms.length === 0) {
-          return textResult("Not connected to any rooms.");
+          return withNotices(textResult("Not connected to any rooms."));
         }
         const lines = ["Connected rooms:", ""];
         for (const r of rooms) {
@@ -222,11 +232,11 @@ function registerTools(server: any, opts: RuntimeMcpServerOptions): void {
           lines.push(`  ${r.name}${idPart} — ${r.mode} (${r.participantCount} participants)`);
           if (r.lastMessage) lines.push(`    Last: ${r.lastMessage}`);
         }
-        return textResult(lines.join("\n"));
+        return withNotices(textResult(lines.join("\n")));
       }
       const result = await handleCatchUp(resolver, { room }, toolOptions);
       opts.onCatchUp?.(room);
-      return result;
+      return withNotices(result);
     },
   );
 

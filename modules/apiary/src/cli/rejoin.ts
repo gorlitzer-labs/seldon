@@ -141,6 +141,8 @@ export interface RejoinDeps {
   log?: (line: string) => void;
   /** Told once when a room is lost for good. */
   onLost?: (room: RejoinableRoom, error: RoomConnectionError) => void;
+  /** Told after each successful automatic re-join (the token may have changed). */
+  onRejoined?: (room: RejoinableRoom) => void;
   fetch?: typeof fetch;
   readRoomSession?: (roomName: string) => LocalRoomSession | null;
   sleep?: (ms: number) => Promise<void>;
@@ -409,6 +411,7 @@ export class RoomRejoiner implements SessionRecovery {
 
     this.swapSession(url, token);
     this.log(`room "${room.roomName}": re-joined as "${room.rejoin.name}" at ${url}`);
+    try { this.deps.onRejoined?.(room); } catch { /* a notifier must not break recovery */ }
 
     // The server starts a new seat in its default mode; tell it the one in use.
     const mode = processor.getModeForRoom(room.roomId);
