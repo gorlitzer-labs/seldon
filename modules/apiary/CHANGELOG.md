@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.15.1
+## v1.16.0
 
 **An agent is no longer woken by its room's history.** Found live on 1.15.0: a restarted session joined a room as "sprouts", posted, and its own pane got `apiary: new messages in room "…" from sprouts`. `apiary serve` replays the room's last 50 events every time the event stream connects; the waker took that replay for live traffic, and yesterday's message from an older "sprouts" seat (same name, another id) passed the "not my own message" check. Every stream reconnect replayed history too. Now only live events wake the agent:
 
