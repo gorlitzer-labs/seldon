@@ -671,8 +671,9 @@ async function chooseBrain() {
     console.log(C.bold("\n  Voice brain — pick once (remembered):"));
     console.log("   " + C.cyan("q") + C.dim(" Qwen 3.6-35B — in-process, sharpest, ~20 GB RAM"));
     console.log("   " + C.cyan("b") + C.dim(" Bonsai 2-27B — local server, lighter (~7 GB), tool-capable"));
-    const k = await readKey(C.gold("  [q/b] "));
-    const brain = /^b/i.test(k) ? "bonsai" : "qwen";
+    console.log("   " + C.cyan("u") + C.dim(" Ubik — drive the FF711 pentest agent by voice (needs its bridge up)"));
+    const k = await readKey(C.gold("  [q/b/u] "));
+    const brain = /^b/i.test(k) ? "bonsai" : /^u/i.test(k) ? "ubik" : "qwen";
     console.log(C.dim(`  → ${brain}`));
     saveBrain(brain);
     return brain;
@@ -707,6 +708,16 @@ async function up() {
             later.push("Bonsai unavailable — using Qwen. (macOS/arm64 + the ~7 GB download are needed.)");
             brain = "qwen"; saveBrain("qwen");
           }
+        }
+        if (brain === "ubik") {
+          // Voice drives the FF711 pentest agent (ff711 kali-agent/voice_bridge.py)
+          // instead of a local LLM. No in-process brain loads here — Ubik is the brain.
+          const srv = process.env.DEMERZEL_UBIK_SERVER || "http://127.0.0.1:8092";
+          env.DEMERZEL_BRAIN = "ubik";
+          env.DEMERZEL_UBIK_SERVER = srv;
+          let reachable = false;
+          try { execSync(`curl -sf -o /dev/null --max-time 3 ${srv}/health`, { stdio: "ignore" }); reachable = true; } catch {}
+          go.push(`${C.bold("Brain")}  Ubik agent ${C.dim(`(voice drives the pentest agent @ ${srv}` + (reachable ? ", reachable)" : " — NOT reachable; start it with ./run.sh voice in the Kali box)"))}`);
         }
         if (brain === "qwen") go.push(`${C.bold("Brain")}  Qwen 3.6-35B ${C.dim("(in-process)")}`);
         // The voice always binds loopback; --tailnet fronts it with HTTPS via
