@@ -113,8 +113,20 @@ def load_all(verbose: bool = True) -> tuple[Ears, Brain, Voice]:
     voice = Voice()
     # Brain backend: default is the in-process MLX model (Qwen). Set
     # DEMERZEL_BRAIN=bonsai (or DEMERZEL_LLM_SERVER=<url>) to use a local
-    # OpenAI-compatible server instead -- no 20 GB in-process LLM.
-    if os.environ.get("DEMERZEL_BRAIN", "").lower() == "bonsai" or os.environ.get("DEMERZEL_LLM_SERVER"):
+    # OpenAI-compatible server instead -- no 20 GB in-process LLM. Set
+    # DEMERZEL_BRAIN=ubik (or DEMERZEL_UBIK_SERVER=<url>) to relay to the Ubik
+    # pentest agent: the voice drives Ubik, which reasons and runs its own
+    # scope-gated tools -- also no in-process LLM here.
+    brain_kind = os.environ.get("DEMERZEL_BRAIN", "").lower()
+    if brain_kind == "ubik" or os.environ.get("DEMERZEL_UBIK_SERVER"):
+        from .brain_ubik import UbikBrain, server_url, server_healthy
+        if not server_healthy():
+            raise RuntimeError(
+                f"DEMERZEL_BRAIN=ubik but no Ubik voice-bridge at {server_url()} "
+                f"(start it in the Kali box: python3 voice_bridge.py).")
+        say(f"brain: ubik agent @ {server_url()} (voice drives the pentest agent)", flush=True)
+        brain = UbikBrain()
+    elif brain_kind == "bonsai" or os.environ.get("DEMERZEL_LLM_SERVER"):
         from .brain_bonsai import BonsaiBrain, server_url, server_healthy
         if not server_healthy():
             raise RuntimeError(
@@ -137,20 +149,29 @@ def load_all(verbose: bool = True) -> tuple[Ears, Brain, Voice]:
     # measured as 1203 ms for Kokoro right after the LLM warmed, then 134 ms
     # on every call after that. Running two complete turns settles the whole
     # rotation so the first real utterance sees steady state.
-    settle(ears, brain, voice, rounds=2)
+    # Only the in-process MLX Brain participates in GPU-eviction settling; a
+    # remote brain (bonsai/ubik) has no local weights to evict, and exercising
+    # it here would fire a spurious "hello" turn at the remote agent.
+    settle(ears, brain, voice, rounds=2, warm_brain=isinstance(brain, Brain))
     say(f"warm in {time.perf_counter()-t1:.1f}s "
         f"(active {mx.get_active_memory()/GB:.1f} GB)", flush=True)
     return ears, brain, voice
 
 
-def settle(ears: Ears, brain: Brain, voice: Voice, rounds: int = 2) -> None:
-    """Run the full STT -> LLM -> TTS rotation so eviction costs are paid up front."""
+def settle(ears: Ears, brain: Brain, voice: Voice, rounds: int = 2,
+           warm_brain: bool = True) -> None:
+    """Run the full STT -> LLM -> TTS rotation so eviction costs are paid up front.
+
+    warm_brain=False skips the LLM leg for a remote brain (bonsai/ubik): it holds
+    no local weights to evict, so a "hello" there is wasted (and for ubik would
+    start a real agent turn)."""
     import numpy as np
     silence = np.zeros(16_000, dtype=np.float32)
     for _ in range(rounds):
         ears.transcribe(silence)
-        for _ in brain.stream("hello", max_tokens=8):
-            pass
-        brain.reset()
+        if warm_brain:
+            for _ in brain.stream("hello", max_tokens=8):
+                pass
+            brain.reset()
         for _ in voice.say("Ready."):
             break
