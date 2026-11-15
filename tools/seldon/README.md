@@ -134,40 +134,6 @@ seldon machines                                    # each one, and whether it an
 - **From a phone:** `ssh` to any one machine and run `seldon`. Below 70 columns it switches to
   one line per lane.
 
-## On your phone — `seldon serve`
-
-The panel as a web app, for a phone (or any browser). Same lanes, same actions, a touch screen
-instead of a terminal: what needs you first, the agent's screen, quick replies, stop / resume /
-remove, new lanes and the plan, for this machine and every machine in `seldon machines`.
-
-```bash
-seldon serve                    # http://localhost:7930/#t=<token> on this machine only
-seldon serve --tailnet          # + HTTPS on your tailnet, for your tailscale login only
-seldon serve --tailnet --owner you@example.com   # a different login than this machine's
-seldon serve --allow-reply      # let the phone type into agents (off by default)
-```
-
-- **Nothing is open by default.** It listens on loopback only. `--tailnet` puts it behind
-  `tailscale serve` (HTTPS, tailnet-only, never the internet, on its own port 8443 so it never
-  takes `/` from the voice) and lets in exactly one login: `--owner`, or this machine's
-  tailscale user. If it can't tell whose it is, it does not go on the tailnet. Undo with
-  `tailscale serve --https=8443 off`.
-- **A token on every call.** The first run makes one in `~/.seldon/serve-token` (0600). Every
-  API call, reads included, needs it; the phone gets it once from the link `serve` prints,
-  keeps it, and takes it out of the address bar. `rm ~/.seldon/serve-token` for a new one —
-  every device has to open the new link.
-- **A leftover tailnet mapping reaches nothing.** Started without `--tailnet`, it refuses every
-  request that comes in by a `*.ts.net` name.
-- **Replies are off unless `--allow-reply`,** and are a whitelist of keys or literal text. A
-  menu key ("1") is sent without Enter.
-- **What it can read:** lanes in tmux (Codex, opencode, and Claude lanes seldon started) show
-  their screen and take replies. An interactive Claude session in a plain terminal has no pane
-  to read: open it with `claude attach`, or from the Claude app with Remote Control.
-- **It acts with this machine's ssh keys:** a lane on another machine is stopped or started by
-  `ssh <machine> seldon lane …`, so whoever gets in reaches those machines' lanes too.
-- **Alerts:** while the page is open, the phone buzzes and notifies when an agent starts
-  needing you.
-
 ## On Telegram — `seldon tell`
 
 Any agent, on any machine, can message you — text, screenshots, videos, files — and the
@@ -190,8 +156,7 @@ piped log over a few lines folds away — tap it to open.
 
 Every message is a card that reads at a glance: a coloured dot for what kind of news it is,
 then where it comes from (the repo, branch and machine it was sent from), then what happened.
-The watcher's cards also name the agent, what it is waiting for, how long it has run, and link
-to the phone app when `seldon serve --tailnet` is on.
+The watcher's cards also name the agent, what it is waiting for and how long it has run.
 
 Images show inline, videos play, GIFs animate, audio plays, anything else is a document; a
 bot can send up to 50 MB per file.
