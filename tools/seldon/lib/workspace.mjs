@@ -117,11 +117,17 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
     // No prefix key: every key goes to the agent, except the ones bound below.
     ["set", "-g", "prefix", "None"], ["set", "-g", "prefix2", "None"],
     ["set", "-g", "mouse", "on"], ["set", "-g", "escape-time", "10"], ["set", "-g", "focus-events", "on"],
-    ["set", "-g", "status", "on"], ["set", "-g", "status-style", "bg=default,fg=colour244"],
-    ["set", "-g", "status-left", "#[bold,fg=colour223] SELDON #[default]"], ["set", "-g", "status-left-length", "12"],
-    ["set", "-g", "status-right", "Alt-1…9 agent · Alt-n next ⚑ · Alt-s list · Alt-h home · Alt-q leave "],
+    // The look of ~/.tmux.conf: a neon ▲ block on the left, the time on the right, a green border
+    // round the pane you are in and its title on top.
+    ["set", "-g", "status", "on"], ["set", "-g", "status-style", "bg=#0b0f14,fg=#5c6370"],
+    ["set", "-g", "status-left", "#[fg=#0b0f14,bg=#00ff9c,bold] ▲ seldon #[bg=#0b0f14,fg=#00ff9c,nobold] "], ["set", "-g", "status-left-length", "16"],
+    ["set", "-g", "status-right", "#[fg=#5c6370]⌥1-9 agent · ⌥n next ⚑ · ⌥s list · ⌥h home · ⌥q leave  #[fg=#00ff9c,bold]%H:%M "],
     ["set", "-g", "status-right-length", "90"], ["set", "-g", "window-status-format", ""], ["set", "-g", "window-status-current-format", ""],
-    ["set", "-g", "pane-border-style", "fg=colour238"], ["set", "-g", "pane-active-border-style", "fg=colour238"],
+    ["set", "-g", "pane-border-style", "fg=#1f2a33"], ["set", "-g", "pane-active-border-style", "fg=#00ff9c"],
+    ["set", "-g", "pane-border-status", "top"],
+    ["set", "-g", "pane-border-format", " #{?pane_active,#[fg=#00ff9c]#[bold],#[fg=#5c6370]}#{pane_title} "],
+    ["set", "-g", "allow-set-title", "off"],                // the agent cannot rename its pane
+    ["set", "-g", "message-style", "bg=#00ff9c,fg=#0b0f14,bold"], ["set", "-g", "mode-style", "bg=#00ff9c,fg=#0b0f14"],
     ["set-environment", "-g", "SELDON_WS", "1"],
     // One pane fills a small screen; both show on a wide one. Re-checked whenever a screen attaches or resizes.
     ["set-hook", "-g", "client-attached", line("fit")], ["set-hook", "-g", "client-resized", line("fit")],
@@ -139,6 +145,7 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
   cmds.push(
     ["new-session", "-d", "-s", WS_SESSION, "-x", String(cols), "-y", String(rows), "-n", "seldon", "-e", "SELDON_WS=1", home],
     ["split-window", "-hb", "-t", `${WS_SESSION}:0`, "-l", String(SIDE_WIDTH), "-e", "SELDON_WS=1", `${self} ws sidebar`],
+    ["select-pane", "-t", `${WS_SESSION}:0.0`, "-T", "agents"], ["select-pane", "-t", `${WS_SESSION}:0.1`, "-T", "home"],
   );
   return cmds;
 }
