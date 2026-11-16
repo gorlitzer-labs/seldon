@@ -908,7 +908,7 @@ const pad = (text, width, color = (x) => x) => color(String(text)) + " ".repeat(
 // grouped by the project it works on, the ones waiting on you first. Lanes are read from the
 // harnesses themselves (lib/agents.mjs), not from rooms, so the panel works with or without
 // factory and apiary; when factory is there its projects and plans are shown too.
-async function panel() {
+async function panel({ newFor = null } = {}) {
   ensureSiblingPath();
   let groups = [], state = null, rows = [], cur = 0, note = "";
   let lastState = 0;
@@ -1157,6 +1157,14 @@ async function panel() {
       }
     },
   };
+
+  // Opened by the workspace's n: go straight to "new agent" for the project of the agent that
+  // was selected there (or the repo seldon runs in), so starting one is one key from the list.
+  if (newFor !== null) {
+    const projects = rows.filter((r) => r.type === "project").map((r) => r.project);
+    const p = projects.find((x) => (x.lanes || []).some((l) => l.key === newFor)) || projects.find((x) => sameDir(x.root, here)) || projects[0];
+    if (p) ask(`NEW AGENT · ${p.name}`, "task ›", (task) => pickHarness(p, task));
+  }
 
   await rawSession({
     draw,
@@ -1570,6 +1578,14 @@ function wsOpen(row) {
   wsSave(WS_CURRENT, row.off ? "" : row.key);
   wsFocus(main);
 }
+// n in the list: the panel, on the right, already asking for the new agent's task.
+function wsNewAgent(row) {
+  const main = wsOpt("@main");
+  const argv = ["panel", "--new", ...(row && !row.off ? ["--for", row.key] : [])].map(shq).join(" ");
+  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`${wsSelf()} ${argv}; exec ${wsHome()}`)}`]);
+  wsSave(WS_CURRENT, "");
+  wsFocus(main);
+}
 function wsGoHome() {
   const main = wsOpt("@main");
   wsTmux(["respawn-pane", "-k", "-t", main, wsHome()]);
@@ -1602,7 +1618,7 @@ async function wsSidebar() {
     const width = process.stdout.columns || 38, height = process.stdout.rows || 40;
     const open = wsCurrent(), h = wsHeadline(rows);
     const head = [` ${C.bold("SELDON")}  ${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`, ""];
-    const foot = ["", C.dim(" ⏎ open · n next ⚑ · h home"), C.dim(" Alt-1…9 from any pane · q leave"), ...(note ? [" " + note] : [])];
+    const foot = ["", C.dim(" ⏎ open · n new agent · tab next ⚑ · h home"), C.dim(" Alt-1…9 from any pane · q leave"), ...(note ? [" " + note] : [])];
     const body = []; let curLine = 0, last = null;
     if (!rows.length) body.push(C.dim(" no agents running"), C.dim(" h, then n starts one"));
     const faces = assignEmoji(rows.map((r) => r.name));
@@ -1631,7 +1647,8 @@ async function wsSidebar() {
       else if (key?.name === "down" || str === "j") cur = Math.min(rows.length - 1, cur + 1);
       else if (key?.name === "return") openRow(rows[cur]);
       else if (/^[1-9]$/.test(str || "")) openRow(findRow(rows, str));
-      else if (str === "n") { const r = nextNeeding(rows, wsCurrent()); if (r) openRow(r); else note = C.dim("nobody is waiting on you"); }
+      else if (str === "n") wsNewAgent(rows[cur]);
+      else if (key?.name === "tab") { const r = nextNeeding(rows, wsCurrent()); if (r) openRow(r); else note = C.dim("nobody is waiting on you"); }
       else if (str === "h") wsGoHome();
       else if (str === "r") load();
       else if (str === "q" || (key?.ctrl && key.name === "c")) wsTmux(["detach-client"]);
@@ -1983,7 +2000,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "tell") return tellCmd(tokens, flags);
   if (cmd === "inbox") return inboxCmd(flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
-  if (cmd === "panel") return panel();
+  if (cmd === "panel") return panel({ newFor: flags.new ? (typeof flags.for === "string" ? flags.for : "") : null });
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
   if (cmd === "install") return install_picker({ dev });   // `install` with no ids
 
