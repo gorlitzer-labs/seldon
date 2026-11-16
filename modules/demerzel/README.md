@@ -9,7 +9,7 @@ first word, with a 35B model doing the thinking.
 
 | | |
 |---|---|
-| **Do you need it?** | Only if you want to talk to your machine — "what needs me?", "start a lane on the save crash". Everything she does, the keyboard does too. |
+| **Do you need it?** | Only if you want to talk to your machine — "what needs me?" (your coding agents, the same list as `seldon ws`), "read me tars", "tell it yes", "start a lane on the save crash". Everything she does, the keyboard does too. |
 | **Requires** | **Apple silicon** (MLX), memory for the brain: ~20 GB for the default Qwen, ~7 GB with `--brain=bonsai`, ~25 GB of models, Python 3.12 (installed for you, isolated) |
 | **Install** | `seldon install demerzel`, then `seldon up` (asks before downloading the models) |
 | **Try it** | open the voice page `seldon up` prints, say *"Demerzel, what time is it?"* |
@@ -219,11 +219,12 @@ closed would silently mute her before you could enrol. The UI shows an
 
 ## Tools
 
-21, across seven skills. Each declares a **spoken present-tense intent said before
+25, across eight skills. Each declares a **spoken present-tense intent said before
 it runs**, plus a 30 s heartbeat while it runs, because some of them shell out
 through `npx` and take 5+ seconds — silence for five seconds reads as a hang.
 
 ```
+agents     agents · read_agent · tell_agent · open_agent   (your coding agents, via seldon)
 factory    board · projects · project_status · queue_work · new_project · start_coordinator
 files      read_file · find_files
 shipped    what_shipped · stack_versions      (local git + installed versions; never fetches)
