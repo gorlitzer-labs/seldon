@@ -49,3 +49,9 @@ test("fresh: a toast shows for four seconds", () => {
   assert.equal(fresh({ at: 1000 }, 5001), false);
   assert.equal(fresh(null), false);
 });
+
+test("keycaps: key on a block then its word, and a hint that does not fit is dropped, never wrapped", async () => {
+  const { keycaps } = await import("../lib/tui.mjs");
+  assert.equal(keycaps([["n", "new"], ["q", "quit"]], 40), "[ n ] new  [ q ] quit");
+  assert.equal(keycaps([["n", "new"], ["q", "quit"]], 12), "[ n ] new");
+});
