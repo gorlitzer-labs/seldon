@@ -47,10 +47,10 @@ Every agent, on every machine, beside the one you're talking to. One key to swit
 | `Alt-←` / `Alt-s` | the agent list |
 | `Alt-→` | the right pane, as it is |
 | `Alt-d` | docs: short how-tos with a search box |
-| `Alt-h` | home: the full panel on the right |
+| `Alt-h` | projects: one card each, plan progress, what's wrong |
 | `Alt-q` | leave. Agents keep running |
 
-Press `?` anywhere for the keys card, `⌥d` for the docs (type to search). In the list: `n` **new agent** (type the task, pick 1 claude · 2 codex · 3 opencode), `⏎` open, `tab` next ⚑.
+Press `?` anywhere for the keys card, `⌥d` for the docs (type to search). The list puts agents **waiting on you** on top. `⏎` shows an agent's question on the right: `1`-`9` picks an option, `a` types an answer, `⏎` opens it, `←` goes back. `/` filters. In the list: `n` **new agent** (type the task, pick 1 claude · 2 codex · 3 opencode), `⏎` open, `tab` next ⚑.
 
 - **Real terminals.** The right side is the agent itself, not a copy.
 - **Switching never stops anything.** Leave, reconnect from anywhere, it's all still there.

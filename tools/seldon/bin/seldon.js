@@ -17,9 +17,10 @@ import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
+import { parseOptions, previewKeys, previewBody, stateWords } from "../lib/preview.mjs";
 import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
-import { tooSmall, keyLines, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
+import { tooSmall, keyLines, emojiFor, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
 import { tryHold, release as releaseHold, listHolds, findOwner } from "../lib/holds-store.mjs";
 
@@ -92,6 +93,8 @@ function withToast(lines, t, cols, above) {
 const CAP = (k) => (process.env.NO_COLOR ? `[${k}]` : `\x1b[48;5;236;38;5;255;1m${k}\x1b[0m`);
 // Two spaces in from the edge, like the rows above it.
 const capLine = (hints, cols, gap = "   ") => "  " + keycaps(hints, cols - 3, { cap: CAP, word: C.dim, gap });
+// A drawn line cut to the screen: when it is too long its colours go, never the layout.
+const fitLine = (l, cols) => (stripAnsi(l).length <= cols ? l : stripAnsi(l).slice(0, Math.max(1, cols - 1)) + "…");
 // The ? card: every key, over a dimmed screen. Any key closes it.
 function withKeys(lines, cols, rows) {
   const card = box(keyLines({ key: C.white, dim: C.dim, title: C.cyan }), { title: C.green("keys"), paint: C.dim });
@@ -976,6 +979,8 @@ async function panel({ newFor = null } = {}) {
     if (force || Date.now() - lastState > 10_000) { state = has("factory") ? loadState() : null; lastState = Date.now(); }
     const prev = rows[cur];
     rows = buildRows(groups, state?.hives || [], sameDir, here);
+    // In the workspace the list on the left already shows every agent: here, projects only.
+    if (BOARD) rows = rows.filter((r) => r.type === "project");
     // Keep the cursor on the same thing across a refresh, not the same row number.
     const keep = prev && rows.findIndex((r) => r.type === prev.type && (r.type === "lane" ? r.lane.key === prev.lane.key : r.project.root === prev.project.root));
     cur = keep >= 0 ? keep : Math.min(cur, Math.max(0, rows.length - 1));
@@ -988,6 +993,7 @@ async function panel({ newFor = null } = {}) {
   // word. The full detail is one ⏎ away.
   const narrow = () => (process.stdout.columns || 100) < 70;
   let foot = [], showKeys = false;
+  const BOARD = !!process.env.SELDON_WS;
   const laneCells = (l, sel) => {
     const color = tint[l.state] || ((x) => x);
     const name = (l.name || l.id || "?");
@@ -1012,6 +1018,19 @@ async function panel({ newFor = null } = {}) {
         const why = p.hive?.needsYou && p.hive.why ? C.gold("  ⚑ " + p.hive.why) : "";
         const others = unlistedAgents(p);
         // a project is a header: its name on a short rule, the plan and what needs you after it
+        if (BOARD) {
+          // a card: name, its agents as faces, how they are; then the plan as a bar and what is wrong
+          const lanes = p.lanes || [];
+          const need = lanes.filter((l) => l.state === "needs-you").length, busy = lanes.filter((l) => l.state === "working" || l.state === "running").length;
+          const how = need ? C.gold(`⚑ ${need} waiting`) : busy ? C.green("● working") : lanes.length ? C.dim("○ idle") : C.dim("no agents");
+          const facesLine = lanes.map((l) => emojiFor(l.name || l.id || "?")).join(" ");
+          out.push(`  ${cursor} ${pad(p.name, 18, sel ? (x) => C.bold(C.green(x)) : (x) => C.bold(C.cyan(x)))} ${pad(facesLine, 10)} ${how}`);
+          const total = (p.hive?.queueOpen || 0) + (p.hive?.done || 0);
+          const barW = 24, filled = total ? Math.round((p.hive.done / total) * barW) : 0;
+          const problem = p.hive?.needsYou && p.hive.why ? C.gold(p.hive.why.replace(/hive is down/, "room closed").replace(/(\d+) doc↔reality drift/, "$1 docs out of date")) : "";
+          if (p.hive) out.push(`      ${C.green("█".repeat(filled))}${C.dim("█".repeat(barW - filled))}  ${C.dim(`${p.hive.done} of ${total} done`)}   ${problem}`);
+          return;
+        }
         if (i) out.push("");
         const lead = `${cursor} ${sel ? C.bold(C.green(p.name)) : C.bold(C.cyan(p.name))} `;
         out.push(`  ${lead}${C.dim("─".repeat(Math.max(2, 30 - p.name.length)))} ${plan}${others.length ? C.green("  agents: " + others.join(", ")) : ""}${why}`);
@@ -1069,7 +1088,7 @@ async function panel({ newFor = null } = {}) {
     foot = [];
     const out = [""];
     // The tmux picker's header: title on the left of the rule, the machine on the right.
-    out.push(rule(Math.max(30, (process.stdout.columns || 100) - 2), { left: C.cyan(C.bold("seldon")), right: C.green(os.hostname().split(".")[0]), paint: C.dim }));
+    out.push(BOARD ? `  ${C.bold(C.white("your projects"))}` : rule(Math.max(30, (process.stdout.columns || 100) - 2), { left: C.cyan(C.bold("seldon")), right: C.green(os.hostname().split(".")[0]), paint: C.dim }));
     const mach = machines.map((m) => {
       const v = seen.get(m.name);
       return !v?.at ? C.dim(`${m.name} …`) : v.error ? C.red(`${m.name} ${v.error}`) : C.green(m.name);
@@ -1250,6 +1269,119 @@ async function panel({ newFor = null } = {}) {
       if (str === "?" && mode.name === "home") { showKeys = true; return api.draw(); }
       const done = await keys[mode.name](str, key, api);
       if (done !== undefined) return done;
+      api.draw();
+    },
+  });
+}
+
+// ---- the preview: the selected agent's question and the keys that answer it ----------
+// Runs in the workspace's right pane. Follows the selection in the list; ⏎ opens the agent,
+// ← goes back to the list, 1-9 / a answer a waiting tmux agent, x stops one (asks first).
+async function wsPreview() {
+  ensureSiblingPath();
+  const machines = listMachines();
+  let row = null, text = "", textErr = "", fetchedFor = null, fetchedAt = 0, mode = "view", buf = "", note = "", confirmStop = false;
+  let problems = [], problemsAt = 0;
+  const toast = { text: "", at: 0 };
+  const refresh = () => {
+    const key = wsSelected();
+    const rows = wsReadRows();
+    row = rows.find((r) => r.key === key) || rows[0] || null;
+    if (!row) return;
+    const stale = fetchedFor !== row.key || Date.now() - fetchedAt > (row.machine ? 10000 : 3000);
+    if (stale) {
+      fetchedFor = row.key; fetchedAt = Date.now();
+      if (row.off) { text = ""; textErr = ""; }
+      else if (row.machine) {
+        const m = machines.find((x) => x.name === row.machine);
+        const r = m ? spawnSync("ssh", sshArgs(m, ["seldon", "lane", "read", row.remoteKey, "--json"]), { encoding: "utf8", timeout: 6000 }) : null;
+        // `lane read --json` prints one object; lastJsonLine only finds lists
+        const line = r && r.status === 0 ? String(r.stdout || "").split("\n").reverse().find((l) => l.trim().startsWith("{")) : null;
+        let got = null; try { got = line ? JSON.parse(line) : null; } catch { got = null; }
+        text = got?.text || ""; textErr = got ? "" : `could not reach ${row.machine}`;
+      } else { const t = readLaneText(row.lane); text = t.text || ""; textErr = t.error || ""; }
+    }
+    // the projects that need you, every 30s: the line at the bottom
+    if (Date.now() - problemsAt > 30000 && has("factory")) {
+      problemsAt = Date.now();
+      try { problems = (loadState()?.hives || []).filter((h) => h.needsYou && h.why).map((h) => [h.name, h.why.replace(/hive is down/, "room closed").replace(/(\d+) doc↔reality drift/, "$1 docs out of date")]); } catch { problems = []; }
+    }
+  };
+  const say = (words) => {
+    if (!row) return;
+    let ok, why;
+    if (row.machine) {
+      const m = machines.find((x) => x.name === row.machine);
+      const r = m ? spawnSync("ssh", sshArgs(m, ["seldon", "lane", "say", row.remoteKey, words]), { encoding: "utf8", timeout: 8000 }) : { status: 1 };
+      ok = r.status === 0; why = stripAnsi(`${r.stdout || ""}${r.stderr || ""}`).trim().split("\n").pop();
+    } else {
+      const how = sayCommands({ ...row.lane, state: row.state }, words);
+      if (how.why) { ok = false; why = how.why; }
+      else { ok = how.cmds.every(([b, ...a]) => spawnSync(b, a).status === 0); why = "tmux refused"; }
+    }
+    note = ok ? C.green(`told it: ${words.length > 40 ? words.slice(0, 39) + "…" : words}`) : C.red(`not sent: ${why}`);
+    fetchedAt = 0;
+  };
+  const draw = () => {
+    const cols = process.stdout.columns || 100, rowsN = process.stdout.rows || 30;
+    const small = tooSmall(cols, rowsN);
+    if (small) { clearScreen(); process.stdout.write(small.map((l) => C.dim(l)).join("\n")); return; }
+    const out = [""];
+    let keys = [];
+    if (!row) out.push(...emptyState(cols, "no agents yet", [["n", "start one"], ["d", "docs"]]));
+    else {
+      const face = emojiFor(row.name);
+      const paint = { "needs you": C.gold, working: C.green, stopped: C.red }[row.group] || C.dim;
+      out.push(fitLine(`  ${face} ${C.bold(C.white(row.name))}  ${C.dim(`· ${row.machine ? "@" + row.machine : row.project}${row.startedAt ? " · " + ago(row.startedAt) : ""}${row.harness && row.harness !== "claude" ? " · " + row.harness : ""}`)}`, cols - 1));
+      out.push(`  ${paint((row.group === "needs you" ? "⚑ " : row.group === "working" ? "● " : "○ ") + stateWords(row))}`, "");
+      const options = row.state === "needs-you" ? parseOptions(text) : [];
+      keys = previewKeys(row, options);
+      const room = Math.max(3, rowsN - 12);
+      const body = textErr ? [C.dim(textErr)] : text ? previewBody(text, Math.max(20, cols - 8), room) : [C.dim(row.off ? "its machine is asleep" : "nothing said yet")];
+      out.push(...body.map((l) => `  ${C.dim("│")} ${l}`), "");
+      if (mode === "type") out.push(`  ${C.green("›")} ${C.white(buf)}${C.green("▏")}`, "  " + C.dim("⏎ send · esc cancel"));
+      else out.push(capLine(keys, cols));
+    }
+    const bottom = problems.length ? ["", fitLine("  " + C.dim("⌥h projects   ") + problems.map(([n, w]) => C.gold(n) + " " + C.dim(w)).join("   "), cols - 1), ""] : ["", ""];
+    const fill = Math.max(0, rowsN - out.length - bottom.length);
+    if (note !== toast.text) { toast.text = note; toast.at = Date.now(); }
+    let screen = withToast([...out, ...Array(fill).fill(""), ...bottom], toast, cols, bottom.length);
+    if (confirmStop && row) screen = placeModal(screen, box([C.bold(`Stop ${row.name}?`), "", C.dim("Its conversation and worktree are kept."), "", `${C.white("y")} ${C.dim("yes")}    ${C.white("n")} ${C.dim("no")}`], { title: C.gold("confirm"), paint: C.dim, min: 30 }), cols, rowsN, C.dim);
+    clearScreen();
+    process.stdout.write(screen.slice(0, rowsN).join("\n"));
+  };
+  refresh();
+  setInterval(() => { refresh(); draw(); }, 1000);
+  process.stdout.on("resize", draw);
+  await rawSession({
+    draw,
+    onError: (e) => { note = C.red(e.message); },
+    onKey: (str, key, api) => {
+      if (key?.ctrl && key.name === "c") return api.finish();
+      if (confirmStop) {
+        if (str === "y" || key?.name === "return") {
+          confirmStop = false;
+          const r = row.machine ? spawnSync("ssh", sshArgs(machines.find((x) => x.name === row.machine) || {}, ["seldon", "lane", "stop", row.remoteKey]), { timeout: 8000 }) : null;
+          const res = row.machine ? { ok: r?.status === 0 } : stopLane({ ...row.lane, state: row.state, machine: null });
+          note = res.why ? C.gold(`can't stop: ${res.why}`) : res.ok ? C.green(`stopped ${row.name}`) : C.red(`could not stop: ${res.error || "ssh failed"}`);
+        } else if (str === "n" || key?.name === "escape") confirmStop = false;
+        return api.draw();
+      }
+      if (mode === "type") {
+        if (key?.name === "escape") { mode = "view"; buf = ""; }
+        else if (key?.name === "return") { if (buf.trim()) say(buf.trim()); mode = "view"; buf = ""; }
+        else if (key?.name === "backspace") buf = buf.slice(0, -1);
+        else if (str && str >= " " && !key?.ctrl && !key?.meta) buf += str;
+        return api.draw();
+      }
+      const offered = new Set(previewKeys(row, row?.state === "needs-you" ? parseOptions(text) : []).map(([k]) => k));
+      if (key?.name === "left" || key?.name === "escape") wsFocus(wsOpt("@side"));
+      else if (key?.name === "return" && row && offered.size) wsOpen(row);
+      else if (/^[1-9]$/.test(str || "") && offered.has(str)) say(str);
+      else if (str === "a" && offered.has("a")) mode = "type";
+      else if (str === "x" && offered.has("x")) confirmStop = true;
+      else if (str === "h") wsGoHome();
+      else if (str === "d") wsDocs();
       api.draw();
     },
   });
@@ -1624,6 +1756,19 @@ function lanesCmd(flags) {
   }
 }
 
+// What an agent last said: Claude from its conversation file, anything else from its screen.
+function readLaneText(lane) {
+  const how = readCommand(lane);
+  if (how.why) return { error: how.why };
+  if (how.transcript) {
+    const dir = path.join(os.homedir(), ".claude", "projects");
+    try { for (const d of fs.readdirSync(dir)) { const f = path.join(dir, d, how.transcript); if (fs.existsSync(f)) return { text: lastAssistantText(fs.readFileSync(f, "utf8")) }; } } catch {}
+    return { error: "its conversation file is gone" };
+  }
+  const r = spawnSync(how.bin, how.args, { encoding: "utf8" });
+  return r.status === 0 ? { text: r.stdout.replace(/\s+$/, "") } : { error: (r.stderr || "").trim() || "tmux could not read it" };
+}
+
 function laneCmd(verb, arg, flags, rest = []) {
   const fail = (msg) => { console.log(C.red(msg)); process.exitCode = 1; };
   if (verb === "start") {
@@ -1636,20 +1781,8 @@ function laneCmd(verb, arg, flags, rest = []) {
   const lane = arg && findLane(arg);
   if (!lane) return fail(`no lane ${arg || ""} — see: seldon lanes`);
   if (verb === "read") {
-    const how = readCommand(lane);
-    if (how.why) return fail(`can't read ${lane.name}: ${how.why}`);
-    let text = "";
-    if (how.transcript) {
-      const dir = path.join(os.homedir(), ".claude", "projects");
-      let file = null;
-      try { for (const d of fs.readdirSync(dir)) { const f = path.join(dir, d, how.transcript); if (fs.existsSync(f)) { file = f; break; } } } catch {}
-      if (!file) return fail(`can't read ${lane.name}: its conversation file is gone`);
-      text = lastAssistantText(fs.readFileSync(file, "utf8"));
-    } else {
-      const r = spawnSync(how.bin, how.args, { encoding: "utf8" });
-      if (r.status !== 0) return fail(`can't read ${lane.name}: ${(r.stderr || "").trim()}`);
-      text = r.stdout.replace(/\s+$/, "");
-    }
+    const { text, error } = readLaneText(lane);
+    if (error) return fail(`can't read ${lane.name}: ${error}`);
     if (flags.json) return console.log(JSON.stringify({ key: lane.key, name: lane.name, state: lane.state, waitingFor: lane.waitingFor || null, text }));
     return console.log(text || C.dim("(nothing yet)"));
   }
@@ -1687,7 +1820,10 @@ const WS_CURRENT = path.join(SELDON_HOME, "ws-current");  // the key of the agen
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 const wsSelf = () => `${shq(process.execPath)} ${shq(fs.realpathSync(process.argv[1]))}`;
 // The right-hand pane with no agent open is the full panel; when it exits, it comes back.
-const wsHome = () => `sh -c ${shq(`while :; do ${wsSelf()}; sleep 0.3; done`)}`;
+// What the right pane shows when no agent is open: the preview of the agent selected in the list.
+const wsHome = () => `sh -c ${shq(`while :; do ${wsSelf()} ws preview; sleep 0.3; done`)}`;
+const WS_SEL = path.join(SELDON_HOME, "ws-selected");          // the key selected in the list
+const wsSelected = () => { try { return fs.readFileSync(WS_SEL, "utf8").trim() || null; } catch { return null; } };
 const wsTmux = (args, opts = {}) => spawnSync("tmux", ["-L", WS_SOCKET, "-f", "/dev/null", ...args], { encoding: "utf8", ...opts });
 const wsOpt = (name) => (wsTmux(["show-options", "-v", "-t", WS_SESSION, name]).stdout || "").trim();
 const wsReadRows = () => { try { return JSON.parse(fs.readFileSync(WS_ROWS, "utf8")); } catch { return []; } };
@@ -1709,6 +1845,7 @@ function wsFocus(pane, width = null) {
 function wsOpen(row) {
   const main = wsOpt("@main");
   wsTmux(["respawn-pane", "-k", "-t", main, row.cmd]);
+  wsTmux(["set", "-t", WS_SESSION, "@mainmode", "agent"]);
   wsTmux(["select-pane", "-t", main, "-T", `${row.name}${row.machine ? ` @${row.machine}` : ""}`]);   // the title on the pane's top border
   wsSave(WS_CURRENT, row.off ? "" : row.key);
   wsFocus(main);
@@ -1718,6 +1855,7 @@ function wsDocs() {
   const main = wsOpt("@main");
   wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`${wsSelf()} docs; exec ${wsHome()}`)}`]);
   wsTmux(["select-pane", "-t", main, "-T", "docs"]);
+  wsTmux(["set", "-t", WS_SESSION, "@mainmode", "docs"]);
   wsSave(WS_CURRENT, "");
   wsFocus(main);
 }
@@ -1727,15 +1865,28 @@ function wsNewAgent(row) {
   const argv = ["panel", "--new", ...(row && !row.off ? ["--for", row.key] : [])].map(shq).join(" ");
   wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`${wsSelf()} ${argv}; exec ${wsHome()}`)}`]);
   wsTmux(["select-pane", "-t", main, "-T", "new agent"]);
+  wsTmux(["set", "-t", WS_SESSION, "@mainmode", "new"]);
   wsSave(WS_CURRENT, "");
   wsFocus(main);
 }
+// ⌥h / h: the projects board on the right (the panel, as projects only).
 function wsGoHome() {
   const main = wsOpt("@main");
-  wsTmux(["respawn-pane", "-k", "-t", main, wsHome()]);
-  wsTmux(["select-pane", "-t", main, "-T", "home"]);
+  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`${wsSelf()} panel; exec ${wsHome()}`)}`]);
+  wsTmux(["select-pane", "-t", main, "-T", "projects"]);
+  wsTmux(["set", "-t", WS_SESSION, "@mainmode", "projects"]);
   wsSave(WS_CURRENT, "");
   wsFocus(main);
+}
+// ⏎ in the list: the preview of the selected agent on the right, focused, so 1 / a / ⏎ answer it.
+function wsShowPreview(focus = true) {
+  const main = wsOpt("@main");
+  if (wsCurrent() || wsOpt("@mainmode") !== "preview") {
+    wsTmux(["respawn-pane", "-k", "-t", main, wsHome()]);
+    wsTmux(["set", "-t", WS_SESSION, "@mainmode", "preview"]);
+  }
+  wsSave(WS_CURRENT, "");
+  if (focus) wsFocus(main);
 }
 
 // The left-hand pane: the list. It also writes the list to disk, which is how a key pressed
@@ -1745,9 +1896,12 @@ async function wsSidebar() {
   const machines = listMachines();
   const seen = new Map();
   const poll = machinePoller(machines, seen);
-  let rows = [], cur = 0, note = "", showKeys = false;
+  let rows = [], cur = 0, note = "", showKeys = false, filter = null;   // filter: null, or the text typed after /
   const toast = { text: "", at: 0 };
   const home = wsHome();
+  // The rows the list shows: all of them, or those whose name or project holds the filter.
+  const shownRows = () => (filter ? rows.filter((r) => `${r.name} ${r.project}`.toLowerCase().includes(filter.toLowerCase())) : rows);
+  const select = (i) => { const list = shownRows(); cur = Math.max(0, Math.min(i, list.length - 1)); if (list[cur]) wsSave(WS_SEL, list[cur].key); };
   const load = () => {
     poll();
     let groups = [];
@@ -1757,30 +1911,38 @@ async function wsSidebar() {
     rows = wsRows(groups, down);
     const keep = rows.findIndex((r) => r.key === prev);
     cur = keep >= 0 ? keep : Math.min(cur, Math.max(0, rows.length - 1));
-    wsSave(WS_ROWS, JSON.stringify(rows.map((r) => ({ n: r.n, key: r.key, name: r.name, state: r.state, off: r.off, cmd: paneCommand(r, { machines, home }) }))));
+    wsSave(WS_ROWS, JSON.stringify(rows.map((r) => ({ n: r.n, key: r.key, name: r.name, state: r.state, off: r.off, group: r.group, project: r.project,
+      harness: r.harness, waitingFor: r.waitingFor, startedAt: r.startedAt, machine: r.machine, remoteKey: r.lane.remoteKey || null,
+      lane: { key: r.lane.key, harness: r.lane.harness, sessionId: r.lane.sessionId || null, id: r.lane.id || null, tmuxSession: r.lane.tmuxSession || null, state: r.lane.state, waitingFor: r.lane.waitingFor || null, name: r.lane.name },
+      cmd: paneCommand(r, { machines, home }) }))));
+    const sel = shownRows()[cur];
+    if (sel && sel.key !== wsSelected()) wsSave(WS_SEL, sel.key);
   };
   const tint = TINT;
   const draw = () => {
     const width = process.stdout.columns || 38, height = process.stdout.rows || 40;
     const small = tooSmall(process.stdout.columns, process.stdout.rows);
     if (small) { clearScreen(); process.stdout.write(small.map((l, i) => (i === small.length - 3 ? C.gold(l) : C.dim(l))).join("\n")); return; }
-    const open = wsCurrent(), h = wsHeadline(rows);
-    // Header: name on the left, the two counts that matter right-aligned. A rule under it and
-    // above the hints, which sit on the bottom rows whatever the list's length.
-    const counts = `${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`;
-    const head = [rule(width - 1, { left: C.cyan(C.bold("seldon")), right: counts, paint: C.dim }), ""];
-    // a blank row under the hints keeps them off tmux's status bar
-    const foot = ["", capLine([["⏎", "open"], ["n", "new"], ["⇥", "next"], ["?", "keys"]], width + 1, "  "), ""];
+    const open = wsCurrent(), h = wsHeadline(rows), list = shownRows();
+    // One line per agent, grouped by what they need from you; the project is a grey tag.
+    const counts = `${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}  ${C.dim(`○ ${Math.max(0, h.total - h.need - h.busy)}`)}`;
+    const head = [` ${C.green(C.bold("seldon"))}${" ".repeat(Math.max(1, width - 9 - stripAnsi(counts).length))}${counts}`,
+      filter !== null ? ` ${C.green("⌕")} ${C.white(filter)}${C.green("▏")}` : ` ${C.dim("⌕ / to filter")}`, ""];
+    const foot = ["", capLine([["⏎", "read"], ["n", "new"], ["⇥", "next"], ["?", ""]], width + 1, "  "), ""];
     const body = []; let curLine = 0, last = null;
     if (!rows.length) body.push(...emptyState(width, "no agents yet", [["n", "start one"], ["d", "docs"]]));
+    else if (!list.length) body.push("", C.dim(`  nothing matches "${filter}"`));
     const faces = assignEmoji(rows.map((r) => r.name));
-    rows.forEach((r, i) => {
-      if (r.project !== last) { body.push(" " + C.dim(C.bold(r.project.toUpperCase().slice(0, width - 2)))); last = r.project; }
-      const c = rowCells(r, width, ago, faces.get(r.name)), color = tint[c.state] || ((x) => x);
+    const GROUP_PAINT = { "needs you": C.gold, working: C.green, idle: C.dim, stopped: C.red, paused: C.dim };
+    const tagW = Math.min(12, Math.max(6, Math.floor(width / 3)));
+    list.forEach((r, i) => {
+      if (r.group !== last) { if (last !== null) body.push(""); body.push(" " + C.bold((GROUP_PAINT[r.group] || C.dim)(r.group.toUpperCase()))); last = r.group; }
       const mark = i === cur ? C.green("▸") : r.key === open ? C.cyan("●") : " ";
       if (i === cur) curLine = body.length;
-      body.push(`${mark}${C.dim(c.n)} ${color(c.glyph)} ${c.emoji} ${i === cur ? C.bold(C.white(c.name)) : C.white(c.name)}`);
-      body.push(`        ${color(c.sub)}`);
+      const nameW = Math.max(6, width - 7 - tagW - 1);
+      const name = r.name.length > nameW ? r.name.slice(0, nameW - 1) + "…" : r.name;
+      const tag = (r.machine ? `@${r.machine}` : r.project).slice(0, tagW);
+      body.push(`${mark}${C.dim(r.n <= 9 ? String(r.n) : " ")} ${faces.get(r.name)} ${pad(name, nameW, i === cur ? (x) => C.bold(C.white(x)) : C.white)} ${C.dim(tag)}`);
     });
     const room = Math.max(2, height - head.length - foot.length);
     const from = Math.max(0, Math.min(curLine - Math.floor(room / 2), body.length - room));
@@ -1793,6 +1955,7 @@ async function wsSidebar() {
   };
   const openRow = (r) => { if (r) { wsOpen(wsReadRows().find((x) => x.key === r.key) || r); note = ""; } };
   load();
+  if (!wsSelected() && rows[0]) wsSave(WS_SEL, rows[0].key);
   setInterval(() => { load(); draw(); }, 2000);
   process.stdout.on("resize", draw);
   await rawSession({
@@ -1801,12 +1964,26 @@ async function wsSidebar() {
     onKey: (str, key, api) => {
       if (showKeys) { showKeys = false; return api.draw(); }
       if (str === "?") { showKeys = true; return api.draw(); }
-      if (key?.name === "up" || str === "k") cur = Math.max(0, cur - 1);
-      else if (key?.name === "down" || str === "j") cur = Math.min(rows.length - 1, cur + 1);
-      else if (key?.name === "return") openRow(rows[cur]);
+      // typing a filter: letters go to it, ⏎ keeps it, esc clears it
+      if (filter !== null && !(key?.name === "up" || key?.name === "down")) {
+        if (key?.name === "escape") filter = null;
+        else if (key?.name === "return") { if (!filter) filter = null; else { select(cur); wsShowPreview(); } }
+        else if (key?.name === "backspace") filter = filter.slice(0, -1);
+        else if (str && str >= " " && str.length === 1) filter += str;
+        select(0); return api.draw();
+      }
+      if (key?.name === "up" || str === "k") select(cur - 1);
+      else if (key?.name === "down" || str === "j") select(cur + 1);
+      else if (key?.name === "return") { select(cur); wsShowPreview(); }
+      else if (str === "/") { filter = ""; }
+      else if (key?.name === "escape") { filter = null; }
       else if (/^[1-9]$/.test(str || "")) openRow(findRow(rows, str));
-      else if (str === "n") wsNewAgent(rows[cur]);
-      else if (key?.name === "tab") { const r = nextNeeding(rows, wsCurrent()); if (r) openRow(r); else note = C.gold("nobody is waiting on you"); }
+      else if (str === "n") wsNewAgent(shownRows()[cur]);
+      else if (key?.name === "tab") {
+        const r = nextNeeding(rows, wsSelected());
+        if (!r) note = C.gold("nobody is waiting on you");
+        else { filter = null; select(rows.indexOf(r)); wsShowPreview(false); }
+      }
       else if (str === "h") wsGoHome();
       else if (str === "d") wsDocs();
       else if (str === "r") load();
@@ -1820,6 +1997,7 @@ function wsCmd(sub, arg) {
   const fail = (msg) => { console.log(C.red(msg)); process.exitCode = 1; };
   if (!has("tmux")) return fail("the workspace needs tmux — install it (brew install tmux / apt install tmux), then: seldon ws");
   if (sub === "sidebar") return wsSidebar();
+  if (sub === "preview") return wsPreview();
   if (sub === "fit") return wsFocus(null);
   if (sub === "list") return wsFocus(wsOpt("@side"));
   if (sub === "main") return wsFocus(wsOpt("@main"));          // the right pane, whatever it shows
