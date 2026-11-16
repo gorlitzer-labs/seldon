@@ -926,7 +926,12 @@ function rawSession({ draw, onKey, onError }) {
   // and keys typed meanwhile used to run concurrently with it — Esc and the next prompt raced
   // the first, leaving a stale screen and dropped characters.
   let chain = Promise.resolve();
-  const handler = (str, key) => { chain = chain.then(() => onKey(str, key, api)).catch((e) => { onError?.(e); api.draw(); }); };
+  // Inside the workspace these screens are the app: Ctrl-C never closes one (a pane would
+  // vanish). ⌥q leaves; in an agent's own terminal Ctrl-C still reaches the agent.
+  const handler = (str, key) => {
+    if (process.env.SELDON_WS && key?.ctrl && key.name === "c") return;
+    chain = chain.then(() => onKey(str, key, api)).catch((e) => { onError?.(e); api.draw(); });
+  };
   const api = {
     draw: () => draw(api),
     finish: (v) => { release(); readline.cursorTo(process.stdout, 0); readline.clearScreenDown(process.stdout); done(v); },
@@ -1279,14 +1284,19 @@ async function panel({ newFor = null } = {}) {
 // ← goes back to the list, 1-9 / a answer a waiting tmux agent, x stops one (asks first).
 async function wsPreview() {
   ensureSiblingPath();
+  wsSave(WS_PREVIEW_PID, String(process.pid));
   const machines = listMachines();
-  let row = null, text = "", textErr = "", fetchedFor = null, fetchedAt = 0, mode = "view", buf = "", note = "", confirmStop = false;
+  let row = null, text = "", textErr = "", fetchedFor = null, fetchedAt = 0, mode = "view", buf = "", note = "", confirmStop = false, typingFor = null;
   let problems = [], problemsAt = 0;
   const toast = { text: "", at: 0 };
   const refresh = () => {
     const key = wsSelected();
     const rows = wsReadRows();
+    const was = row?.key;
     row = rows.find((r) => r.key === key) || rows[0] || null;
+    // Another agent selected: a half-typed answer or an open confirm belonged to the old one,
+    // so they go. Otherwise ⏎ would send that text to the wrong agent.
+    if (row?.key !== was) { mode = "view"; buf = ""; confirmStop = false; }
     if (!row) return;
     const stale = fetchedFor !== row.key || Date.now() - fetchedAt > (row.machine ? 10000 : 3000);
     if (stale) {
@@ -1369,7 +1379,7 @@ async function wsPreview() {
       }
       if (mode === "type") {
         if (key?.name === "escape") { mode = "view"; buf = ""; }
-        else if (key?.name === "return") { if (buf.trim()) say(buf.trim()); mode = "view"; buf = ""; }
+        else if (key?.name === "return") { if (buf.trim() && typingFor === row?.key) say(buf.trim()); mode = "view"; buf = ""; }
         else if (key?.name === "backspace") buf = buf.slice(0, -1);
         else if (str && str >= " " && !key?.ctrl && !key?.meta) buf += str;
         return api.draw();
@@ -1378,7 +1388,7 @@ async function wsPreview() {
       if (key?.name === "left" || key?.name === "escape") wsFocus(wsOpt("@side"));
       else if (key?.name === "return" && row && offered.size) wsOpen(row);
       else if (/^[1-9]$/.test(str || "") && offered.has(str)) say(str);
-      else if (str === "a" && offered.has("a")) mode = "type";
+      else if (str === "a" && offered.has("a")) { mode = "type"; typingFor = row.key; }
       else if (str === "x" && offered.has("x")) confirmStop = true;
       else if (str === "h") wsGoHome();
       else if (str === "d") wsDocs();
@@ -1821,7 +1831,9 @@ const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 const wsSelf = () => `${shq(process.execPath)} ${shq(fs.realpathSync(process.argv[1]))}`;
 // The right-hand pane with no agent open is the full panel; when it exits, it comes back.
 // What the right pane shows when no agent is open: the preview of the agent selected in the list.
-const wsHome = () => `sh -c ${shq(`while :; do ${wsSelf()} ws preview; sleep 0.3; done`)}`;
+// The loop ignores Ctrl-C, Ctrl-\ and Ctrl-Z itself, so a key pressed between two runs can never
+// close the pane.
+const wsHome = () => `sh -c ${shq(`trap '' INT QUIT TSTP; while :; do ${wsSelf()} ws preview; sleep 0.3; done`)}`;
 const WS_SEL = path.join(SELDON_HOME, "ws-selected");          // the key selected in the list
 const wsSelected = () => { try { return fs.readFileSync(WS_SEL, "utf8").trim() || null; } catch { return null; } };
 const wsTmux = (args, opts = {}) => spawnSync("tmux", ["-L", WS_SOCKET, "-f", "/dev/null", ...args], { encoding: "utf8", ...opts });
@@ -1853,7 +1865,7 @@ function wsOpen(row) {
 // ⌥d or d in the list: the docs on the right, like home.
 function wsDocs() {
   const main = wsOpt("@main");
-  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`${wsSelf()} docs; exec ${wsHome()}`)}`]);
+  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`trap '' INT QUIT TSTP; ${wsSelf()} docs; exec ${wsHome()}`)}`]);
   wsTmux(["select-pane", "-t", main, "-T", "docs"]);
   wsTmux(["set", "-t", WS_SESSION, "@mainmode", "docs"]);
   wsSave(WS_CURRENT, "");
@@ -1863,7 +1875,7 @@ function wsDocs() {
 function wsNewAgent(row) {
   const main = wsOpt("@main");
   const argv = ["panel", "--new", ...(row && !row.off ? ["--for", row.key] : [])].map(shq).join(" ");
-  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`${wsSelf()} ${argv}; exec ${wsHome()}`)}`]);
+  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`trap '' INT QUIT TSTP; ${wsSelf()} ${argv}; exec ${wsHome()}`)}`]);
   wsTmux(["select-pane", "-t", main, "-T", "new agent"]);
   wsTmux(["set", "-t", WS_SESSION, "@mainmode", "new"]);
   wsSave(WS_CURRENT, "");
@@ -1872,16 +1884,22 @@ function wsNewAgent(row) {
 // ⌥h / h: the projects board on the right (the panel, as projects only).
 function wsGoHome() {
   const main = wsOpt("@main");
-  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`${wsSelf()} panel; exec ${wsHome()}`)}`]);
+  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`trap '' INT QUIT TSTP; ${wsSelf()} panel; exec ${wsHome()}`)}`]);
   wsTmux(["select-pane", "-t", main, "-T", "projects"]);
   wsTmux(["set", "-t", WS_SESSION, "@mainmode", "projects"]);
   wsSave(WS_CURRENT, "");
   wsFocus(main);
 }
+// The preview writes its pid when it starts; it is running when that process is alive.
+const WS_PREVIEW_PID = path.join(SELDON_HOME, "ws-preview.pid");
+function previewRunning() {
+  try { const pid = Number(fs.readFileSync(WS_PREVIEW_PID, "utf8")); process.kill(pid, 0); return pid > 0; } catch { return false; }
+}
 // ⏎ in the list: the preview of the selected agent on the right, focused, so 1 / a / ⏎ answer it.
 function wsShowPreview(focus = true) {
   const main = wsOpt("@main");
-  if (wsCurrent() || wsOpt("@mainmode") !== "preview") {
+  // Restart it only when it is not already running: a key typed while it starts up is lost.
+  if (!previewRunning()) {
     wsTmux(["respawn-pane", "-k", "-t", main, wsHome()]);
     wsTmux(["set", "-t", WS_SESSION, "@mainmode", "preview"]);
   }
@@ -1963,8 +1981,7 @@ async function wsSidebar() {
     onError: (e) => { note = C.red(e.message); },
     onKey: (str, key, api) => {
       if (showKeys) { showKeys = false; return api.draw(); }
-      if (str === "?") { showKeys = true; return api.draw(); }
-      // typing a filter: letters go to it, ⏎ keeps it, esc clears it
+      // typing a filter: every key goes to it (? too), ⏎ keeps it, esc clears it
       if (filter !== null && !(key?.name === "up" || key?.name === "down")) {
         if (key?.name === "escape") filter = null;
         else if (key?.name === "return") { if (!filter) filter = null; else { select(cur); wsShowPreview(); } }
@@ -1972,6 +1989,7 @@ async function wsSidebar() {
         else if (str && str >= " " && str.length === 1) filter += str;
         select(0); return api.draw();
       }
+      if (str === "?") { showKeys = true; return api.draw(); }
       if (key?.name === "up" || str === "k") select(cur - 1);
       else if (key?.name === "down" || str === "j") select(cur + 1);
       else if (key?.name === "return") { select(cur); wsShowPreview(); }
@@ -1987,7 +2005,7 @@ async function wsSidebar() {
       else if (str === "h") wsGoHome();
       else if (str === "d") wsDocs();
       else if (str === "r") load();
-      else if (str === "q" || (key?.ctrl && key.name === "c")) wsTmux(["detach-client"]);
+      else if (str === "q") wsTmux(["detach-client"]);
       api.draw();
     },
   });

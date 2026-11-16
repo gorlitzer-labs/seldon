@@ -166,7 +166,8 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
   // The session last, so both panes start with every option above already in force.
   cmds.push(
     ["new-session", "-d", "-s", WS_SESSION, "-x", String(cols), "-y", String(rows), "-n", "seldon", "-e", "SELDON_WS=1", home],
-    ["split-window", "-hb", "-t", `${WS_SESSION}:0`, "-l", String(SIDE_WIDTH), "-e", "SELDON_WS=1", `${self} ws sidebar`],
+    // the list restarts itself if it ever exits, so the pane can never be left empty
+    ["split-window", "-hb", "-t", `${WS_SESSION}:0`, "-l", String(SIDE_WIDTH), "-e", "SELDON_WS=1", `sh -c ${sq(`trap '' INT QUIT TSTP; while :; do ${self} ws sidebar; sleep 0.3; done`)}`],
     ["select-pane", "-t", `${WS_SESSION}:0.0`, "-T", "agents"], ["select-pane", "-t", `${WS_SESSION}:0.1`, "-T", "home"],
   );
   return cmds;
