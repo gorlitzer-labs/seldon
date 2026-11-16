@@ -10,7 +10,7 @@ import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
 import { ensureSiblingPath, has, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
 import { readLanes, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
-import { openCommand, stopCommand, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
+import { openCommand, stopCommand, readCommand, lastAssistantText, sayCommands, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
@@ -1482,7 +1482,7 @@ function lanesCmd(flags) {
   }
 }
 
-function laneCmd(verb, arg, flags) {
+function laneCmd(verb, arg, flags, rest = []) {
   const fail = (msg) => { console.log(C.red(msg)); process.exitCode = 1; };
   if (verb === "start") {
     const root = projectRoot(path.resolve(arg || ".")) || path.resolve(arg || ".");
@@ -1490,9 +1490,33 @@ function laneCmd(verb, arg, flags) {
     const r = startLane({ root, name: path.basename(root), task, harness: flags.agent || "claude" });
     return r.ok ? console.log(C.green(`✓ started ${r.slug}`) + C.dim(` (${flags.agent || "claude"}) in ${root}`)) : fail(`could not start: ${r.error}`);
   }
-  if (!["stop", "resume", "open", "rm"].includes(verb)) return fail('usage: seldon lane start [dir] --task "…" [--agent claude|codex|opencode] · seldon lane stop|resume|open|rm <key>');
+  if (!["stop", "resume", "open", "rm", "read", "say"].includes(verb)) return fail('usage: seldon lane start [dir] --task "…" [--agent claude|codex|opencode] · seldon lane stop|resume|open|rm|read <key> · seldon lane say <key> "text"');
   const lane = arg && findLane(arg);
   if (!lane) return fail(`no lane ${arg || ""} — see: seldon lanes`);
+  if (verb === "read") {
+    const how = readCommand(lane);
+    if (how.why) return fail(`can't read ${lane.name}: ${how.why}`);
+    let text = "";
+    if (how.transcript) {
+      const dir = path.join(os.homedir(), ".claude", "projects");
+      let file = null;
+      try { for (const d of fs.readdirSync(dir)) { const f = path.join(dir, d, how.transcript); if (fs.existsSync(f)) { file = f; break; } } } catch {}
+      if (!file) return fail(`can't read ${lane.name}: its conversation file is gone`);
+      text = lastAssistantText(fs.readFileSync(file, "utf8"));
+    } else {
+      const r = spawnSync(how.bin, how.args, { encoding: "utf8" });
+      if (r.status !== 0) return fail(`can't read ${lane.name}: ${(r.stderr || "").trim()}`);
+      text = r.stdout.replace(/\s+$/, "");
+    }
+    if (flags.json) return console.log(JSON.stringify({ key: lane.key, name: lane.name, state: lane.state, waitingFor: lane.waitingFor || null, text }));
+    return console.log(text || C.dim("(nothing yet)"));
+  }
+  if (verb === "say") {
+    const how = sayCommands(lane, rest.join(" "));
+    if (how.why) return fail(`can't tell ${lane.name}: ${how.why}`);
+    for (const [bin, ...args] of how.cmds) if (spawnSync(bin, args).status !== 0) return fail(`can't tell ${lane.name}: ${bin} failed`);
+    return console.log(C.green(`✓ told ${lane.name}`));
+  }
   if (verb === "open") {
     const how = openCommand(lane);
     if (how.why) return fail(`can't open ${lane.name}: ${how.why}`);
@@ -1954,7 +1978,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "report") return reportCmd(tokens[0]);
   if (cmd === "lanes") return lanesCmd(flags);
   if (cmd === "machines") return machinesCmd(tokens[0], tokens[1], tokens[2]);
-  if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags);
+  if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags, tokens.slice(2));
   if (cmd === "ws") return wsCmd(tokens[0], tokens[1]);
   if (cmd === "tell") return tellCmd(tokens, flags);
   if (cmd === "inbox") return inboxCmd(flags);
