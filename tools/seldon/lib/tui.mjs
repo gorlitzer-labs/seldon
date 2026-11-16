@@ -11,18 +11,29 @@ export function width(s) {
 }
 const padTo = (s, w) => s + " ".repeat(Math.max(0, w - width(s)));
 
-// A rounded box around some lines. `paint` colours the border.
+// Only straight lines, ▸ and ●: some iTerm fonts draw no box corners and no vertical bars (the
+// same rule the tmux picker in ~/.zshrc follows). A "box" is a titled rule, the lines, a rule,
+// each line padded to one width so it covers whatever was drawn underneath.
+export function rule(cols, { left = "", right = "", paint = (x) => x } = {}) {
+  const l = left ? `── ${left} ` : "──", r = right ? ` ${right} ──` : "──";
+  return paint(l.startsWith("── ") ? "── " : "──") + (left ? left + paint(" ") : "")
+    + paint("─".repeat(Math.max(1, cols - width(l) - width(r))))
+    + (right ? paint(" ") + right + paint(" ──") : paint("──"));
+}
 export function box(lines, { title = "", paint = (x) => x, min = 0 } = {}) {
-  const inner = Math.max(min, width(title) + 2, ...lines.map(width));
-  const top = title ? `╭─ ${title} ${"─".repeat(Math.max(0, inner - width(title) - 1))}╮` : `╭${"─".repeat(inner + 2)}╮`;
-  return [paint(top), ...lines.map((l) => `${paint("│")} ${padTo(l, inner)} ${paint("│")}`), paint(`╰${"─".repeat(inner + 2)}╯`)];
+  const inner = Math.max(min, width(title) + 6, ...lines.map((l) => width(l) + 4));
+  return [rule(inner, { left: title, paint }), ...lines.map((l) => padTo(`  ${l}`, inner)), paint("─".repeat(inner))];
+}
+// The hints on one rule: "── ⏎ open · n new · q quit ──────"
+export function hintRule(hints, cols, paint = (x) => x) {
+  return rule(cols, { left: hints.join(paint(" · ")), paint });
 }
 
 // The kinds a toast can be, and how each one is drawn.
 export const TOAST = { ok: "✓", warn: "!", err: "✗", info: "·" };
 export function toastLines(text, kind = "info", paint = {}) {
   const p = paint[kind] || ((x) => x);
-  return box([`${p(TOAST[kind] || "·")} ${text}`], { paint: p });
+  return [`${p("── " + (TOAST[kind] || "·"))} ${text} ${p("──")}`];
 }
 
 // Lay `boxLines` over `screen`, right-aligned, its last line `above` rows from the bottom.

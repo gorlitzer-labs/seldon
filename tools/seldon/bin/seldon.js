@@ -16,7 +16,7 @@ import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonL
 import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
-import { box, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
+import { box, rule, hintRule, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { tooSmall, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -29,7 +29,9 @@ const IN_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, "modules", "apiary", "pac
 
 // NO_COLOR (https://no-color.org) turns every escape off — for logs, pipes and tests.
 const paint = (code) => (s) => (process.env.NO_COLOR ? String(s) : `\x1b[${code}m${s}\x1b[0m`);
-const C = { dim: paint(2), bold: paint(1), gold: paint(33), green: paint(32), red: paint(31), cyan: paint(36) };
+// The palette of the tmux setup in ~/.tmux.conf and the picker in ~/.zshrc: neon green accent,
+// grey for the quiet parts, cyan for titles, yellow for what needs you.
+const C = { dim: paint("38;5;240"), bold: paint(1), gold: paint("38;5;220"), green: paint("38;5;48"), red: paint(31), cyan: paint("38;5;51"), white: paint("38;5;255") };
 
 function have(dep) {
   const probe = DEPS[dep]?.probe;
@@ -65,7 +67,7 @@ function run(cmd, args, opts = {}) {
 }
 
 // A note becomes a toast; its kind follows the colour it was written in.
-const toastKind = (s) => (/\x1b\[32m/.test(s) ? "ok" : /\x1b\[31m/.test(s) ? "err" : /\x1b\[33m/.test(s) ? "warn" : "info");
+const toastKind = (s) => (/\x1b\[38;5;48m/.test(s) ? "ok" : /\x1b\[31m/.test(s) ? "err" : /\x1b\[38;5;220m/.test(s) ? "warn" : "info");
 const TOAST_PAINT = () => ({ ok: C.green, err: C.red, warn: C.gold, info: C.dim });
 // Lay the current note, while fresh, over a drawn screen as a toast.
 function withToast(lines, t, cols, above) {
@@ -981,7 +983,7 @@ async function panel({ newFor = null } = {}) {
     }
     rows.forEach((r, i) => {
       const sel = i === cur;
-      const cursor = sel ? C.gold("❯") : " ";
+      const cursor = sel ? C.green("▸") : " ";
       if (r.type === "project") {
         const p = r.project;
         const plan = p.hive ? C.dim(`plan ${p.hive.queueOpen} · ${p.hive.done} done`) : "";
@@ -995,13 +997,13 @@ async function panel({ newFor = null } = {}) {
       }
     });
     const sel = rows[cur];
-    const hint = (k, w) => C.bold(k) + " " + C.dim(w);
+    const hint = (k, w) => C.white(k) + " " + C.dim(w);
     foot = narrow()
       ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("x", "stop"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("q", "quit")]]
       : [sel?.type === "lane"
         ? [hint("⏎", "open"), hint("n", "new agent"), hint("x", "stop"), hint("R", "resume"), hint("p", "plan"), hint("q", "quit")]
         : [hint("n", "new agent"), hint("p", "plan"), hint("⏎", "go"), hint("s", "staff"), hint("b", "board"), hint("q", "quit")]];
-    foot = foot.map((hs) => "  " + hs.join("    "));
+    foot = foot.map((hs) => hintRule(hs, Math.max(30, (process.stdout.columns || 100) - 2), C.dim));
   };
 
   const drawPlan = (out) => {
@@ -1042,13 +1044,15 @@ async function panel({ newFor = null } = {}) {
     if (small) { clearScreen(); process.stdout.write(small.map((l, i) => (i === small.length - 3 ? C.gold(l) : C.dim(l))).join("\n")); return; }
     foot = [];
     const out = [""];
-    out.push("  " + C.gold(C.bold("SELDON")) + "   " + headline(groups) + "   " + C.dim([
-      svc("watcher", !!daemonUp("seldon-watch")), svc("voice", !!daemonUp("demerzel")),
-    ].join("  ")));
-    if (machines.length) out.push("  " + C.dim("machines: ") + machines.map((m) => {
+    // The tmux picker's header: title on the left of the rule, the machine on the right.
+    out.push(rule(Math.max(30, (process.stdout.columns || 100) - 2), { left: C.cyan(C.bold("seldon")), right: C.green(os.hostname().split(".")[0]), paint: C.dim }));
+    const mach = machines.map((m) => {
       const v = seen.get(m.name);
       return !v?.at ? C.dim(`${m.name} …`) : v.error ? C.red(`${m.name} ${v.error}`) : C.green(m.name);
-    }).join(C.dim("  ")));
+    });
+    out.push("  " + headline(groups) + C.dim("   ·   ") + C.dim([
+      svc("watcher", !!daemonUp("seldon-watch")), svc("voice", !!daemonUp("demerzel")),
+    ].join("  ")) + (mach.length ? C.dim("   ·   ") + mach.join(C.dim("  ")) : ""));
     const hs = listHolds();
     if (hs.length) out.push("  " + C.dim("held: ") + hs.map((h) => `${C.bold(h.resource)} ${C.dim("→ " + h.who + " " + ago(h.since))}`).join(C.dim("   ")));
     out.push("");
@@ -1056,10 +1060,10 @@ async function panel({ newFor = null } = {}) {
     // the hints live on the bottom rows, under a rule, like the workspace list; a toast sits just
     // above them, and a confirm box over everything
     const height = process.stdout.rows || 40, cols = process.stdout.columns || 100;
-    const bottom = foot.length ? [C.dim("  " + "─".repeat(Math.max(4, cols - 4))), ...foot] : [];
+    const bottom = foot;
     const fill = Math.max(1, height - out.length - bottom.length);
     if (note !== toast.text) { toast.text = note; toast.at = Date.now(); }
-    let screen = withToast([...out, ...Array(fill).fill(""), ...bottom], toast, cols, bottom.length + 1);
+    let screen = withToast([...out, ...Array(fill).fill(""), ...bottom], toast, cols, bottom.length);
     if (mode.name === "confirm") {
       const b = box([C.bold(mode.title), "", ...mode.body.map((l) => C.dim(l)), "", `${C.bold("y")} ${C.dim("yes")}    ${C.bold("n")} ${C.dim("no")}`], { title: "confirm", paint: C.gold, min: 34 });
       screen = placeModal(screen, b, cols, height, C.dim);
@@ -1615,6 +1619,7 @@ function wsFocus(pane, width = null) {
 function wsOpen(row) {
   const main = wsOpt("@main");
   wsTmux(["respawn-pane", "-k", "-t", main, row.cmd]);
+  wsTmux(["select-pane", "-t", main, "-T", `${row.name}${row.machine ? ` @${row.machine}` : ""}`]);   // the title on the pane's top border
   wsSave(WS_CURRENT, row.off ? "" : row.key);
   wsFocus(main);
 }
@@ -1623,12 +1628,14 @@ function wsNewAgent(row) {
   const main = wsOpt("@main");
   const argv = ["panel", "--new", ...(row && !row.off ? ["--for", row.key] : [])].map(shq).join(" ");
   wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`${wsSelf()} ${argv}; exec ${wsHome()}`)}`]);
+  wsTmux(["select-pane", "-t", main, "-T", "new agent"]);
   wsSave(WS_CURRENT, "");
   wsFocus(main);
 }
 function wsGoHome() {
   const main = wsOpt("@main");
   wsTmux(["respawn-pane", "-k", "-t", main, wsHome()]);
+  wsTmux(["select-pane", "-t", main, "-T", "home"]);
   wsSave(WS_CURRENT, "");
   wsFocus(main);
 }
@@ -1662,21 +1669,20 @@ async function wsSidebar() {
     const open = wsCurrent(), h = wsHeadline(rows);
     // Header: name on the left, the two counts that matter right-aligned. A rule under it and
     // above the hints, which sit on the bottom rows whatever the list's length.
-    const counts = `⚑ ${h.need}  ● ${h.busy}`;
-    const rule = C.dim(" " + "─".repeat(Math.max(4, width - 2)));
-    const head = [` ${C.bold("SELDON")}${" ".repeat(Math.max(1, width - 8 - counts.length))}${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`, rule];
-    const hint = (k, w) => C.bold(k) + " " + C.dim(w);
-    const foot = [rule, " " + [hint("⏎", "open"), hint("n", "new"), hint("⇥", "next ⚑")].join("   "),
-      " " + [hint("h", "home"), hint("q", "leave"), hint("⌥1-9", "jump")].join("   ")];
+    const counts = `${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`;
+    const head = [rule(width - 1, { left: C.cyan(C.bold("seldon")), right: counts, paint: C.dim }), ""];
+    const hint = (k, w) => C.white(k) + " " + C.dim(w);
+    const foot = [hintRule([hint("⏎", "open"), hint("n", "new"), hint("⇥", "next ⚑")], width - 1, C.dim),
+      "   " + [hint("h", "home"), hint("q", "leave"), hint("⌥1-9", "jump")].join(C.dim(" · "))];
     const body = []; let curLine = 0, last = null;
     if (!rows.length) body.push("", C.dim(" no agents yet"), " " + C.bold("n") + C.dim(" starts one"));
     const faces = assignEmoji(rows.map((r) => r.name));
     rows.forEach((r, i) => {
       if (r.project !== last) { body.push(" " + C.dim(C.bold(r.project.toUpperCase().slice(0, width - 2)))); last = r.project; }
       const c = rowCells(r, width, ago, faces.get(r.name)), color = tint[c.state] || ((x) => x);
-      const mark = i === cur ? C.gold("❯") : r.key === open ? C.cyan("▸") : " ";
+      const mark = i === cur ? C.green("▸") : r.key === open ? C.cyan("●") : " ";
       if (i === cur) curLine = body.length;
-      body.push(`${mark}${C.dim(c.n)} ${color(c.glyph)} ${c.emoji} ${i === cur ? C.bold(c.name) : c.name}`);
+      body.push(`${mark}${C.dim(c.n)} ${color(c.glyph)} ${c.emoji} ${i === cur ? C.bold(C.white(c.name)) : C.white(c.name)}`);
       body.push(`        ${color(c.sub)}`);
     });
     const room = Math.max(2, height - head.length - foot.length);

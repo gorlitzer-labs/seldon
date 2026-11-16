@@ -95,8 +95,11 @@ test("setupCommands: options first, the two panes last, every key bound twice (A
   const cmds = setupCommands({ self: HOME, home: "HOMECMD", cols: 120, rows: 30 });
   const verbs = cmds.map((c) => c[0]);
   assert.equal(verbs[0], "start-server");
-  assert.deepEqual(verbs.slice(-2), ["new-session", "split-window"]);
-  const session = cmds.at(-2), side = cmds.at(-1);
+  assert.deepEqual(verbs.filter((v) => v !== "select-pane").slice(-2), ["new-session", "split-window"]);
+  assert.ok(verbs.indexOf("new-session") > verbs.lastIndexOf("set"), "every option is set before the panes start");
+  const session = cmds.find((c) => c[0] === "new-session"), side = cmds.find((c) => c[0] === "split-window");
+  assert.ok(cmds.some((c) => c.join(" ") === "set -g pane-border-status top"), "each pane has its title on top");
+  assert.deepEqual(cmds.filter((c) => c[0] === "select-pane").map((c) => c.at(-1)), ["agents", "home"]);
   assert.ok(session.includes(WS_SESSION) && session.at(-1) === "HOMECMD" && session.includes("120"));
   assert.ok(side.includes(String(SIDE_WIDTH)) && side.at(-1) === `${HOME} ws sidebar`);
   for (const c of [session, side]) assert.ok(c.includes("SELDON_WS=1"), "panes know they are in the workspace");

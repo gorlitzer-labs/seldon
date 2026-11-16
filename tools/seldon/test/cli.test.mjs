@@ -131,8 +131,8 @@ test("status: a stopped service gets a yellow dot, never a green one", () => {
     writeFileSync(path.join(home, "brain"), "qwen");   // in-process: no host bonsai server can leak in
     const raw = execFileSync("node", [BIN, "status"], { encoding: "utf8", env: { ...process.env, SELDON_HOME: home } });
     const line = raw.split("\n").find((l) => /demerzel/.test(l));
-    assert.ok(line.includes("\x1b[33m●"), "stopped demerzel has a yellow dot: " + JSON.stringify(line));
-    assert.ok(!line.includes("\x1b[32m●"), "and not a green one");
+    assert.ok(line.includes("\x1b[38;5;220m●"), "stopped demerzel has a yellow dot: " + JSON.stringify(line));
+    assert.ok(!line.includes("\x1b[38;5;48m●"), "and not a green one");
     assert.match(strip(raw), /voice down/);
     assert.match(strip(raw), /nothing is running — start: seldon up/);
   } finally { rmSync(home, { recursive: true, force: true }); }
