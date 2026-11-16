@@ -84,7 +84,7 @@ test("markAsking: a turn that ended on a question waits on you; mid-turn or stil
   const said = (text, extra = []) => JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }, ...extra] } });
   const ask = said("Merged. Want me to deploy?") + "\n" + JSON.stringify({ type: "pr-link" });
   assert.equal(endsWithQuestion(ask), true);
-  assert.equal(endsWithQuestion(said("Should I? Doing it.", [{ type: "tool_use" }])), false, "a tool call means it is still working");
+  assert.equal(endsWithQuestion(said("Let me check, shall I run the suite first?", [{ type: "tool_use" }])), false, "a question with a tool call after it: still working");
   assert.equal(endsWithQuestion(ask + "\n" + JSON.stringify({ type: "user", message: { content: "yes" } })), false, "you already answered");
   const lane = { harness: "claude", sessionId: "s", state: "working" }, now = 1e12;
   assert.equal(markAsking([lane], () => ({ text: ask, mtime: now - 60_000 }), now)[0].state, "needs-you");
