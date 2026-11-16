@@ -295,3 +295,13 @@ export function transitions(prev, lanes) {
   }
   return events;
 }
+
+// A Claude background session whose conversation was never saved (it stopped before its first
+// answer finished) cannot be opened again: Claude itself says "couldn't wake". Claude still lists
+// it, often as waiting on you. It is "gone": shown apart, and the only thing to do is remove it.
+// A young session may simply not have written yet, so only after 10 minutes, and never one at work.
+export function markGone(lanes, hasTranscript, now = Date.now()) {
+  return lanes.map((l) => (l.harness === "claude" && l.id && l.sessionId && l.state !== "working"
+    && (!l.startedAt || now - l.startedAt > 10 * 60_000) && !hasTranscript(l.sessionId)
+    ? { ...l, state: "gone", waitingFor: null } : l));
+}

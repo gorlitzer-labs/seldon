@@ -21,6 +21,7 @@ export function previewKeys(row, options = []) {
   if (!row) return [];
   const open = ["⏎", "open it"];
   if (row.off) return [];
+  if (row.state === "gone") return [["x", "remove it from the list"]];
   if (row.state !== "needs-you") return [open, ["x", "stop"]];
   if (!row.lane?.tmuxSession) return [["⏎", "open it to answer"], ["x", "stop"]];
   return [...options.map((o) => [String(o.n), short(o.label, 22)]), ["a", "type an answer"], open, ["x", "stop"]];
@@ -48,6 +49,7 @@ export function previewBody(text, width, maxLines) {
 export function stateWords(row) {
   if (!row) return "";
   if (row.off) return `paused · ${row.machine} is asleep`;
+  if (row.state === "gone") return "gone: it stopped before its first answer, nothing to reopen";
   if (row.state === "needs-you") return row.waitingFor && row.waitingFor !== "you" ? `waiting: ${row.waitingFor}` : "waiting for an answer";
   return { working: "working", running: "working", idle: "idle", stopped: "stopped", failed: "stopped with an error" }[row.state] || row.state;
 }

@@ -8,7 +8,7 @@ import { sameDir } from "./projects.mjs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
-  claudeLanes, parseTmuxPanes, tmuxLanes, tmuxSessionFor, groupByProject,
+  claudeLanes, markGone, parseTmuxPanes, tmuxLanes, tmuxSessionFor, groupByProject,
   projectRootFromCommonDir, registryLanes, TMUX_PANE_FORMAT,
 } from "./lanes.mjs";
 
@@ -88,10 +88,17 @@ export function knownSessions() {
 
 // All lanes, grouped by project, most urgent first. Claude lanes that live in a tmux pane
 // (apiary's agents, or a claude you started inside tmux) learn which session, so ⏎ can open it.
+// Which Claude conversations are saved: ~/.claude/projects/<project>/<sessionId>.jsonl
+function hasTranscript() {
+  const dir = join(homedir(), ".claude", "projects"), saved = new Set();
+  try { for (const d of readdirSync(dir)) { try { for (const f of readdirSync(join(dir, d))) if (f.endsWith(".jsonl")) saved.add(f.slice(0, -6)); } catch {} } } catch {}
+  return (id) => saved.has(id);
+}
+
 export function readLanes() {
   const panes = readTmuxPanes();
-  const claude = claudeLanes(readClaude()).map((l) =>
-    l.id || !l.pid || !panes.length ? l : { ...l, tmuxSession: tmuxSessionFor(l.pid, panes, parentOf) });
+  const claude = markGone(claudeLanes(readClaude()).map((l) =>
+    l.id || !l.pid || !panes.length ? l : { ...l, tmuxSession: tmuxSessionFor(l.pid, panes, parentOf) }), hasTranscript());
   const stopped = registryLanes(readJson(LANES_FILE, []), panes.map((p) => p.session));
   const tmux = applyReports(tmuxLanes(panes, knownSessions()), readReports(), sameDir);
   return groupByProject([...claude, ...tmux, ...stopped], projectRoot);

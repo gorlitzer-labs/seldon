@@ -69,9 +69,10 @@ export function wsRows(groups, down = new Set()) {
 }
 
 // The list's groups, in the order they are shown.
-export const GROUP_ORDER = ["needs you", "working", "idle", "stopped", "paused"];
+export const GROUP_ORDER = ["needs you", "working", "idle", "stopped", "paused", "gone"];
 export function groupOf(row) {
   if (row.off) return "paused";
+  if (row.state === "gone") return "gone";
   if (row.state === "needs-you") return "needs you";
   if (row.state === "working" || row.state === "running") return "working";
   if (row.state === "stopped" || row.state === "failed") return "stopped";
@@ -102,6 +103,7 @@ const shJoin = (argv) => argv.map(sq).join(" ");
 export function paneCommand(row, { machines = [], home }) {
   const lane = row.lane;
   let open;
+  if (row.state === "gone") return `printf '\\n  %s is gone: it stopped before its first answer, so there is nothing to reopen.\\n  In the list: ⏎, then x removes it.\\n' ${sq(row.name)}; sleep 6; exec ${home}`;
   if (row.off) return `printf '\\n  %s is paused: %s is not reachable. It carries on when that machine is back.\\n' ${sq(row.name)} ${sq(row.machine)}; sleep 6; exec ${home}`;
   if (lane.machine) {
     const m = machines.find((x) => x.name === lane.machine);
