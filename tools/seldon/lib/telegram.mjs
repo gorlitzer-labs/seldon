@@ -144,7 +144,7 @@ export const htmlToPlain = (html) => String(html)
 
 // Every part is optional but the kind. `log` is shown as code (its tail: the end of a log is
 // what matters). `max` keeps the whole card under Telegram's limit — 1024 for a caption.
-export function card({ kind = "info", text, log, project, branch, lane, harness, detail, age, machine, link, max = MAX } = {}) {
+export function card({ kind = "info", text, log, project, branch, lane, harness, detail, age, machine, max = MAX } = {}) {
   const k = KINDS[kind] || KINDS.info;
   const e = escHtml;
   const meta = [age && `⏱ ${e(age)}`, machine && `💻 ${e(machine)}`].filter(Boolean).join("  ·  ");
@@ -153,7 +153,7 @@ export function card({ kind = "info", text, log, project, branch, lane, harness,
     lane && `▸ <b>${e(lane)}</b>${harness ? `  ·  ${e(harness)}` : ""}`,
     detail && `⏳ ${e(detail)}`,
   ].filter(Boolean);
-  const bottom = [meta && `<i>${meta}</i>`, link && `👉 <a href="${e(link)}">open the app</a>`].filter(Boolean);
+  const bottom = [meta && `<i>${meta}</i>`].filter(Boolean);
   // The free text gets whatever room the frame leaves (escaping can grow it, hence the margin).
   const room = Math.max(0, max - [...top, ...bottom].join("\n").length - 60);
   const words = text && mdToHtml(clip(String(text).trim(), Math.floor(room * (log ? 0.4 : 1) / 1.2)));
@@ -236,18 +236,17 @@ export async function downloadFile(token, fileId, dest) {
 export const react = (token, chatId, messageId, emoji) =>
   call(token, "setMessageReaction", { chat_id: chatId, message_id: messageId, reaction: [{ type: "emoji", emoji }] }).catch(() => {});
 
-// The watcher's news as a card: which agent, on what, what it is waiting for, for how long,
-// and — when the phone app is on the tailnet — a link straight to it.
+// The watcher's news as a card: which agent, on what, what it is waiting for, for how long.
 const WATCH_KIND = { "needs-you": "need", failed: "fail", idle: "done" };
 const WATCH_DETAIL = { failed: "ended with an error", idle: "finished its turn — ready for the next task" };
-export function watchCard(e, { machine = null, link = null, now = Date.now() } = {}) {
+export function watchCard(e, { machine = null, now = Date.now() } = {}) {
   return {
     kind: WATCH_KIND[e.to] || "info",
     project: basename(e.lane.project || e.lane.cwd || "") || null,
     lane: e.lane.name || e.lane.id, harness: e.lane.harness,
     detail: e.to === "needs-you" ? (e.lane.waitingFor || "waiting for you") : WATCH_DETAIL[e.to] || e.to,
     age: e.lane.startedAt ? `running ${ago(e.lane.startedAt, now)}` : null,
-    machine, link,
+    machine,
   };
 }
 

@@ -79,7 +79,6 @@ test("card: a coloured kind, where it is from, and what happened — escaped", (
   assert.equal(c, "🟢 <b>DONE</b> · <b>weather</b> <i>(lane/add-cache)</i>\nPR #4 merged &lt;ok&gt;\n<i>💻 mini</i>");
   assert.match(card({ kind: "need" }), /^🟠 <b>NEEDS YOU<\/b>$/);
   assert.match(card({ kind: "nonsense" }), /^🔵 <b>INFO/);
-  assert.match(card({ link: 'https://x.ts.net:8443/"><b>' }), /href="https:\/\/x\.ts\.net:8443\/&quot;&gt;&lt;b&gt;"/);
 });
 
 test("card: a log shows its tail, and the whole stays inside the limit", () => {
@@ -93,8 +92,8 @@ test("card: a log shows its tail, and the whole stays inside the limit", () => {
 
 test("watchCard: the watcher's events in words", () => {
   const lane = { name: "fix-save", harness: "codex", project: "/w/stranded", waitingFor: "permission: Bash", startedAt: 0 };
-  const need = watchCard({ to: "needs-you", lane }, { machine: "mini", link: "https://m.ts.net:8443/", now: 12 * 60_000 });
-  assert.deepEqual(need, { kind: "need", project: "stranded", lane: "fix-save", harness: "codex", detail: "permission: Bash", age: null, machine: "mini", link: "https://m.ts.net:8443/" });
+  const need = watchCard({ to: "needs-you", lane }, { machine: "mini", now: 12 * 60_000 });
+  assert.deepEqual(need, { kind: "need", project: "stranded", lane: "fix-save", harness: "codex", detail: "permission: Bash", age: null, machine: "mini" });
   const done = watchCard({ to: "idle", lane: { ...lane, startedAt: 60_000 } }, { now: 12 * 60_000 });
   assert.equal(done.kind, "done");
   assert.equal(done.age, "running 11m");

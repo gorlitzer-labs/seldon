@@ -14,7 +14,6 @@ import { openCommand, stopCommand, transitions, laneForItem, slugify, HARNESSES 
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
-import { serve, serveToken, ownerFromStatus } from "../lib/serve.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
@@ -1434,7 +1433,6 @@ ${C.bold("seldon")} — the agent factory: your projects, and the stack that run
                          Idempotent, and it prints every step it skipped. Run it from inside a repo.
   ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
   ${C.bold("seldon up --tailnet")}    expose the voice over HTTPS (tailscale serve) so the mic works on your phone
-  ${C.bold("seldon serve")} [--tailnet] the panel as a phone web app (--allow-reply to answer agents)
   ${C.bold("seldon tell")} "…"         message yourself on Telegram (--file to send one; --setup once)
   ${C.bold("seldon inbox")} [--dir d]   save what you send the bot to a folder here (no agent, no tokens)
   ${C.bold("seldon up --brain=X")}    pick the voice brain: qwen (in-process) | bonsai (local server); remembered
@@ -1476,22 +1474,12 @@ function tellInBackground(fields) {
   child.on("error", () => {}); child.unref();
 }
 
-function phoneAppUrl() {
-  const ts = tailscaleBin(); if (!ts) return null;
-  try {
-    const out = execSync(`${ts} serve status`, { stdio: ["ignore", "pipe", "ignore"], timeout: 10000 }).toString();
-    const m = out.match(new RegExp(`https://\\S+:${SERVE_TAILNET_PORT}`));
-    return m ? m[0] + "/" : null;
-  } catch { return null; }
-}
-
 async function watchCmd(flags) {
   ensureSiblingPath();
   const every = parseDuration(flags.interval, 5000) || 5000;
   let prev = new Map();
   const stamp = () => new Date().toTimeString().slice(0, 8);
   console.log(`${stamp()} seldon watch — every ${every / 1000}s`);
-  const phone = phoneAppUrl();   // once: the link the phone cards carry
   for (;;) {
     let lanes = [];
     try { lanes = readLanes().flatMap((g) => g.lanes); } catch (e) { console.log(`${stamp()} read failed: ${e.message}`); }
@@ -1499,7 +1487,7 @@ async function watchCmd(flags) {
       console.log(`${stamp()} ${e.text}`);
       const where = path.basename(e.lane.project || e.lane.cwd || "");
       notify(e.to === "needs-you" ? "Seldon · needs you" : "Seldon", `${e.text} — ${where}`);
-      tellInBackground(watchCard(e, { machine: os.hostname().split(".")[0], link: phone }));
+      tellInBackground(watchCard(e, { machine: os.hostname().split(".")[0] }));
     }
     prev = new Map(lanes.map((l) => [l.key, l.state]));
     if (flags.once) return;
@@ -1551,31 +1539,6 @@ function laneCmd(verb, arg, flags) {
   if (r.why) return fail(`can't ${verb} ${lane.name}: ${r.why}`);
   if (!r.ok) return fail(`${verb} failed: ${r.error}`);
   console.log(C.green(`✓ ${verb === "stop" ? "stopped" : "resumed"} ${lane.name}`) + (r.fresh ? C.dim(" (new conversation, same task + worktree)") : ""));
-}
-
-// `seldon serve` — the panel for a phone. Loopback only, and every call needs the token.
-// `--tailnet` puts it behind `tailscale serve` (HTTPS, its own port so it never takes the
-// voice's /) and only ever for one login: --owner, or this machine's tailscale user.
-const SERVE_TAILNET_PORT = 8443;
-function serveCmd(flags) {
-  const port = Number(flags.port) || 7930;
-  const allowReply = !!flags["allow-reply"];
-  const token = serveToken();
-  let owner = null, dns = null, ts = null;
-  if (flags.tailnet) {
-    ts = tailscaleBin(); const status = ts && tailscaleStatus(ts);
-    dns = tailnetDnsName(ts, status);
-    owner = typeof flags.owner === "string" ? flags.owner : ownerFromStatus(status);
-    if (!dns || !owner) { console.log(C.red("  not serving on the tailnet: " + (!dns ? "tailscale not found or not connected" : "can't tell whose it is — pass --owner you@example.com"))); process.exitCode = 1; return; }
-  }
-  serve({ port, token, owner, tailnet: !!flags.tailnet, allowReply });
-  console.log(C.green(`✓ seldon serve`) + C.dim(` on http://localhost:${port}/#t=${token}`) + (allowReply ? C.gold("  · replies ON (the phone can type into agents)") : ""));
-  if (!flags.tailnet) { console.log(C.dim(`  for your phone: seldon serve --tailnet  (HTTPS on your tailnet, only for your login)`)); return; }
-  try {
-    execSync(`${ts} serve --bg --https=${SERVE_TAILNET_PORT} http://127.0.0.1:${port}`, { stdio: "ignore", timeout: 30000 });
-    console.log(C.green(`  phone → https://${dns}:${SERVE_TAILNET_PORT}/#t=${token}`) + C.dim(`  only for ${owner} · open it once, then add to home screen`));
-    console.log(C.dim(`  undo: tailscale serve --https=${SERVE_TAILNET_PORT} off  ·  new token: rm ~/.seldon/serve-token`));
-  } catch (e) { console.log(C.red("  tailscale serve failed: " + ((e.stderr || e.message || "").toString().split("\n")[0]))); }
 }
 
 // `seldon tell "…"` — message the operator on Telegram, from any agent. The token comes from
@@ -1877,7 +1840,6 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "lanes") return lanesCmd(flags);
   if (cmd === "machines") return machinesCmd(tokens[0], tokens[1], tokens[2]);
   if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags);
-  if (cmd === "serve") return serveCmd(flags);
   if (cmd === "tell") return tellCmd(tokens, flags);
   if (cmd === "inbox") return inboxCmd(flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
