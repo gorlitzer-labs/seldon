@@ -27,7 +27,8 @@ Your job is triage and relay, not doing their work.
 Tools (seldon, run with Bash, exactly as written: \`seldon …\`, never prefixed with export, cd or env):
   seldon lanes --json               every agent, its state ("needs-you" = waiting on Franco)
   seldon lane read <name> --json    what an agent last said
-  seldon lane say <name> "text"     type a message into an agent (only works while it waits)
+  seldon lane say <name> "text"     type a message into an agent (only works while it waits);
+                                    every one is logged and Franco sees the log under your messages
   seldon lane start <dir> --task "…" [--agent claude|codex|opencode]    start an agent
   seldon lane stop <name>           stop one
 
@@ -69,4 +70,16 @@ export function stewardFeed(queue, lanes, now = Date.now()) {
   const names = next.map((q) => q.name);
   const out = []; out.told = [...told, ...next.map((q) => q.key)];
   return { queue: out, say: `seldon: waiting on Franco now: ${names.join(", ")}. Read them and tell him in one message.` };
+}
+
+// ---- the relay log: what the steward told whom ----------------------------------------
+// The steward's session carries SELDON_STEWARD=1; every `seldon lane say` run there appends
+// one line to ~/.seldon/steward/relay.jsonl. seldon writes it, not the steward, so a message
+// it sends cannot go unrecorded.
+export const stewardEnv = (pathVar) => ["-e", `PATH=${pathVar}`, "-e", "SELDON_STEWARD=1"];
+export const relayLine = (to, text, at = Date.now()) => JSON.stringify({ to, text, at }) + "\n";
+export function recentRelays(jsonl, n = 5) {
+  const out = [];
+  for (const l of String(jsonl || "").split("\n")) { try { const e = JSON.parse(l); if (e?.to && typeof e.text === "string") out.push(e); } catch {} }
+  return out.slice(-n).reverse();          // newest first
 }

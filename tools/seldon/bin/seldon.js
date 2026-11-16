@@ -17,7 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
-import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed } from "../lib/steward.mjs";
+import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed, stewardEnv, relayLine, recentRelays } from "../lib/steward.mjs";
 import { parseOptions, previewKeys, previewBody, stateWords, askOf, formatBody, summaryOf, agoWords } from "../lib/preview.mjs";
 import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
@@ -1360,13 +1360,21 @@ async function wsPreview() {
     const look = { bold: (x) => C.bold(C.white(x)), code: C.cyan, ref: C.cyan, version: C.green, dim: C.dim };
     let body = textErr ? [C.dim(textErr)] : text ? formatBody(text, measure, look) : [C.dim(row.off ? "its machine is asleep" : row.state === "gone" ? "it never said anything" : "nothing said yet")];
 
+    // the steward's card also shows what it sent, newest first: nothing goes out unseen
+    let sent = [];
+    if (row.name === STEWARD && !row.machine) {
+      let log = ""; try { log = fs.readFileSync(STEWARD_RELAYS, "utf8"); } catch {}
+      const rel = recentRelays(log, 5);
+      sent = rel.length ? ["", `  ${C.cyan(C.bold("SENT"))}${C.dim(" · what it told your agents")}`, ...rel.map((e) =>
+        fitLine(`   ${C.green("→")} ${C.bold(C.white(e.to))}  ${C.white(e.text)}  ${C.dim("· " + agoWords(e.at))}`, W))] : [];
+    }
     const askBlock = ask ? [C.gold(C.bold("  ⚑ asks")), ...formatBody(ask, measure, look).map((l) => "    " + C.white(l)), ""] : [];
     const bottomBar = mode === "type"
       ? [rule, `  ${C.green("›")} ${C.white(buf)}${C.green("▏")}`, "  " + C.dim(`⏎ send to ${row.name} · esc cancel`), ""]
       : null;
     const problemLine = problems.length ? [fitLine("  " + C.dim("projects  ") + problems.map(([n, w]) => C.gold(n) + " " + C.dim(w)).join("   "), W)] : [];
     // the room the message gets: everything the header, the ask and the bar do not use
-    const fixed = 1 + head.length + 1 + 2 + 1 + askBlock.length + (bottomBar ? bottomBar.length : 4) + problemLine.length;
+    const fixed = 1 + head.length + 1 + 2 + 1 + sent.length + askBlock.length + (bottomBar ? bottomBar.length : 4) + problemLine.length;
     const room = Math.max(3, rowsN - fixed);
     const hidden = body.length > room;
     if (hidden) body = full ? body.slice(0, room) : body.slice(-room);
@@ -1374,8 +1382,8 @@ async function wsPreview() {
     const label = `  ${C.cyan(C.bold("LAST MESSAGE"))}${lastAt ? C.dim(" · " + agoWords(lastAt)) : ""}${hidden ? C.dim(full ? "  · the start" : "  · the end") : ""}`;
     const bar = bottomBar || [rule, capLine(keys, cols), ...problemLine, ""];
     const top = ["", ...head, rule, label, "", ...body.map((l) => "   " + l)];
-    const fill = Math.max(0, rowsN - top.length - askBlock.length - bar.length);
-    let screen = withToast([...top, ...Array(fill).fill(""), ...askBlock, ...bar], toast, cols, bar.length);
+    const fill = Math.max(0, rowsN - top.length - sent.length - askBlock.length - bar.length);
+    let screen = withToast([...top, ...sent, ...Array(fill).fill(""), ...askBlock, ...bar], toast, cols, bar.length);
     if (confirmStop) screen = placeModal(screen, box([C.bold(row.state === "gone" ? `Remove ${row.name}?` : `Stop ${row.name}?`), "",
       C.dim(row.state === "gone" ? "It only takes it off the list: it had no conversation." : "Its conversation and worktree are kept."), "", `${C.white("y")} ${C.dim("yes")}    ${C.white("n")} ${C.dim("no")}`], { title: C.gold("confirm"), paint: C.dim, min: 30 }), cols, rowsN, C.dim);
     clearScreen();
@@ -1472,6 +1480,7 @@ async function docsView(query = "") {
   });
 }
 
+const STEWARD_RELAYS = path.join(SELDON_HOME, "steward", "relay.jsonl");
 // ---- the steward: the one agent you talk to ------------------------------------------
 // `seldon steward` starts it (or says it runs), `steward stop` stops it. It lives in the tmux
 // session seldon_steward, in ~/.seldon/steward, so `lane say` can type into it like any agent.
@@ -1490,7 +1499,7 @@ function stewardCmd(verb, flags) {
   fs.mkdirSync(dir, { recursive: true });
   const argv = stewardCommand({ model: typeof flags.model === "string" ? flags.model : "sonnet", brief: STEWARD_BRIEF });
   // seldon's own folder first on its PATH, so `seldon …` runs as is and matches the allowed list
-  const r = tm("new-session", "-d", "-s", STEWARD_SESSION, "-c", dir, "-x", "160", "-y", "45", "-e", `PATH=${process.env.PATH}`, argv.map(shq).join(" "));
+  const r = tm("new-session", "-d", "-s", STEWARD_SESSION, "-c", dir, "-x", "160", "-y", "45", ...stewardEnv(process.env.PATH), argv.map(shq).join(" "));
   if (r.status !== 0) { console.log(C.red("could not start the steward: ") + (r.stderr || "").trim()); process.exitCode = 1; return; }
   startWatch();          // the watcher passes new waits to the steward
   console.log(C.green("✓ steward started") + C.dim(` (${typeof flags.model === "string" ? flags.model : "sonnet"}) — row 1 in seldon ws; ask it "what needs me?"`));
@@ -1862,6 +1871,10 @@ function laneCmd(verb, arg, flags, rest = []) {
     const how = sayCommands(lane, rest.join(" "));
     if (how.why) return fail(`can't tell ${lane.name}: ${how.why}`);
     for (const [bin, ...args] of how.cmds) if (spawnSync(bin, args).status !== 0) return fail(`can't tell ${lane.name}: ${bin} failed`);
+    if (process.env.SELDON_STEWARD === "1") {     // sent by the steward: on the record
+      fs.mkdirSync(path.join(SELDON_HOME, "steward"), { recursive: true });
+      fs.appendFileSync(STEWARD_RELAYS, relayLine(lane.name || lane.key, rest.join(" ")));
+    }
     return console.log(C.green(`✓ told ${lane.name}`));
   }
   if (verb === "open") {
