@@ -16,6 +16,7 @@ import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonL
 import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
+import { box, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { tooSmall, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -63,6 +64,14 @@ function run(cmd, args, opts = {}) {
   return r.status === 0;
 }
 
+// A note becomes a toast; its kind follows the colour it was written in.
+const toastKind = (s) => (/\x1b\[32m/.test(s) ? "ok" : /\x1b\[31m/.test(s) ? "err" : /\x1b\[33m/.test(s) ? "warn" : "info");
+const TOAST_PAINT = () => ({ ok: C.green, err: C.red, warn: C.gold, info: C.dim });
+// Lay the current note, while fresh, over a drawn screen as a toast.
+function withToast(lines, t, cols, above) {
+  if (!t.text || !fresh(t)) return lines;
+  return placeToast(lines, toastLines(t.text, toastKind(t.text), TOAST_PAINT()), cols, above);
+}
 // Colour per lane state, shared by the panel and the workspace list.
 const TINT = { "needs-you": C.gold, working: C.green, running: C.green, idle: C.dim, failed: C.red, stopped: C.dim, off: C.dim };
 
@@ -918,7 +927,9 @@ async function panel({ newFor = null } = {}) {
   // What the screen is doing: the home list, a project's plan, a line of text being typed, or
   // picking which agent starts a lane. One at a time; esc always goes back to home.
   let mode = { name: "home" };
-  let armedStop = null;                       // { key, at } — stop needs a second x within 3s
+  // A confirm box: { title, body, then } while one is open. y or ⏎ runs `then`, n or esc closes.
+  const confirm = (title, body, then) => { mode = { name: "confirm", title, body, then }; };
+  const toast = { text: "", at: 0 };
   const here = projectRoot(process.cwd());     // the repo seldon was opened in is always listed
   // Other machines (bifrost's realms). Their lanes arrive in the background every 10s, so a
   // slow or sleeping machine never freezes this screen; `seen` says how each one answered.
@@ -986,9 +997,9 @@ async function panel({ newFor = null } = {}) {
     const sel = rows[cur];
     const hint = (k, w) => C.bold(k) + " " + C.dim(w);
     foot = narrow()
-      ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("xx", "stop"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("q", "quit")]]
+      ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("x", "stop"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("q", "quit")]]
       : [sel?.type === "lane"
-        ? [hint("⏎", "open"), hint("n", "new agent"), hint("xx", "stop"), hint("R", "resume"), hint("p", "plan"), hint("q", "quit")]
+        ? [hint("⏎", "open"), hint("n", "new agent"), hint("x", "stop"), hint("R", "resume"), hint("p", "plan"), hint("q", "quit")]
         : [hint("n", "new agent"), hint("p", "plan"), hint("⏎", "go"), hint("s", "staff"), hint("b", "board"), hint("q", "quit")]];
     foot = foot.map((hs) => "  " + hs.join("    "));
   };
@@ -1041,14 +1052,20 @@ async function panel({ newFor = null } = {}) {
     const hs = listHolds();
     if (hs.length) out.push("  " + C.dim("held: ") + hs.map((h) => `${C.bold(h.resource)} ${C.dim("→ " + h.who + " " + ago(h.since))}`).join(C.dim("   ")));
     out.push("");
-    ({ home: drawHome, plan: drawPlan, input: drawInput, harness: drawHarness })[mode.name](out);
-    if (note) out.push("", "  " + note);
-    // the hints live on the bottom rows, under a rule, like the workspace list
+    ({ home: drawHome, plan: drawPlan, input: drawInput, harness: drawHarness, confirm: drawHome })[mode.name](out);
+    // the hints live on the bottom rows, under a rule, like the workspace list; a toast sits just
+    // above them, and a confirm box over everything
     const height = process.stdout.rows || 40, cols = process.stdout.columns || 100;
     const bottom = foot.length ? [C.dim("  " + "─".repeat(Math.max(4, cols - 4))), ...foot] : [];
     const fill = Math.max(1, height - out.length - bottom.length);
+    if (note !== toast.text) { toast.text = note; toast.at = Date.now(); }
+    let screen = withToast([...out, ...Array(fill).fill(""), ...bottom], toast, cols, bottom.length + 1);
+    if (mode.name === "confirm") {
+      const b = box([C.bold(mode.title), "", ...mode.body.map((l) => C.dim(l)), "", `${C.bold("y")} ${C.dim("yes")}    ${C.bold("n")} ${C.dim("no")}`], { title: "confirm", paint: C.gold, min: 34 });
+      screen = placeModal(screen, b, cols, height, C.dim);
+    }
     clearScreen();
-    process.stdout.write([...out, ...Array(fill).fill(""), ...bottom].join("\n"));
+    process.stdout.write(screen.slice(0, height).join("\n"));
   };
 
   load(true);
@@ -1096,6 +1113,11 @@ async function panel({ newFor = null } = {}) {
       else if (key.name === "return") { const t = mode.buf.trim(); const then = mode.then; mode = { name: "home" }; if (t) await then(t); }
       else if (key.name === "backspace") mode.buf = mode.buf.slice(0, -1);
       else if (str && !key.ctrl && !key.meta && str >= " ") mode.buf += str;
+    },
+    confirm: async (str, key) => {
+      const { then } = mode;
+      if (str === "y" || key.name === "return") { mode = { name: "home" }; await then(); }
+      else if (str === "n" || key.name === "escape" || str === "q") mode = { name: "home" };
     },
     harness: async (str, key, api) => {
       if (key.name === "escape") { mode = { name: "home" }; return; }
@@ -1149,12 +1171,11 @@ async function panel({ newFor = null } = {}) {
         } else if (str === "x") {
           const cannot = stopCommand(r.lane).why;
           if (cannot) note = C.gold(`can't stop ${r.lane.name || "this agent"}: `) + cannot;
-          else if (armedStop?.key === r.lane.key && Date.now() - armedStop.at < 3000) {
-            armedStop = null;
+          else confirm(`Stop ${r.lane.name}?`, ["Its conversation and worktree are kept.", "R in the panel resumes it."], async () => {
             const res = await runOwned(api, () => (r.lane.machine ? onMachine(r.lane.machine, ["seldon", "lane", "stop", r.lane.remoteKey]) : stopLane(r.lane)));
             note = res.why ? C.gold(`can't stop ${r.lane.name || "this agent"}: `) + res.why
-              : res.ok ? C.dim(`stopped ${r.lane.name}`) : C.red(`could not stop: ${res.error}`);
-          } else { armedStop = { key: r.lane.key, at: Date.now() }; note = C.gold(`press x again to stop ${r.lane.name}`); }
+              : res.ok ? C.green(`stopped ${r.lane.name}`) : C.red(`could not stop: ${res.error}`);
+          });
         }
       } else {
         const p = r.project;
@@ -1180,7 +1201,6 @@ async function panel({ newFor = null } = {}) {
     draw,
     onError: (e) => { note = C.red("error: ") + (e?.message || String(e)); mode = { name: "home" }; },
     onKey: async (str, key, api) => {
-      if (mode.name === "home" && note && !note.includes("press x again")) note = "";
       if (key.ctrl && key.name === "c") { stopTimer(); return api.finish(); }
       const done = await keys[mode.name](str, key, api);
       if (done !== undefined) return done;
@@ -1621,6 +1641,7 @@ async function wsSidebar() {
   const seen = new Map();
   const poll = machinePoller(machines, seen);
   let rows = [], cur = 0, note = "";
+  const toast = { text: "", at: 0 };
   const home = wsHome();
   const load = () => {
     poll();
@@ -1646,7 +1667,7 @@ async function wsSidebar() {
     const head = [` ${C.bold("SELDON")}${" ".repeat(Math.max(1, width - 8 - counts.length))}${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`, rule];
     const hint = (k, w) => C.bold(k) + " " + C.dim(w);
     const foot = [rule, " " + [hint("⏎", "open"), hint("n", "new"), hint("⇥", "next ⚑")].join("   "),
-      " " + [hint("h", "home"), hint("q", "leave"), hint("⌥1-9", "jump")].join("   "), ...(note ? [" " + note] : [])];
+      " " + [hint("h", "home"), hint("q", "leave"), hint("⌥1-9", "jump")].join("   ")];
     const body = []; let curLine = 0, last = null;
     if (!rows.length) body.push("", C.dim(" no agents yet"), " " + C.bold("n") + C.dim(" starts one"));
     const faces = assignEmoji(rows.map((r) => r.name));
@@ -1661,8 +1682,9 @@ async function wsSidebar() {
     const room = Math.max(2, height - head.length - foot.length);
     const from = Math.max(0, Math.min(curLine - Math.floor(room / 2), body.length - room));
     const shown = body.slice(from, from + room);
+    if (note !== toast.text) { toast.text = note; toast.at = Date.now(); }
     clearScreen();
-    process.stdout.write([...head, ...shown, ...Array(room - shown.length).fill(""), ...foot].join("\n"));
+    process.stdout.write(withToast([...head, ...shown, ...Array(room - shown.length).fill(""), ...foot], toast, width, foot.length).join("\n"));
   };
   const openRow = (r) => { if (r) { wsOpen(wsReadRows().find((x) => x.key === r.key) || r); note = ""; } };
   load();
@@ -1677,7 +1699,7 @@ async function wsSidebar() {
       else if (key?.name === "return") openRow(rows[cur]);
       else if (/^[1-9]$/.test(str || "")) openRow(findRow(rows, str));
       else if (str === "n") wsNewAgent(rows[cur]);
-      else if (key?.name === "tab") { const r = nextNeeding(rows, wsCurrent()); if (r) openRow(r); else note = C.dim("nobody is waiting on you"); }
+      else if (key?.name === "tab") { const r = nextNeeding(rows, wsCurrent()); if (r) openRow(r); else note = C.gold("nobody is waiting on you"); }
       else if (str === "h") wsGoHome();
       else if (str === "r") load();
       else if (str === "q" || (key?.ctrl && key.name === "c")) wsTmux(["detach-client"]);
