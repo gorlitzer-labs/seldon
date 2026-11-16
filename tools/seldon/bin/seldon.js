@@ -1483,7 +1483,7 @@ function stewardCmd(verb, flags) {
     tm("kill-session", "-t", `=${STEWARD_SESSION}`);
     return console.log(C.green("✓ steward stopped") + C.dim(" — its conversation is kept; seldon steward starts it again"));
   }
-  if (running) return console.log(C.green("● the steward is running") + C.dim(" — it is row 1 in seldon ws"));
+  if (running) { startWatch(); return console.log(C.green("● the steward is running") + C.dim(" — it is row 1 in seldon ws; the watcher feeds it")); }
   ensureSiblingPath();
   if (!has("claude")) { console.log(C.red("the steward is a Claude agent, and claude is not installed here")); process.exitCode = 1; return; }
   const dir = path.join(SELDON_HOME, "steward");
