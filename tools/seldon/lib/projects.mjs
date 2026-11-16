@@ -7,6 +7,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import fs from "node:fs";
 
 // ---- sibling CLIs -----------------------------------------------------------
@@ -20,6 +21,11 @@ export function ensureSiblingPath(argv1 = process.argv[1]) {
     const parts = (process.env.PATH || "").split(path.delimiter);
     for (const d of [dir, path.resolve(dir, "..")]) {
       if (d && !parts.includes(d)) process.env.PATH = d + path.delimiter + process.env.PATH;
+    }
+    // Where Claude installs itself. A shell that skipped ~/.zshrc (a login shell, a launcher,
+    // tmux started from a script) has none of these, and then every Claude agent vanished.
+    for (const d of [path.join(os.homedir(), ".local", "bin"), path.join(os.homedir(), ".claude", "local"), "/opt/homebrew/bin"]) {
+      if (fs.existsSync(d) && !process.env.PATH.split(path.delimiter).includes(d)) process.env.PATH += path.delimiter + d;
     }
   } catch { /* argv[1] unreadable — leave PATH alone */ }
   return process.env.PATH;
@@ -107,3 +113,15 @@ export const staff = (dir, { agent, model, effort, name } = {}) => {
 export const attach = (name) => passthru("apiary", ["room", "resume", name]);
 
 export const hiveOf = (state, dir) => (state?.hives || []).find((h) => sameDir(h.dir, dir)) || null;
+
+// Forget a project: drop it from the factory's registry (~/.factory/hives.json). Its folder,
+// git history and room file are left exactly as they are; `seldon go <dir>` brings it back.
+export function forgetProject(name, reg = path.join(os.homedir(), ".factory", "hives.json")) {
+  let list;
+  try { list = JSON.parse(fs.readFileSync(reg, "utf8")); } catch { return { ok: false, error: "no factory registry here" }; }
+  if (!Array.isArray(list)) return { ok: false, error: "the factory registry is not a list" };
+  const kept = list.filter((h) => h?.name !== name);
+  if (kept.length === list.length) return { ok: false, error: `${name} is not in the factory` };
+  fs.writeFileSync(reg, JSON.stringify(kept, null, 2) + "\n");
+  return { ok: true };
+}

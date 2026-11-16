@@ -202,7 +202,7 @@ export const KEYS = [
   ["anywhere in ws", [["⌥1-9", "open that agent"], ["⌥←", "the agent list"], ["⌥→", "the right pane"], ["⌥h", "home: the panel"], ["⌥d", "docs, searchable"],
     ["⌥n", "next agent that needs you"], ["⌥q", "leave, agents keep going"], ["⌃g", "then the key, if ⌥ fails"]]],
   ["in the list", [["↑↓ ⏎", "move · open"], ["n", "new agent"], ["⇥", "next that needs you"], ["h", "home"], ["d", "docs"]]],
-  ["in the panel", [["n", "new agent"], ["p", "the plan"], ["x", "stop (asks first)"], ["R", "resume"], ["q", "quit"]]],
+  ["in the panel", [["n", "new agent"], ["⏎ p", "the plan (starts nothing)"], ["g", "open: room + agent (asks)"], ["x", "stop / forget (asks)"], ["R", "resume"], ["q", "quit"]]],
 ];
 export function keyLines(paint = {}) {
   const k = paint.key || ((x) => x), d = paint.dim || ((x) => x), t = paint.title || ((x) => x);

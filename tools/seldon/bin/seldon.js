@@ -8,9 +8,9 @@ import fs from "node:fs";
 import os from "node:os";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
-import { ensureSiblingPath, has, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
+import { ensureSiblingPath, has, forgetProject, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
 import { readLanes, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
-import { openCommand, stopCommand, readCommand, lastAssistantText, sayCommands, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
+import { countByState, openCommand, stopCommand, readCommand, lastAssistantText, sayCommands, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
@@ -67,6 +67,19 @@ function run(cmd, args, opts = {}) {
   return r.status === 0;
 }
 
+// "⚑ 1 need you   ● 2 working   ○ 1 idle", each in its state's colour.
+function countsLine(groups) {
+  const c = countByState(groups.flatMap((g) => g.lanes));
+  const parts = [[c["needs-you"], C.gold, "⚑", "need you"], [(c.working || 0) + (c.running || 0), C.green, "●", "working"],
+    [c.idle, C.dim, "○", "idle"], [c.failed, C.red, "✗", "failed"]].filter(([n]) => n);
+  return parts.length ? parts.map(([n, paint, g, w]) => paint(`${g} ${n}`) + " " + C.dim(w)).join("   ") : C.dim("no agents running");
+}
+// The empty screen: one calm line and the two keys that get you going, centred.
+function emptyState(cols, title, hints) {
+  const caps = keycaps(hints, cols - 4, { cap: CAP, word: C.dim, gap: "   " });
+  const centre = (l) => " ".repeat(Math.max(0, Math.floor((cols - stripAnsi(l).length) / 2))) + l;
+  return ["", "", centre(C.dim("·  ·  ·")), "", centre(C.white(title)), "", centre(caps)];
+}
 // A note becomes a toast; its kind follows the colour it was written in.
 const toastKind = (s) => (/\x1b\[38;5;48m/.test(s) ? "ok" : /\x1b\[31m/.test(s) ? "err" : /\x1b\[38;5;220m/.test(s) ? "warn" : "info");
 const TOAST_PAINT = () => ({ ok: C.green, err: C.red, warn: C.gold, info: C.dim });
@@ -77,7 +90,8 @@ function withToast(lines, t, cols, above) {
 }
 // A keycap: the key on the dark block of the tmux borders (#1f2a33), bright. Used for every hint.
 const CAP = (k) => (process.env.NO_COLOR ? `[${k}]` : `\x1b[48;5;236;38;5;255;1m${k}\x1b[0m`);
-const capLine = (hints, cols, gap = "   ") => " " + keycaps(hints, cols - 2, { cap: CAP, word: C.dim, gap });
+// Two spaces in from the edge, like the rows above it.
+const capLine = (hints, cols, gap = "   ") => "  " + keycaps(hints, cols - 3, { cap: CAP, word: C.dim, gap });
 // The ? card: every key, over a dimmed screen. Any key closes it.
 function withKeys(lines, cols, rows) {
   const card = box(keyLines({ key: C.white, dim: C.dim, title: C.cyan }), { title: C.green("keys"), paint: C.dim });
@@ -981,15 +995,14 @@ async function panel({ newFor = null } = {}) {
       const w = Math.max(10, (process.stdout.columns || 40) - 22);
       return `${color(GLYPH[l.state] || "?")} ${pad(name.slice(0, w), w, sel ? C.bold : (x) => x)} ${color(l.state === "needs-you" ? "needs you" : l.state)}`;
     }
-    return `${color(GLYPH[l.state] || "?")} ${pad(name.slice(0, 26), 26, sel ? C.bold : (x) => x)} ${pad(l.harness, 9, C.dim)} ${pad(laneDetail(l).slice(0, 40), 40, color)} ${C.dim(ago(l.startedAt))}`;
+    const face = faces.get(name) || " ";
+    return `${color(GLYPH[l.state] || "?")} ${face} ${pad(name.length > 28 ? name.slice(0, 27) + "…" : name, 28, sel ? (x) => C.bold(C.white(x)) : C.white)} ${pad(laneDetail(l).slice(0, 34), 34, color)} ${pad(l.harness, 9, C.dim)} ${C.dim(ago(l.startedAt))}`;
   };
 
+  let faces = new Map();
   const drawHome = (out) => {
-    if (!rows.length) {
-      out.push(C.dim("  no agents running and no projects yet."));
-      out.push("  " + C.cyan("cd <repo> && seldon") + C.dim(", then ") + C.cyan("n") + C.dim(" starts an agent on a task"));
-      out.push(C.dim("  add-ons (rooms, voice, secrets, plans): ") + C.cyan("seldon install"));
-    }
+    if (!rows.length) out.push(...emptyState(process.stdout.columns || 100, "nothing running yet", [["n", "start an agent here"], ["d", "the docs"]]));
+    faces = assignEmoji(rows.filter((r) => r.type === "lane").map((r) => r.lane.name || r.lane.id || "?"));
     rows.forEach((r, i) => {
       const sel = i === cur;
       const cursor = sel ? C.green("▸") : " ";
@@ -998,8 +1011,10 @@ async function panel({ newFor = null } = {}) {
         const plan = p.hive ? C.dim(`plan ${p.hive.queueOpen} · ${p.hive.done} done`) : "";
         const why = p.hive?.needsYou && p.hive.why ? C.gold("  ⚑ " + p.hive.why) : "";
         const others = unlistedAgents(p);
-        // padded to where the lanes' agent column starts, so plan · harness line up
-        out.push(`  ${cursor} ${pad(p.name, 30, C.bold)} ${plan}${others.length ? C.green("  agents: " + others.join(", ")) : ""}${why}`);
+        // a project is a header: its name on a short rule, the plan and what needs you after it
+        if (i) out.push("");
+        const lead = `${cursor} ${sel ? C.bold(C.green(p.name)) : C.bold(C.cyan(p.name))} `;
+        out.push(`  ${lead}${C.dim("─".repeat(Math.max(2, 30 - p.name.length)))} ${plan}${others.length ? C.green("  agents: " + others.join(", ")) : ""}${why}`);
       } else {
         out.push(`  ${cursor}   ${laneCells(r.lane, sel)}`);
         if (sel && r.lane.cwd !== r.project.root && !narrow()) out.push(`        ${C.dim(r.lane.cwd)}`);
@@ -1007,12 +1022,12 @@ async function panel({ newFor = null } = {}) {
     });
     const sel = rows[cur];
     const hint = (k, w) => [k, w];
-    foot = narrow()
+    foot = !rows.length ? [[hint("n", "new agent"), hint("d", "docs"), hint("q", "quit")]] : narrow()
       ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("x", "stop"), hint("?", "keys"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]]
       : [sel?.type === "lane"
         ? [hint("⏎", "open"), hint("n", "new agent"), hint("x", "stop"), hint("R", "resume"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]
-        : [hint("n", "new agent"), hint("p", "plan"), hint("⏎", "go"), hint("s", "staff"), hint("b", "board"), hint("?", "keys"), hint("q", "quit")]];
-    foot = ["", ...foot.map((hs) => capLine(hs, process.stdout.columns || 100))];
+        : [hint("⏎", "plan"), hint("n", "new agent"), hint("g", "open"), hint("x", "forget"), hint("?", "keys"), hint("q", "quit")]];
+    foot = ["", ...foot.map((hs) => capLine(hs, process.stdout.columns || 100)), ""];
   };
 
   const drawPlan = (out) => {
@@ -1059,7 +1074,7 @@ async function panel({ newFor = null } = {}) {
       const v = seen.get(m.name);
       return !v?.at ? C.dim(`${m.name} …`) : v.error ? C.red(`${m.name} ${v.error}`) : C.green(m.name);
     });
-    out.push("  " + headline(groups) + C.dim("   ·   ") + C.dim([
+    out.push("  " + countsLine(groups) + C.dim("   ·   ") + C.dim([
       svc("watcher", !!daemonUp("seldon-watch")), svc("voice", !!daemonUp("demerzel")),
     ].join("  ")) + (mach.length ? C.dim("   ·   ") + mach.join(C.dim("  ")) : ""));
     const hs = listHolds();
@@ -1168,6 +1183,11 @@ async function panel({ newFor = null } = {}) {
       else if (str === "i") { stopTimer(); api.finish(); return install_picker(); }
       else if (str === "U") await runOwned(api, () => up());
       else if (str === "D") await runOwned(api, () => down());
+      else if (str === "d") await runOwned(api, () => docsView());
+      else if (!r && str === "n") {          // the empty screen: a new agent in the repo seldon was opened in
+        const p = { name: path.basename(here || process.cwd()), root: here || process.cwd(), lanes: [] };
+        ask(`NEW LANE · ${p.name}`, "task ›", (task) => pickHarness(p, task));
+      }
       else if (!r) { /* nothing selected */ }
       else if (str === "n") { const p = r.project; ask(`NEW LANE · ${p.name}`, "task ›", (task) => pickHarness(p, task)); }
       else if (str === "p") openPlan(r.project);
@@ -1193,12 +1213,22 @@ async function panel({ newFor = null } = {}) {
         }
       } else {
         const p = r.project;
-        if (p.machine && key.name === "return") note = C.dim(`on ${p.machine} — n starts a lane there, p shows its plan; for the rest: ssh ${p.machine}, then seldon`);
-        else if (key.name === "return") { stopTimer(); api.finish(); return go(p.hive ? p.hive.name : p.root); }
-        if (!p.hive && "sab".includes(str)) note = C.dim("not adopted yet — ⏎ (seldon go) puts it on the line");
+        // ⏎ only ever looks. Anything that starts an agent or forgets a project asks first.
+        if (p.machine && (key.name === "return" || "gsx".includes(str))) note = C.dim(`on ${p.machine}: n starts an agent there, p shows its plan`);
+        else if (key.name === "return") openPlan(p);
+        else if (str === "g") confirm(`Open ${p.name}?`, ["Reopens its room and starts a coordinator", "agent there if none is working."], async () => { stopTimer(); api.finish(); await go(p.hive ? p.hive.name : p.root); });
+        else if (!p.hive && "sab".includes(str)) note = C.dim("not on the line yet: g opens it");
         else if (str === "a") { stopTimer(); api.finish(); return fAttach(p.hive.name); }
         else if (str === "b") await runOwned(api, () => spawnSync("factory", ["board"], { stdio: "inherit" }));
-        else if (str === "s") await runOwned(api, () => { fStaff(p.root); });
+        else if (str === "s") confirm(`Start a coordinator on ${p.name}?`, ["A Claude agent that plans the queue", "and hands out the work."], async () => { await runOwned(api, () => { fStaff(p.root); }); note = C.green(`coordinator started on ${p.name}`); });
+        else if (str === "x") {
+          if (!p.hive) note = C.dim(`${p.name} only shows because an agent runs there`);
+          else confirm(`Forget ${p.name}?`, ["It leaves seldon and the factory.", "The folder and its git history stay.", `seldon go ${p.name} brings it back.`], async () => {
+            const res = forgetProject(p.hive.name);
+            note = res.ok ? C.green(`forgot ${p.name}`) : C.red(`could not forget: ${res.error}`);
+            load(true);
+          });
+        }
       }
     },
   };
@@ -1251,7 +1281,7 @@ async function docsView(query = "") {
       body = Array.from({ length: Math.max(list.length, right.length) }, (_, i) =>
         "  " + (list[i] || "") + " ".repeat(Math.max(1, 28 - stripAnsi(list[i] || "").length)) + (right[i] || ""));
     } else body = reading ? topic(hits[cur]).map((l) => "  " + l) : list.map((l) => "  " + l);
-    const foot = ["", capLine(cols >= 70 || !reading ? [["↑↓", "pick"], ...(cols < 70 ? [["⏎", "read"]] : []), ["esc", "clear"], ["⌥h", "home"]] : [["esc", "back"]], cols)];
+    const foot = ["", capLine(cols >= 70 || !reading ? [["↑↓", "pick"], ...(cols < 70 ? [["⏎", "read"]] : []), ["esc", "clear"], ["⌥h", "home"]] : [["esc", "back"]], cols), ""];
     const room = Math.max(1, rows - out.length - foot.length);
     clearScreen();
     process.stdout.write([...out, ...body.slice(0, room), ...Array(Math.max(0, room - body.length)).fill(""), ...foot].join("\n"));
@@ -1739,9 +1769,10 @@ async function wsSidebar() {
     // above the hints, which sit on the bottom rows whatever the list's length.
     const counts = `${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`;
     const head = [rule(width - 1, { left: C.cyan(C.bold("seldon")), right: counts, paint: C.dim }), ""];
-    const foot = ["", capLine([["⏎", "open"], ["n", "new"], ["⇥", "next"], ["?", "keys"]], width + 1, "  ")];
+    // a blank row under the hints keeps them off tmux's status bar
+    const foot = ["", capLine([["⏎", "open"], ["n", "new"], ["⇥", "next"], ["?", "keys"]], width + 1, "  "), ""];
     const body = []; let curLine = 0, last = null;
-    if (!rows.length) body.push("", C.dim(" no agents yet"), " " + C.bold("n") + C.dim(" starts one"));
+    if (!rows.length) body.push(...emptyState(width, "no agents yet", [["n", "start one"], ["d", "docs"]]));
     const faces = assignEmoji(rows.map((r) => r.name));
     rows.forEach((r, i) => {
       if (r.project !== last) { body.push(" " + C.dim(C.bold(r.project.toUpperCase().slice(0, width - 2)))); last = r.project; }
