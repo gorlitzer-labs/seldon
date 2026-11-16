@@ -48,6 +48,8 @@ Every agent, on every machine, beside the one you're talking to. One key to swit
 | `Alt-h` | home: the full panel on the right |
 | `Alt-q` | leave. Agents keep running |
 
+In the list: `n` **new agent** (type the task, pick 1 claude · 2 codex · 3 opencode), `⏎` open, `tab` next ⚑.
+
 - **Real terminals.** The right side is the agent itself, not a copy.
 - **Switching never stops anything.** Leave, reconnect from anywhere, it's all still there.
 - **Both laptops, one list.** Agents on `seldon machines` open over ssh in the same pane. A sleeping one shows ☾ and waits.
