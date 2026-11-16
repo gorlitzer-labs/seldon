@@ -173,3 +173,14 @@ export function wsHeadline(rows) {
   const busy = live.filter((r) => r.state === "working" || r.state === "running").length;
   return { need, busy, total: rows.length };
 }
+
+// ---- too small ---------------------------------------------------------------------
+// Below this a list row no longer fits on one line and the footer pushes the agents off
+// screen. Like btop: say so, centred, instead of drawing a broken screen.
+export const MIN_COLS = 30, MIN_ROWS = 10;   // the list pane is 38 wide: it must fit
+export function tooSmall(cols, rows, min = { cols: MIN_COLS, rows: MIN_ROWS }) {
+  if (!cols || !rows || (cols >= min.cols && rows >= min.rows)) return null;
+  const lines = ["terminal too small", `${cols}×${rows} · needs ${min.cols}×${min.rows}`, "make the window bigger"];
+  const top = Math.max(0, Math.floor((rows - lines.length) / 2));
+  return [...Array(top).fill(""), ...lines.map((l) => " ".repeat(Math.max(0, Math.floor((cols - l.length) / 2))) + l)];
+}
