@@ -16,9 +16,9 @@ import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonL
 import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
-import { box, rule, hintRule, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
+import { box, rule, rule as houseRule, hintRule, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
-import { tooSmall, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
+import { tooSmall, keyLines, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
 import { tryHold, release as releaseHold, listHolds, findOwner } from "../lib/holds-store.mjs";
 
@@ -73,6 +73,11 @@ const TOAST_PAINT = () => ({ ok: C.green, err: C.red, warn: C.gold, info: C.dim 
 function withToast(lines, t, cols, above) {
   if (!t.text || !fresh(t)) return lines;
   return placeToast(lines, toastLines(t.text, toastKind(t.text), TOAST_PAINT()), cols, above);
+}
+// The ? card: every key, over a dimmed screen. Any key closes it.
+function withKeys(lines, cols, rows) {
+  const card = box(keyLines({ key: C.white, dim: C.dim, title: C.cyan }), { title: C.green("keys"), paint: C.dim });
+  return placeModal(lines, [...card, C.dim("  any key closes")], cols, rows, C.dim);
 }
 // Colour per lane state, shared by the panel and the workspace list.
 const TINT = { "needs-you": C.gold, working: C.green, running: C.green, idle: C.dim, failed: C.red, stopped: C.dim, off: C.dim };
@@ -964,7 +969,7 @@ async function panel({ newFor = null } = {}) {
   // Below 70 columns (a phone over ssh) a lane is one short line: glyph, name, the state in a
   // word. The full detail is one ⏎ away.
   const narrow = () => (process.stdout.columns || 100) < 70;
-  let foot = [];
+  let foot = [], showKeys = false;
   const laneCells = (l, sel) => {
     const color = tint[l.state] || ((x) => x);
     const name = (l.name || l.id || "?");
@@ -999,10 +1004,10 @@ async function panel({ newFor = null } = {}) {
     const sel = rows[cur];
     const hint = (k, w) => C.white(k) + " " + C.dim(w);
     foot = narrow()
-      ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("x", "stop"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("q", "quit")]]
+      ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("x", "stop"), hint("?", "keys"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]]
       : [sel?.type === "lane"
-        ? [hint("⏎", "open"), hint("n", "new agent"), hint("x", "stop"), hint("R", "resume"), hint("p", "plan"), hint("q", "quit")]
-        : [hint("n", "new agent"), hint("p", "plan"), hint("⏎", "go"), hint("s", "staff"), hint("b", "board"), hint("q", "quit")]];
+        ? [hint("⏎", "open"), hint("n", "new agent"), hint("x", "stop"), hint("R", "resume"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]
+        : [hint("n", "new agent"), hint("p", "plan"), hint("⏎", "go"), hint("s", "staff"), hint("b", "board"), hint("?", "keys"), hint("q", "quit")]];
     foot = foot.map((hs) => hintRule(hs, Math.max(30, (process.stdout.columns || 100) - 2), C.dim));
   };
 
@@ -1064,6 +1069,7 @@ async function panel({ newFor = null } = {}) {
     const fill = Math.max(1, height - out.length - bottom.length);
     if (note !== toast.text) { toast.text = note; toast.at = Date.now(); }
     let screen = withToast([...out, ...Array(fill).fill(""), ...bottom], toast, cols, bottom.length);
+    if (showKeys) screen = withKeys(screen, cols, height);
     if (mode.name === "confirm") {
       const b = box([C.bold(mode.title), "", ...mode.body.map((l) => C.dim(l)), "", `${C.bold("y")} ${C.dim("yes")}    ${C.bold("n")} ${C.dim("no")}`], { title: "confirm", paint: C.gold, min: 34 });
       screen = placeModal(screen, b, cols, height, C.dim);
@@ -1206,6 +1212,8 @@ async function panel({ newFor = null } = {}) {
     onError: (e) => { note = C.red("error: ") + (e?.message || String(e)); mode = { name: "home" }; },
     onKey: async (str, key, api) => {
       if (key.ctrl && key.name === "c") { stopTimer(); return api.finish(); }
+      if (showKeys) { showKeys = false; return api.draw(); }
+      if (str === "?" && mode.name === "home") { showKeys = true; return api.draw(); }
       const done = await keys[mode.name](str, key, api);
       if (done !== undefined) return done;
       api.draw();
@@ -1440,15 +1448,13 @@ function help() {
   let version = "";
   try { version = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version; } catch {}
   const cols = Math.max(40, Math.min(process.stdout.columns || 80, 80));
-  const rule = C.dim(" " + "─".repeat(cols - 2));
   const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, "");
   const fit = (line) => (strip(line).length <= cols ? line : strip(line).slice(0, cols - 1) + "…");
   const row = (cmd, what) => fit(`   ${C.dim("seldon")} ${pad(cmd, 26, C.bold)} ${C.dim(what)}`);
-  const sec = (name) => ["", " " + C.gold(C.bold(name))];
+  const sec = (name) => ["", " " + C.cyan(C.bold(name))];
   const out = [
     "",
-    ` ${C.bold("SELDON")}${" ".repeat(Math.max(1, cols - 7 - version.length))}${C.dim(version)}`,
-    rule,
+    houseRule(cols - 1, { left: C.cyan(C.bold("seldon")), right: C.green(version), paint: C.dim }),
     ...sec("START HERE"),
     row("ws", "every agent, one terminal"),
     row("", "the panel: agents by project"),
@@ -1474,9 +1480,11 @@ function help() {
     row("uninstall <ids>|--all", "remove (--yes skips the ask)"),
     row("doctor · seldon list", "check deps · list the modules"),
     row("adopt [dir]", "put a repo on the line"),
+    ...sec("KEYS"),
+    ...keyLines({ key: C.white, dim: C.dim, title: (t) => C.dim(t) }).map((l) => (l ? "   " + l : "")),
     "",
-    rule,
-    fit(C.dim(" keys inside ws: ⏎ open · n new · ⇥ next ⚑ · ⌥1-9 jump · q leave")),
+    hintRule([C.dim("in ws"), `${C.white("⌥1-9")} ${C.dim("agent")}`, `${C.white("⌥←")} ${C.dim("list")}`, `${C.white("⌥→")} ${C.dim("right")}`,
+      `${C.white("⌥h")} ${C.dim("home")}`, `${C.white("⌥n")} ${C.dim("next ⚑")}`, `${C.white("⌥q")} ${C.dim("leave")}`], cols - 1, C.dim),
     "",
   ];
   console.log(out.join("\n"));
@@ -1647,7 +1655,7 @@ async function wsSidebar() {
   const machines = listMachines();
   const seen = new Map();
   const poll = machinePoller(machines, seen);
-  let rows = [], cur = 0, note = "";
+  let rows = [], cur = 0, note = "", showKeys = false;
   const toast = { text: "", at: 0 };
   const home = wsHome();
   const load = () => {
@@ -1673,7 +1681,7 @@ async function wsSidebar() {
     const head = [rule(width - 1, { left: C.cyan(C.bold("seldon")), right: counts, paint: C.dim }), ""];
     const hint = (k, w) => C.white(k) + " " + C.dim(w);
     const foot = [hintRule([hint("⏎", "open"), hint("n", "new"), hint("⇥", "next ⚑")], width - 1, C.dim),
-      "   " + [hint("h", "home"), hint("q", "leave"), hint("⌥1-9", "jump")].join(C.dim(" · "))];
+      "   " + [hint("h", "home"), hint("q", "leave"), hint("?", "keys")].join(C.dim(" · "))];
     const body = []; let curLine = 0, last = null;
     if (!rows.length) body.push("", C.dim(" no agents yet"), " " + C.bold("n") + C.dim(" starts one"));
     const faces = assignEmoji(rows.map((r) => r.name));
@@ -1690,7 +1698,9 @@ async function wsSidebar() {
     const shown = body.slice(from, from + room);
     if (note !== toast.text) { toast.text = note; toast.at = Date.now(); }
     clearScreen();
-    process.stdout.write(withToast([...head, ...shown, ...Array(room - shown.length).fill(""), ...foot], toast, width, foot.length).join("\n"));
+    let screen = withToast([...head, ...shown, ...Array(room - shown.length).fill(""), ...foot], toast, width, foot.length);
+    if (showKeys) screen = withKeys(screen, width, height);
+    process.stdout.write(screen.slice(0, height).join("\n"));
   };
   const openRow = (r) => { if (r) { wsOpen(wsReadRows().find((x) => x.key === r.key) || r); note = ""; } };
   load();
@@ -1700,6 +1710,8 @@ async function wsSidebar() {
     draw,
     onError: (e) => { note = C.red(e.message); },
     onKey: (str, key, api) => {
+      if (showKeys) { showKeys = false; return api.draw(); }
+      if (str === "?") { showKeys = true; return api.draw(); }
       if (key?.name === "up" || str === "k") cur = Math.max(0, cur - 1);
       else if (key?.name === "down" || str === "j") cur = Math.min(rows.length - 1, cur + 1);
       else if (key?.name === "return") openRow(rows[cur]);
@@ -1720,6 +1732,7 @@ function wsCmd(sub, arg) {
   if (sub === "sidebar") return wsSidebar();
   if (sub === "fit") return wsFocus(null);
   if (sub === "list") return wsFocus(wsOpt("@side"));
+  if (sub === "main") return wsFocus(wsOpt("@main"));          // the right pane, whatever it shows
   if (sub === "home") return wsGoHome();
   if (sub === "pick" || sub === "next") {
     const rows = wsReadRows();

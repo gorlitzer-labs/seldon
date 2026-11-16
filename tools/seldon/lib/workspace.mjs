@@ -121,7 +121,7 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
     // round the pane you are in and its title on top.
     ["set", "-g", "status", "on"], ["set", "-g", "status-style", "bg=#0b0f14,fg=#5c6370"],
     ["set", "-g", "status-left", "#[fg=#0b0f14,bg=#00ff9c,bold] ▲ seldon #[bg=#0b0f14,fg=#00ff9c,nobold] "], ["set", "-g", "status-left-length", "16"],
-    ["set", "-g", "status-right", "#[fg=#5c6370]⌥1-9 agent · ⌥n next ⚑ · ⌥s list · ⌥h home · ⌥q leave  #[fg=#00ff9c,bold]%H:%M "],
+    ["set", "-g", "status-right", "#[fg=#5c6370]⌥1-9 agent · ⌥← list · ⌥→ right · ⌥h home · ⌥n next ⚑ · ⌥q leave  #[fg=#00ff9c,bold]%H:%M "],
     ["set", "-g", "status-right-length", "90"], ["set", "-g", "window-status-format", ""], ["set", "-g", "window-status-current-format", ""],
     ["set", "-g", "pane-border-style", "fg=#1f2a33"], ["set", "-g", "pane-active-border-style", "fg=#00ff9c"],
     ["set", "-g", "pane-border-status", "top"],
@@ -141,6 +141,10 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
     cmds.push(["bind", "-n", `M-${k}`, ...argv(...a)], ["bind", "-T", "seldon", String(k), ...argv(...a)]);
   }
   cmds.push(["bind", "-n", "M-q", "detach-client"], ["bind", "-T", "seldon", "q", "detach-client"]);
+  // Alt-← the list, Alt-→ the right pane as it is (Alt-h replaces it with home). On a phone
+  // these flip between the two full-screen views.
+  cmds.push(["bind", "-n", "M-Left", ...argv("list")], ["bind", "-T", "seldon", "Left", ...argv("list")],
+    ["bind", "-n", "M-Right", ...argv("main")], ["bind", "-T", "seldon", "Right", ...argv("main")]);
   // The session last, so both panes start with every option above already in force.
   cmds.push(
     ["new-session", "-d", "-s", WS_SESSION, "-x", String(cols), "-y", String(rows), "-n", "seldon", "-e", "SELDON_WS=1", home],
@@ -190,4 +194,23 @@ export function tooSmall(cols, rows, min = { cols: MIN_COLS, rows: MIN_ROWS }) {
   const lines = ["terminal too small", `${cols}×${rows} · needs ${min.cols}×${min.rows}`, "make the window bigger"];
   const top = Math.max(0, Math.floor((rows - lines.length) / 2));
   return [...Array(top).fill(""), ...lines.map((l) => " ".repeat(Math.max(0, Math.floor((cols - l.length) / 2))) + l)];
+}
+
+// ---- the keys, in one place ----------------------------------------------------------
+// The ? card in the list and the panel, and the KEYS part of `seldon help`, all draw this.
+export const KEYS = [
+  ["anywhere in ws", [["⌥1-9", "open that agent"], ["⌥←", "the agent list"], ["⌥→", "the right pane"], ["⌥h", "home: the panel"],
+    ["⌥n", "next agent that needs you"], ["⌥q", "leave, agents keep going"], ["⌃g", "then the key, if ⌥ fails"]]],
+  ["in the list", [["↑↓ ⏎", "move · open"], ["n", "new agent"], ["⇥", "next that needs you"], ["h", "home"]]],
+  ["in the panel", [["n", "new agent"], ["p", "the plan"], ["x", "stop (asks first)"], ["R", "resume"], ["q", "quit"]]],
+];
+export function keyLines(paint = {}) {
+  const k = paint.key || ((x) => x), d = paint.dim || ((x) => x), t = paint.title || ((x) => x);
+  const out = [];
+  KEYS.forEach(([title, keys], i) => {
+    if (i) out.push("");
+    out.push(t(title.toUpperCase()));
+    for (const [key, what] of keys) out.push(`${k(key.padEnd(6))} ${d(what)}`);
+  });
+  return out;
 }
