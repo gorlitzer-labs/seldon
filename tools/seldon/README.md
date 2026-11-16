@@ -85,6 +85,8 @@ seldon lane start [dir] --task "fix the save crash" [--agent codex]
 seldon lane stop|resume|open <name or key>
 seldon lane rm <name or key> [--force]                    # a stopped lane: its worktree goes,
                                                           # its branch too if git sees it merged
+seldon lane read <name or key> [--json]                   # what it last said
+seldon lane say <name or key> "use staging"               # answer it (tmux agents, only while waiting)
 ```
 
 ## Codex and opencode: let them report their state

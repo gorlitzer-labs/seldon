@@ -139,6 +139,39 @@ export function openCommand(lane) {
   return { why: "it runs in a terminal seldon cannot reach — switch to that window" };
 }
 
+// ---- reading an agent and answering it (what the voice uses) ----------------------
+// What an agent last said. Claude keeps its conversation on disk, which still reads after its
+// process is gone; any other agent is read off its tmux screen.
+export function readCommand(lane, lines = 40) {
+  if (lane.harness === "claude" && lane.sessionId) return { transcript: `${lane.sessionId}.jsonl` };
+  if (lane.tmuxSession) return { bin: "tmux", args: ["capture-pane", "-p", "-J", "-t", lane.tmuxSession, "-S", `-${lines}`] };
+  return { why: "seldon cannot see where it runs" };
+}
+
+// The last thing the assistant wrote, from a Claude transcript (JSON lines).
+export function lastAssistantText(jsonl) {
+  const rows = String(jsonl).split("\n");
+  for (let i = rows.length - 1; i >= 0; i--) {
+    let e; try { e = JSON.parse(rows[i]); } catch { continue; }
+    if (e?.type !== "assistant") continue;
+    const c = e.message?.content;
+    const text = typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b?.type === "text").map((b) => b.text).join("\n") : "";
+    if (text.trim()) return text.trim();
+  }
+  return "";
+}
+
+// Type a line into an agent and press Enter. Only an agent that is waiting gets typed into, so
+// a misheard sentence never lands in the middle of its work. Only tmux can be typed into: a
+// Claude background session has no way in from outside, so the answer is to open it.
+export function sayCommands(lane, text) {
+  const line = String(text || "").replace(/[\r\n]+/g, " ").trim();
+  if (!line) return { why: "nothing to say" };
+  if (lane.state !== "needs-you" && lane.state !== "idle") return { why: `it is ${lane.state || "busy"}, not waiting for you` };
+  if (!lane.tmuxSession) return { why: "it is a background session — open it to answer" };
+  return { cmds: [["tmux", "send-keys", "-t", lane.tmuxSession, "-l", line], ["tmux", "send-keys", "-t", lane.tmuxSession, "Enter"]] };
+}
+
 // ---- starting and stopping lanes -------------------------------------------------
 // A lane's name is its task, slugged: it names the session, the branch and the worktree, so
 // the plan item, the running agent and the branch on GitHub all read the same.
