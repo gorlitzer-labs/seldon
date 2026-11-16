@@ -48,9 +48,9 @@ test("nextNeeding: the next agent waiting on you, wrapping round, skipping unrea
 });
 
 test("findRow: by number or by key", () => {
-  const rows = wsRows(groups);
-  assert.equal(findRow(rows, "2").name, "docs");
-  assert.equal(findRow(rows, 2).name, "docs");
+  const rows = wsRows(groups), docs = rows.find((r) => r.name === "docs");
+  assert.equal(findRow(rows, String(docs.n)).name, "docs");
+  assert.equal(findRow(rows, docs.n).name, "docs");
   assert.equal(findRow(rows, "mini/tmux:seldon_cache").name, "cache");
   assert.equal(findRow(rows, "9"), null);
 });
@@ -67,16 +67,16 @@ test("paneCommand: a tmux lane is attached on the DEFAULT tmux server, not the w
 });
 
 test("paneCommand: a lane on another machine opens over ssh with a terminal, by its key there", () => {
-  const cmd = paneCommand(wsRows(groups)[2], { machines: [mini], home: HOME });
+  const cmd = paneCommand(wsRows(groups).find((r) => r.name === "cache"), { machines: [mini], home: HOME });
   assert.match(cmd, /^'ssh' .*'-t' 'you@mini\.ts\.net' /);
   assert.match(cmd, /seldon.*lane.*open.*tmux:seldon_cache/);
   assert.doesNotMatch(cmd, /mini\/tmux/, "the key as that machine knows it, not this one's");
 });
 
 test("paneCommand: what cannot be opened says why and goes home, instead of a dead pane", () => {
-  const off = paneCommand(wsRows(groups, new Set(["mini"]))[2], { machines: [mini], home: HOME });
+  const off = paneCommand(wsRows(groups, new Set(["mini"])).find((r) => r.name === "cache"), { machines: [mini], home: HOME });
   assert.match(off, /is paused/); assert.doesNotMatch(off, /ssh/);
-  const unknown = paneCommand(wsRows(groups)[2], { machines: [], home: HOME });
+  const unknown = paneCommand(wsRows(groups).find((r) => r.name === "cache"), { machines: [], home: HOME });
   assert.match(unknown, /does not know the machine/);
   const plain = wsRows([{ name: "p", lanes: [{ harness: "claude", key: "claude:9", name: "in a terminal", state: "working", cwd: "/w/p" }] }])[0];
   assert.match(paneCommand(plain, { home: HOME }), /cannot open/);
@@ -98,7 +98,7 @@ test("setupCommands: options first, the two panes last, every key bound twice (A
   assert.deepEqual(verbs.filter((v) => v !== "select-pane").slice(-2), ["new-session", "split-window"]);
   assert.ok(verbs.indexOf("new-session") > verbs.lastIndexOf("set"), "every option is set before the panes start");
   const session = cmds.find((c) => c[0] === "new-session"), side = cmds.find((c) => c[0] === "split-window");
-  assert.ok(cmds.some((c) => c.join(" ") === "set -g pane-border-status top"), "each pane has its title on top");
+  assert.ok(cmds.some((c) => c.join(" ") === "set -g pane-border-status off"), "one title per pane: tmux adds none");
   assert.deepEqual(cmds.filter((c) => c[0] === "select-pane").map((c) => c.at(-1)), ["agents", "home"]);
   assert.ok(session.includes(WS_SESSION) && session.at(-1) === "HOMECMD" && session.includes("120"));
   assert.ok(side.includes(String(SIDE_WIDTH)) && side.at(-1) === `${HOME} ws sidebar`);

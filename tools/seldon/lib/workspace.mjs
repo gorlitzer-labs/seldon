@@ -11,7 +11,7 @@
 import { openCommand } from "./lanes.mjs";
 import { sshArgs } from "./machines.mjs";
 
-export const WS_SOCKET = "seldon-ws";
+export const WS_SOCKET = process.env.SELDON_WS_SOCKET || "seldon-ws";   // a test copy can run beside the real one
 export const WS_SESSION = "ws";
 export const SIDE_WIDTH = 38;
 export const NARROW = 90;          // below this many columns one pane fills the screen (a phone)
@@ -61,7 +61,21 @@ export function wsRows(groups, down = new Set()) {
       });
     }
   }
+  // Sorted by what they need from you, then numbered in that order, so ⌥1 is always the
+  // agent most worth your attention. The sort is stable: inside a group, project order stays.
+  rows.sort((a, b) => GROUP_ORDER.indexOf(groupOf(a)) - GROUP_ORDER.indexOf(groupOf(b)));
+  rows.forEach((r, i) => { r.n = i + 1; r.group = groupOf(r); });
   return rows;
+}
+
+// The list's groups, in the order they are shown.
+export const GROUP_ORDER = ["needs you", "working", "idle", "stopped", "paused"];
+export function groupOf(row) {
+  if (row.off) return "paused";
+  if (row.state === "needs-you") return "needs you";
+  if (row.state === "working" || row.state === "running") return "working";
+  if (row.state === "stopped" || row.state === "failed") return "stopped";
+  return "idle";
 }
 
 // The next agent waiting on you after `currentKey`, wrapping round. null when nobody is.
@@ -124,7 +138,7 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
     ["set", "-g", "status-right", "#[fg=#5c6370]⌥1-9 agent · ⌥← list · ⌥→ right · ⌥h home · ⌥d docs · ⌥n next ⚑ · ⌥q leave  #[fg=#00ff9c,bold]%H:%M "],
     ["set", "-g", "status-right-length", "90"], ["set", "-g", "window-status-format", ""], ["set", "-g", "window-status-current-format", ""],
     ["set", "-g", "pane-border-style", "fg=#1f2a33"], ["set", "-g", "pane-active-border-style", "fg=#00ff9c"],
-    ["set", "-g", "pane-border-status", "top"],
+    ["set", "-g", "pane-border-status", "off"],            // one title per pane: the screen's own
     ["set", "-g", "pane-border-format", " #{?pane_active,#[fg=#00ff9c]#[bold],#[fg=#5c6370]}#{pane_title} "],
     ["set", "-g", "allow-set-title", "off"],                // the agent cannot rename its pane
     ["set", "-g", "message-style", "bg=#00ff9c,fg=#0b0f14,bold"], ["set", "-g", "mode-style", "bg=#00ff9c,fg=#0b0f14"],
@@ -199,10 +213,11 @@ export function tooSmall(cols, rows, min = { cols: MIN_COLS, rows: MIN_ROWS }) {
 // ---- the keys, in one place ----------------------------------------------------------
 // The ? card in the list and the panel, and the KEYS part of `seldon help`, all draw this.
 export const KEYS = [
-  ["anywhere in ws", [["⌥1-9", "open that agent"], ["⌥←", "the agent list"], ["⌥→", "the right pane"], ["⌥h", "home: the panel"], ["⌥d", "docs, searchable"],
+  ["anywhere in ws", [["⌥1-9", "open that agent"], ["⌥←", "the agent list"], ["⌥→", "the right pane"], ["⌥h", "projects"], ["⌥d", "docs, searchable"],
     ["⌥n", "next agent that needs you"], ["⌥q", "leave, agents keep going"], ["⌃g", "then the key, if ⌥ fails"]]],
-  ["in the list", [["↑↓ ⏎", "move · open"], ["n", "new agent"], ["⇥", "next that needs you"], ["h", "home"], ["d", "docs"]]],
-  ["in the panel", [["n", "new agent"], ["⏎ p", "the plan (starts nothing)"], ["g", "open: room + agent (asks)"], ["x", "stop / forget (asks)"], ["R", "resume"], ["q", "quit"]]],
+  ["in the list", [["↑↓ ⏎", "pick · read its question"], ["/", "filter by name"], ["n", "new agent"], ["⇥", "next that needs you"], ["h d", "projects · docs"]]],
+  ["reading an agent", [["1-9", "pick its numbered option"], ["a", "type an answer"], ["⏎", "open it"], ["←", "back to the list"], ["x", "stop it (asks first)"]]],
+  ["in projects", [["⏎", "the plan"], ["n", "new agent"], ["g", "open: room + agent (asks)"], ["x", "forget (asks)"], ["R", "resume"]]],
 ];
 export function keyLines(paint = {}) {
   const k = paint.key || ((x) => x), d = paint.dim || ((x) => x), t = paint.title || ((x) => x);
