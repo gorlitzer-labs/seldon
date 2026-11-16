@@ -16,7 +16,8 @@ import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonL
 import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
-import { box, rule, rule as houseRule, hintRule, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
+import { searchDocs, TOPICS } from "../lib/docs.mjs";
+import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { tooSmall, keyLines, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
@@ -74,6 +75,9 @@ function withToast(lines, t, cols, above) {
   if (!t.text || !fresh(t)) return lines;
   return placeToast(lines, toastLines(t.text, toastKind(t.text), TOAST_PAINT()), cols, above);
 }
+// A keycap: the key on the dark block of the tmux borders (#1f2a33), bright. Used for every hint.
+const CAP = (k) => (process.env.NO_COLOR ? `[${k}]` : `\x1b[48;5;236;38;5;255;1m${k}\x1b[0m`);
+const capLine = (hints, cols, gap = "   ") => " " + keycaps(hints, cols - 2, { cap: CAP, word: C.dim, gap });
 // The ? card: every key, over a dimmed screen. Any key closes it.
 function withKeys(lines, cols, rows) {
   const card = box(keyLines({ key: C.white, dim: C.dim, title: C.cyan }), { title: C.green("keys"), paint: C.dim });
@@ -1002,13 +1006,13 @@ async function panel({ newFor = null } = {}) {
       }
     });
     const sel = rows[cur];
-    const hint = (k, w) => C.white(k) + " " + C.dim(w);
+    const hint = (k, w) => [k, w];
     foot = narrow()
       ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("x", "stop"), hint("?", "keys"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]]
       : [sel?.type === "lane"
         ? [hint("⏎", "open"), hint("n", "new agent"), hint("x", "stop"), hint("R", "resume"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]
         : [hint("n", "new agent"), hint("p", "plan"), hint("⏎", "go"), hint("s", "staff"), hint("b", "board"), hint("?", "keys"), hint("q", "quit")]];
-    foot = foot.map((hs) => hintRule(hs, Math.max(30, (process.stdout.columns || 100) - 2), C.dim));
+    foot = ["", ...foot.map((hs) => capLine(hs, process.stdout.columns || 100))];
   };
 
   const drawPlan = (out) => {
@@ -1216,6 +1220,53 @@ async function panel({ newFor = null } = {}) {
       if (str === "?" && mode.name === "home") { showKeys = true; return api.draw(); }
       const done = await keys[mode.name](str, key, api);
       if (done !== undefined) return done;
+      api.draw();
+    },
+  });
+}
+
+// ---- docs: short topics with a search box ------------------------------------------
+// Type to search, ↑↓ to pick. Wide: the list on the left, the topic beside it. Narrow: the
+// list, ⏎ opens a topic, esc goes back. Every topic is a few lines and a couple of examples.
+async function docsView(query = "") {
+  let q = query, cur = 0, reading = false;
+  const draw = () => {
+    const cols = process.stdout.columns || 100, rows = process.stdout.rows || 30;
+    const small = tooSmall(cols, rows);
+    if (small) { clearScreen(); process.stdout.write(small.map((l) => C.dim(l)).join("\n")); return; }
+    const hits = searchDocs(q);
+    cur = Math.min(cur, Math.max(0, hits.length - 1));
+    const out = [rule(cols - 2, { left: C.cyan(C.bold("docs")), right: C.dim(`${hits.length} of ${TOPICS.length}`), paint: C.dim }), ""];
+    out.push(`  ${C.green("⌕")} ${q ? C.white(q) : C.dim("type to search")}${C.green("▏")}`, "");
+    const topic = (t) => {
+      if (!t) return [C.dim("nothing matches — try fewer words")];
+      const w = Math.max(20, cols - (cols >= 70 ? 34 : 4));
+      return [C.cyan(C.bold(t.title)), "", ...t.what.map((l) => C.white(l.slice(0, w))), "",
+        ...t.examples.map(([cmd, why]) => `${C.green("$")} ${C.bold(cmd)}${why ? "  " + C.dim(why) : ""}`)];
+    };
+    const list = hits.map((t, i) => (i === cur ? `${C.green("▸")} ${C.bold(C.white(t.title))}` : `  ${C.dim(t.title)}`));
+    let body;
+    if (cols >= 70) {
+      const right = topic(hits[cur]);
+      body = Array.from({ length: Math.max(list.length, right.length) }, (_, i) =>
+        "  " + (list[i] || "") + " ".repeat(Math.max(1, 28 - stripAnsi(list[i] || "").length)) + (right[i] || ""));
+    } else body = reading ? topic(hits[cur]).map((l) => "  " + l) : list.map((l) => "  " + l);
+    const foot = ["", capLine(cols >= 70 || !reading ? [["↑↓", "pick"], ...(cols < 70 ? [["⏎", "read"]] : []), ["esc", "clear"], ["⌥h", "home"]] : [["esc", "back"]], cols)];
+    const room = Math.max(1, rows - out.length - foot.length);
+    clearScreen();
+    process.stdout.write([...out, ...body.slice(0, room), ...Array(Math.max(0, room - body.length)).fill(""), ...foot].join("\n"));
+  };
+  process.stdout.on("resize", draw);
+  await rawSession({
+    draw,
+    onKey: (str, key, api) => {
+      if (key?.ctrl && key.name === "c") return api.finish();
+      if (key?.name === "escape") { if (reading) reading = false; else if (q) { q = ""; cur = 0; } else return api.finish(); }
+      else if (key?.name === "up") cur = Math.max(0, cur - 1);
+      else if (key?.name === "down") cur += 1;
+      else if (key?.name === "return") reading = true;
+      else if (key?.name === "backspace") { q = q.slice(0, -1); cur = 0; reading = false; }
+      else if (str && !key?.ctrl && !key?.meta && str >= " " && str.length === 1) { q += str; cur = 0; reading = false; }
       api.draw();
     },
   });
@@ -1459,6 +1510,7 @@ function help() {
     row("ws", "every agent, one terminal"),
     row("", "the panel: agents by project"),
     ...sec("AGENTS"),
+    row("docs [word]", "short how-tos, searchable"),
     row("ls", "every agent, as text"),
     row("lane start --task \"…\"", "start one (--agent codex)"),
     row("lane read <name>", "what it last said"),
@@ -1631,6 +1683,14 @@ function wsOpen(row) {
   wsSave(WS_CURRENT, row.off ? "" : row.key);
   wsFocus(main);
 }
+// ⌥d or d in the list: the docs on the right, like home.
+function wsDocs() {
+  const main = wsOpt("@main");
+  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`${wsSelf()} docs; exec ${wsHome()}`)}`]);
+  wsTmux(["select-pane", "-t", main, "-T", "docs"]);
+  wsSave(WS_CURRENT, "");
+  wsFocus(main);
+}
 // n in the list: the panel, on the right, already asking for the new agent's task.
 function wsNewAgent(row) {
   const main = wsOpt("@main");
@@ -1679,9 +1739,7 @@ async function wsSidebar() {
     // above the hints, which sit on the bottom rows whatever the list's length.
     const counts = `${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`;
     const head = [rule(width - 1, { left: C.cyan(C.bold("seldon")), right: counts, paint: C.dim }), ""];
-    const hint = (k, w) => C.white(k) + " " + C.dim(w);
-    const foot = [hintRule([hint("⏎", "open"), hint("n", "new"), hint("⇥", "next ⚑")], width - 1, C.dim),
-      "   " + [hint("h", "home"), hint("q", "leave"), hint("?", "keys")].join(C.dim(" · "))];
+    const foot = ["", capLine([["⏎", "open"], ["n", "new"], ["⇥", "next"], ["?", "keys"]], width + 1, "  ")];
     const body = []; let curLine = 0, last = null;
     if (!rows.length) body.push("", C.dim(" no agents yet"), " " + C.bold("n") + C.dim(" starts one"));
     const faces = assignEmoji(rows.map((r) => r.name));
@@ -1719,6 +1777,7 @@ async function wsSidebar() {
       else if (str === "n") wsNewAgent(rows[cur]);
       else if (key?.name === "tab") { const r = nextNeeding(rows, wsCurrent()); if (r) openRow(r); else note = C.gold("nobody is waiting on you"); }
       else if (str === "h") wsGoHome();
+      else if (str === "d") wsDocs();
       else if (str === "r") load();
       else if (str === "q" || (key?.ctrl && key.name === "c")) wsTmux(["detach-client"]);
       api.draw();
@@ -1733,6 +1792,7 @@ function wsCmd(sub, arg) {
   if (sub === "fit") return wsFocus(null);
   if (sub === "list") return wsFocus(wsOpt("@side"));
   if (sub === "main") return wsFocus(wsOpt("@main"));          // the right pane, whatever it shows
+  if (sub === "docs") return wsDocs();
   if (sub === "home") return wsGoHome();
   if (sub === "pick" || sub === "next") {
     const rows = wsReadRows();
@@ -2070,6 +2130,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "tell") return tellCmd(tokens, flags);
   if (cmd === "inbox") return inboxCmd(flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
+  if (cmd === "docs") return docsView(tokens.join(" "));
   if (cmd === "panel") return panel({ newFor: flags.new ? (typeof flags.for === "string" ? flags.for : "") : null });
   if (cmd && cmd !== "install") {
     console.log(C.red(` unknown command: ${cmd}`) + C.dim("   ·   seldon help lists them"));

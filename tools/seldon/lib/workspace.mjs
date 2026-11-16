@@ -121,7 +121,7 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
     // round the pane you are in and its title on top.
     ["set", "-g", "status", "on"], ["set", "-g", "status-style", "bg=#0b0f14,fg=#5c6370"],
     ["set", "-g", "status-left", "#[fg=#0b0f14,bg=#00ff9c,bold] ▲ seldon #[bg=#0b0f14,fg=#00ff9c,nobold] "], ["set", "-g", "status-left-length", "16"],
-    ["set", "-g", "status-right", "#[fg=#5c6370]⌥1-9 agent · ⌥← list · ⌥→ right · ⌥h home · ⌥n next ⚑ · ⌥q leave  #[fg=#00ff9c,bold]%H:%M "],
+    ["set", "-g", "status-right", "#[fg=#5c6370]⌥1-9 agent · ⌥← list · ⌥→ right · ⌥h home · ⌥d docs · ⌥n next ⚑ · ⌥q leave  #[fg=#00ff9c,bold]%H:%M "],
     ["set", "-g", "status-right-length", "90"], ["set", "-g", "window-status-format", ""], ["set", "-g", "window-status-current-format", ""],
     ["set", "-g", "pane-border-style", "fg=#1f2a33"], ["set", "-g", "pane-active-border-style", "fg=#00ff9c"],
     ["set", "-g", "pane-border-status", "top"],
@@ -135,7 +135,7 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
     // Terminal and iTerm2 need "Option as Meta" turned on).
     ["bind", "-n", "C-g", "switch-client", "-T", "seldon"],
   ];
-  const keys = { n: ["next"], s: ["list"], h: ["home"] };
+  const keys = { n: ["next"], s: ["list"], h: ["home"], d: ["docs"] };
   for (let i = 1; i <= 9; i++) keys[i] = ["pick", i];
   for (const [k, a] of Object.entries(keys)) {
     cmds.push(["bind", "-n", `M-${k}`, ...argv(...a)], ["bind", "-T", "seldon", String(k), ...argv(...a)]);
@@ -199,9 +199,9 @@ export function tooSmall(cols, rows, min = { cols: MIN_COLS, rows: MIN_ROWS }) {
 // ---- the keys, in one place ----------------------------------------------------------
 // The ? card in the list and the panel, and the KEYS part of `seldon help`, all draw this.
 export const KEYS = [
-  ["anywhere in ws", [["⌥1-9", "open that agent"], ["⌥←", "the agent list"], ["⌥→", "the right pane"], ["⌥h", "home: the panel"],
+  ["anywhere in ws", [["⌥1-9", "open that agent"], ["⌥←", "the agent list"], ["⌥→", "the right pane"], ["⌥h", "home: the panel"], ["⌥d", "docs, searchable"],
     ["⌥n", "next agent that needs you"], ["⌥q", "leave, agents keep going"], ["⌃g", "then the key, if ⌥ fails"]]],
-  ["in the list", [["↑↓ ⏎", "move · open"], ["n", "new agent"], ["⇥", "next that needs you"], ["h", "home"]]],
+  ["in the list", [["↑↓ ⏎", "move · open"], ["n", "new agent"], ["⇥", "next that needs you"], ["h", "home"], ["d", "docs"]]],
   ["in the panel", [["n", "new agent"], ["p", "the plan"], ["x", "stop (asks first)"], ["R", "resume"], ["q", "quit"]]],
 ];
 export function keyLines(paint = {}) {

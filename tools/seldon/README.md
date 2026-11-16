@@ -46,10 +46,11 @@ Every agent, on every machine, beside the one you're talking to. One key to swit
 | `Alt-n` | next agent that needs you |
 | `Alt-←` / `Alt-s` | the agent list |
 | `Alt-→` | the right pane, as it is |
+| `Alt-d` | docs: short how-tos with a search box |
 | `Alt-h` | home: the full panel on the right |
 | `Alt-q` | leave. Agents keep running |
 
-Press `?` anywhere for the keys card. In the list: `n` **new agent** (type the task, pick 1 claude · 2 codex · 3 opencode), `⏎` open, `tab` next ⚑.
+Press `?` anywhere for the keys card, `⌥d` for the docs (type to search). In the list: `n` **new agent** (type the task, pick 1 claude · 2 codex · 3 opencode), `⏎` open, `tab` next ⚑.
 
 - **Real terminals.** The right side is the agent itself, not a copy.
 - **Switching never stops anything.** Leave, reconnect from anywhere, it's all still there.

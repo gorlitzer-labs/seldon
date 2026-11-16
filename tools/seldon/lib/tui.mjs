@@ -66,3 +66,16 @@ export function placeModal(screen, boxLines, cols, rows, dim = (x) => x) {
 // Is the last toast still worth showing?
 export const TOAST_MS = 4000;
 export const fresh = (t, now = Date.now()) => !!t && now - t.at < TOAST_MS;
+
+// Keys as keycaps: the key on a dark block, then the word — " n  new   p  plan ".
+// `cap` paints the block (the caller owns the colours). Hints that do not fit are dropped from
+// the end rather than wrapped, so the line never breaks.
+export function keycaps(hints, cols, { cap = (k) => `[${k}]`, word = (w) => w, gap = "  " } = {}) {
+  let line = "";
+  for (const [k, w] of hints) {
+    const piece = `${line ? gap : ""}${cap(` ${k} `)} ${word(w)}`;
+    if (width(line + piece) > cols) break;
+    line += piece;
+  }
+  return line;
+}
