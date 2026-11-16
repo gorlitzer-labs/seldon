@@ -69,8 +69,9 @@ export function wsRows(groups, down = new Set()) {
 }
 
 // The list's groups, in the order they are shown.
-export const GROUP_ORDER = ["needs you", "working", "idle", "stopped", "paused", "gone"];
+export const GROUP_ORDER = ["steward", "needs you", "working", "idle", "stopped", "paused", "gone"];
 export function groupOf(row) {
+  if (row.name === "steward" && !row.machine) return "steward";      // the one you talk to: always first
   if (row.off) return "paused";
   if (row.state === "gone") return "gone";
   if (row.state === "needs-you") return "needs you";

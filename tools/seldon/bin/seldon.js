@@ -17,6 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
+import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand } from "../lib/steward.mjs";
 import { parseOptions, previewKeys, previewBody, stateWords, askOf, formatBody, summaryOf, agoWords } from "../lib/preview.mjs";
 import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
@@ -1471,6 +1472,29 @@ async function docsView(query = "") {
   });
 }
 
+// ---- the steward: the one agent you talk to ------------------------------------------
+// `seldon steward` starts it (or says it runs), `steward stop` stops it. It lives in the tmux
+// session seldon_steward, in ~/.seldon/steward, so `lane say` can type into it like any agent.
+function stewardCmd(verb, flags) {
+  const tm = (...a) => spawnSync("tmux", a, { encoding: "utf8", env: { ...process.env, TMUX: "" } });
+  const running = tm("has-session", "-t", `=${STEWARD_SESSION}`).status === 0;
+  if (verb === "stop") {
+    if (!running) return console.log(C.dim("the steward is not running"));
+    tm("kill-session", "-t", `=${STEWARD_SESSION}`);
+    return console.log(C.green("✓ steward stopped") + C.dim(" — its conversation is kept; seldon steward starts it again"));
+  }
+  if (running) return console.log(C.green("● the steward is running") + C.dim(" — it is row 1 in seldon ws"));
+  ensureSiblingPath();
+  if (!has("claude")) { console.log(C.red("the steward is a Claude agent, and claude is not installed here")); process.exitCode = 1; return; }
+  const dir = path.join(SELDON_HOME, "steward");
+  fs.mkdirSync(dir, { recursive: true });
+  const argv = stewardCommand({ model: typeof flags.model === "string" ? flags.model : "sonnet", brief: STEWARD_BRIEF });
+  // seldon's own folder first on its PATH, so `seldon …` runs as is and matches the allowed list
+  const r = tm("new-session", "-d", "-s", STEWARD_SESSION, "-c", dir, "-x", "160", "-y", "45", "-e", `PATH=${process.env.PATH}`, argv.map(shq).join(" "));
+  if (r.status !== 0) { console.log(C.red("could not start the steward: ") + (r.stderr || "").trim()); process.exitCode = 1; return; }
+  console.log(C.green("✓ steward started") + C.dim(` (${typeof flags.model === "string" ? flags.model : "sonnet"}) — row 1 in seldon ws; ask it "what needs me?"`));
+}
+
 // ---- go: the one verb that gets you back to work ----------------------------
 // Every other command answered half of "I am in my repo, continue": `seldon up` started
 // daemons, `factory adopt` opened a room, `factory staff` put an agent in it, `apiary room
@@ -1707,6 +1731,7 @@ function help() {
     houseRule(cols - 1, { left: C.cyan(C.bold("seldon")), right: C.green(version), paint: C.dim }),
     ...sec("START HERE"),
     row("ws", "every agent, one terminal"),
+    row("steward [stop]", "the one agent you talk to"),
     row("", "the panel: agents by project"),
     ...sec("AGENTS"),
     row("docs [word]", "short how-tos, searchable"),
@@ -1978,7 +2003,7 @@ async function wsSidebar() {
     if (!rows.length) body.push(...emptyState(width, "no agents yet", [["n", "start one"], ["d", "docs"]]));
     else if (!list.length) body.push("", C.dim(`  nothing matches "${filter}"`));
     const faces = assignEmoji(rows.map((r) => r.name));
-    const GROUP_PAINT = { "needs you": C.gold, working: C.green, idle: C.dim, stopped: C.red, paused: C.dim, gone: C.dim };
+    const GROUP_PAINT = { steward: C.cyan, "needs you": C.gold, working: C.green, idle: C.dim, stopped: C.red, paused: C.dim, gone: C.dim };
     const tagW = Math.min(12, Math.max(6, Math.floor(width / 3)));
     list.forEach((r, i) => {
       if (r.group !== last) { if (last !== null) body.push(""); body.push(" " + C.bold((GROUP_PAINT[r.group] || C.dim)(r.group.toUpperCase()))); last = r.group; }
@@ -2385,6 +2410,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "inbox") return inboxCmd(flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
   if (cmd === "docs") return docsView(tokens.join(" "));
+  if (cmd === "steward") return stewardCmd(tokens[0], flags);
   if (cmd === "panel") return panel({ newFor: flags.new ? (typeof flags.for === "string" ? flags.for : "") : null });
   if (cmd && cmd !== "install") {
     console.log(C.red(` unknown command: ${cmd}`) + C.dim("   ·   seldon help lists them"));
