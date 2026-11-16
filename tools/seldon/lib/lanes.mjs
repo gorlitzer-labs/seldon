@@ -305,3 +305,32 @@ export function markGone(lanes, hasTranscript, now = Date.now()) {
     && (!l.startedAt || now - l.startedAt > 10 * 60_000) && !hasTranscript(l.sessionId)
     ? { ...l, state: "gone", waitingFor: null } : l));
 }
+
+// ---- a question at the end of the turn means it waits on you -------------------------------
+// Claude can report an agent as working or idle while it sits at its prompt having asked you
+// something. From the end of its conversation file: the turn is over (the last entry is the
+// assistant's text, not a tool call or a result) and that text ends with a question.
+export function endsWithQuestion(jsonlTail) {
+  const rows = String(jsonlTail || "").split("\n").filter(Boolean);
+  for (let i = rows.length - 1; i >= 0; i--) {
+    let e; try { e = JSON.parse(rows[i]); } catch { continue; }
+    if (e?.type === "user") return false;                         // you (or a tool result) spoke last
+    if (e?.type !== "assistant") continue;
+    const c = e.message?.content;
+    if (Array.isArray(c) && c.some((b) => b?.type === "tool_use")) return false;   // mid-turn
+    const text = typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b?.type === "text").map((b) => b.text).join("\n") : "";
+    if (!text.trim()) continue;
+    return /\?\s*(\*\*)?\s*$/.test(text.replace(/```[\s\S]*?```/g, "").trim());
+  }
+  return false;
+}
+// Apply it: a claude agent that is not doing anything right now (its file quiet for 20s) and
+// whose turn ended on a question is waiting on you.
+export function markAsking(lanes, tailOf, now = Date.now()) {
+  return lanes.map((l) => {
+    if (l.harness !== "claude" || !l.sessionId || !["working", "idle", "running"].includes(l.state)) return l;
+    const t = tailOf(l.sessionId);
+    if (!t || now - t.mtime < 20_000 || !endsWithQuestion(t.text)) return l;
+    return { ...l, state: "needs-you", waitingFor: "a question" };
+  });
+}

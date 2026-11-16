@@ -52,3 +52,41 @@ test("gone: a background session with no saved conversation, older than 10 minut
   assert.match(stateWords(row), /gone/);
   assert.equal(wsRows([{ name: "p", lanes: [{ ...l(), state: "gone", key: "k", name: "dead" }, { key: "a", name: "ok", state: "idle", harness: "claude" }] }]).map((r) => r.group).join(), "idle,gone");
 });
+
+test("askOf: the question the message ends on, not one asked earlier", async () => {
+  const { askOf } = await import("../lib/preview.mjs");
+  assert.equal(askOf("Merged #938.\n\n- Rules: published 0.28.0.\n- QA: needs a qa branch. Want me to do that now?"), "Want me to do that now?");
+  assert.equal(askOf("Should I? I checked and it is fine.\n\nAll done."), null);
+  assert.equal(askOf("Which one?\n\n1. a\n2. b"), "Which one?");
+});
+
+test("formatBody: bullets hang, refs and versions marked, every line fits", async () => {
+  const { formatBody } = await import("../lib/preview.mjs");
+  const mark = (t) => (x) => `<${t}>${x}</${t}>`;
+  const lines = formatBody("- Rules package: sprouts merged their rules PR and published joey-rules 0.28.0 in commit b7c26c1, see #938", 40,
+    { ref: mark("r"), version: mark("v"), bold: mark("b"), code: mark("c"), dim: (x) => x });
+  const plain = lines.map((l) => l.replace(/<\/?\w>/g, ""));
+  assert.ok(plain[0].startsWith("• Rules"), plain[0]);
+  assert.ok(plain.slice(1).every((l) => l.startsWith("  ")), "wrapped lines hang under the text");
+  assert.ok(plain.every((l) => l.length <= 40));
+  const all = lines.join(" ");
+  assert.match(all, /<v>0\.28\.0<\/v>/); assert.match(all, /<r>b7c26c1<\/r>/); assert.match(all, /<r>#938<\/r>/);
+});
+
+test("summaryOf: a long message shows its end, and says it cut", async () => {
+  const { summaryOf } = await import("../lib/preview.mjs");
+  assert.deepEqual(summaryOf("one\n\ntwo"), { text: "one\n\ntwo", cut: false });
+  assert.deepEqual(summaryOf("a\n\nb\n\nlast part"), { text: "last part", cut: true });
+});
+
+test("markAsking: a turn that ended on a question waits on you; mid-turn or still writing does not", async () => {
+  const { markAsking, endsWithQuestion } = await import("../lib/lanes.mjs");
+  const said = (text, extra = []) => JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }, ...extra] } });
+  const ask = said("Merged. Want me to deploy?") + "\n" + JSON.stringify({ type: "pr-link" });
+  assert.equal(endsWithQuestion(ask), true);
+  assert.equal(endsWithQuestion(said("Should I? Doing it.", [{ type: "tool_use" }])), false, "a tool call means it is still working");
+  assert.equal(endsWithQuestion(ask + "\n" + JSON.stringify({ type: "user", message: { content: "yes" } })), false, "you already answered");
+  const lane = { harness: "claude", sessionId: "s", state: "working" }, now = 1e12;
+  assert.equal(markAsking([lane], () => ({ text: ask, mtime: now - 60_000 }), now)[0].state, "needs-you");
+  assert.equal(markAsking([lane], () => ({ text: ask, mtime: now - 5_000 }), now)[0].state, "working", "still writing");
+});

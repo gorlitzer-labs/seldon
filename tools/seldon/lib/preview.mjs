@@ -53,3 +53,67 @@ export function stateWords(row) {
   if (row.state === "needs-you") return row.waitingFor && row.waitingFor !== "you" ? `waiting: ${row.waitingFor}` : "waiting for an answer";
   return { working: "working", running: "working", idle: "idle", stopped: "stopped", failed: "stopped with an error" }[row.state] || row.state;
 }
+
+// ---- the question --------------------------------------------------------------------
+// What the agent asks you: the last sentence of its message that ends with "?", if the message
+// ends on it (a "?" early on, followed by more explanation, is not a question to you).
+export function askOf(text) {
+  const t = String(text || "").replace(/```[\s\S]*?```/g, "").trim();
+  const paras = t.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const isOptions = (p) => p.split("\n").every((l) => /^\s*\d+[.)]\s/.test(l));
+  // numbered options at the very end belong to the question just before them
+  let cand = paras.at(-1) || "";
+  if (isOptions(cand) && paras.length > 1) cand = paras.at(-2);
+  const flat = cand.split("\n").map((l) => l.replace(/^\s*([-*•]|\d+[.)])\s+/, "")).join(" ").replace(/\*\*|`/g, "").replace(/\s+/g, " ").trim();
+  if (!/\?$/.test(flat)) return null;
+  const sentences = flat.match(/[^.!?:]*\?/g);
+  return sentences ? sentences.at(-1).trim() : null;
+}
+
+// ---- formatting -----------------------------------------------------------------------
+// Wrap a message for the pane and style it: lists become "•" with the wrapped lines hanging
+// under the text, **bold** and `code` styled, PR numbers, commit hashes and versions picked out.
+// `paint` supplies the colours: { bold, code, ref, version, dim }.
+export function formatBody(text, width, paint = {}) {
+  const P = { bold: (x) => x, code: (x) => x, ref: (x) => x, version: (x) => x, dim: (x) => x, ...paint };
+  const clean = String(text || "").replace(/```[\s\S]*?```/g, "‹code›");
+  const out = [];
+  for (const raw of clean.split("\n")) {
+    if (!raw.trim()) { if (out.length && out.at(-1) !== "") out.push(""); continue; }
+    const m = raw.match(/^(\s*)([-*•]|\d+[.)])\s+(.*)$/);
+    const lead = m ? `${m[1]}${/\d/.test(m[2]) ? m[2] : "•"} ` : "";
+    const hang = " ".repeat(lead.length);
+    const words = (m ? m[3] : raw.trim()).split(/\s+/);
+    let line = "";
+    const flush = (first) => { out.push((first ? lead : hang) + line); line = ""; };
+    let first = true;
+    for (const w of words) {
+      const plainLen = (s) => s.replace(/\*\*|`/g, "").length;
+      if (line && plainLen(line) + 1 + plainLen(w) + lead.length > width) { flush(first); first = false; }
+      line = line ? `${line} ${w}` : w;
+    }
+    if (line) flush(first);
+  }
+  while (out.length && out.at(-1) === "") out.pop();
+  return out.map((l) => styleLine(l, P));
+}
+function styleLine(l, P) {
+  return l
+    .replace(/\*\*([^*]+)\*\*/g, (_, x) => P.bold(x))
+    .replace(/`([^`]+)`/g, (_, x) => P.code(x))
+    .replace(/\*\*|`/g, "")
+    .replace(/(^|[\s(])(#\d+)(?=[\s,.)/:;]|$)/g, (_, a, x) => a + P.ref(x))
+    .replace(/(^|[\s(])([0-9a-f]{7,40})(?=[\s,.);:]|$)/g, (_, a, x) => (/[a-f]/.test(x) && /\d/.test(x) ? a + P.ref(x) : a + x))
+    .replace(/(^|[\s(@v])(\d+\.\d+\.\d+)(?=[\s,.);:]|$)/g, (_, a, x) => a + P.version(x))
+    .replace(/^(\s*)(•|\d+[.)])(?= )/, (_, s, b) => s + P.dim(b));
+}
+
+// Only the end of a long message, unless asked for all of it: the last paragraph (and a list
+// that belongs to it). Returns { lines, cut } where cut says something was left out.
+export function summaryOf(text) {
+  const paras = String(text || "").trim().split(/\n\s*\n/);
+  if (paras.length <= 2) return { text: String(text || "").trim(), cut: false };
+  let keep = paras.slice(-1);
+  if (/^\s*(\d[.)]|[-*•])\s/.test(keep[0]) && paras.length > 2) keep = paras.slice(-2);
+  return { text: keep.join("\n\n"), cut: true };
+}

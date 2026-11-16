@@ -2,13 +2,13 @@
 // Every source is best-effort — a missing `claude` or no tmux server is an empty list, not
 // an error, because a machine running only Codex (or nothing yet) is a normal machine.
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, rmSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { applyReports } from "./reports.mjs";
 import { sameDir } from "./projects.mjs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
-  claudeLanes, markGone, parseTmuxPanes, tmuxLanes, tmuxSessionFor, groupByProject,
+  claudeLanes, markGone, markAsking, parseTmuxPanes, tmuxLanes, tmuxSessionFor, groupByProject,
   projectRootFromCommonDir, registryLanes, TMUX_PANE_FORMAT,
 } from "./lanes.mjs";
 
@@ -89,16 +89,31 @@ export function knownSessions() {
 // All lanes, grouped by project, most urgent first. Claude lanes that live in a tmux pane
 // (apiary's agents, or a claude you started inside tmux) learn which session, so ⏎ can open it.
 // Which Claude conversations are saved: ~/.claude/projects/<project>/<sessionId>.jsonl
-function hasTranscript() {
-  const dir = join(homedir(), ".claude", "projects"), saved = new Set();
-  try { for (const d of readdirSync(dir)) { try { for (const f of readdirSync(join(dir, d))) if (f.endsWith(".jsonl")) saved.add(f.slice(0, -6)); } catch {} } } catch {}
-  return (id) => saved.has(id);
+function transcripts() {
+  const dir = join(homedir(), ".claude", "projects"), files = new Map();
+  try { for (const d of readdirSync(dir)) { try { for (const f of readdirSync(join(dir, d))) if (f.endsWith(".jsonl")) files.set(f.slice(0, -6), join(dir, d, f)); } catch {} } } catch {}
+  return files;
+}
+// The last 64 KB of a conversation file, and when it was last written.
+function tailOf(files) {
+  return (id) => {
+    const f = files.get(id);
+    if (!f) return null;
+    try {
+      const st = statSync(f), fd = openSync(f, "r"), n = Math.min(st.size, 65536), buf = Buffer.alloc(n);
+      readSync(fd, buf, 0, n, st.size - n); closeSync(fd);
+      // a cut file starts mid-line: drop that partial first line, but only when it was cut
+      const lines = buf.toString("utf8").split("\n");
+      return { text: (n < st.size ? lines.slice(1) : lines).join("\n"), mtime: st.mtimeMs };
+    } catch { return null; }
+  };
 }
 
 export function readLanes() {
   const panes = readTmuxPanes();
-  const claude = markGone(claudeLanes(readClaude()).map((l) =>
-    l.id || !l.pid || !panes.length ? l : { ...l, tmuxSession: tmuxSessionFor(l.pid, panes, parentOf) }), hasTranscript());
+  const files = transcripts();
+  const claude = markAsking(markGone(claudeLanes(readClaude()).map((l) =>
+    l.id || !l.pid || !panes.length ? l : { ...l, tmuxSession: tmuxSessionFor(l.pid, panes, parentOf) }), (id) => files.has(id)), tailOf(files));
   const stopped = registryLanes(readJson(LANES_FILE, []), panes.map((p) => p.session));
   const tmux = applyReports(tmuxLanes(panes, knownSessions()), readReports(), sameDir);
   return groupByProject([...claude, ...tmux, ...stopped], projectRoot);

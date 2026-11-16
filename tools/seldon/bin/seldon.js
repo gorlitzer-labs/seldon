@@ -17,7 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
-import { parseOptions, previewKeys, previewBody, stateWords } from "../lib/preview.mjs";
+import { parseOptions, previewKeys, previewBody, stateWords, askOf, formatBody, summaryOf } from "../lib/preview.mjs";
 import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { tooSmall, keyLines, emojiFor, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
@@ -1286,7 +1286,7 @@ async function wsPreview() {
   ensureSiblingPath();
   wsSave(WS_PREVIEW_PID, String(process.pid));
   const machines = listMachines();
-  let row = null, text = "", textErr = "", fetchedFor = null, fetchedAt = 0, mode = "view", buf = "", note = "", confirmStop = false, typingFor = null;
+  let row = null, text = "", textErr = "", fetchedFor = null, fetchedAt = 0, mode = "view", buf = "", note = "", confirmStop = false, typingFor = null, full = false;
   let problems = [], problemsAt = 0;
   const toast = { text: "", at: 0 };
   const refresh = () => {
@@ -1296,7 +1296,7 @@ async function wsPreview() {
     row = rows.find((r) => r.key === key) || rows[0] || null;
     // Another agent selected: a half-typed answer or an open confirm belonged to the old one,
     // so they go. Otherwise ⏎ would send that text to the wrong agent.
-    if (row?.key !== was) { mode = "view"; buf = ""; confirmStop = false; }
+    if (row?.key !== was) { mode = "view"; buf = ""; confirmStop = false; full = false; }
     if (!row) return;
     const stale = fetchedFor !== row.key || Date.now() - fetchedAt > (row.machine ? 10000 : 3000);
     if (stale) {
@@ -1346,9 +1346,17 @@ async function wsPreview() {
       out.push(`  ${paint((row.group === "needs you" ? "⚑ " : row.group === "working" ? "● " : "○ ") + stateWords(row))}`, "");
       const options = row.state === "needs-you" ? parseOptions(text) : [];
       keys = previewKeys(row, options);
-      const room = Math.max(3, rowsN - 12);
-      const body = textErr ? [C.dim(textErr)] : text ? previewBody(text, Math.max(20, cols - 8), room) : [C.dim(row.off ? "its machine is asleep" : "nothing said yet")];
+      // The end of the message by default, all of it on space; formatted, then the question.
+      const { text: shown, cut } = full ? { text, cut: false } : summaryOf(text);
+      if (cut || full) keys = [...keys, ["␣", full ? "less" : "all of it"]];
+      const room = Math.max(3, rowsN - 14);
+      const look = { bold: (x) => C.bold(C.white(x)), code: C.cyan, ref: C.cyan, version: C.green, dim: C.dim };
+      let body = textErr ? [C.dim(textErr)] : text ? formatBody(shown, Math.max(20, cols - 8), look) : [C.dim(row.off ? "its machine is asleep" : "nothing said yet")];
+      if (body.length > room) body = [C.dim("…"), ...body.slice(-(room - 1))];
+      if (cut) out.push(`  ${C.dim("│ … earlier part hidden · space shows it")}`);
       out.push(...body.map((l) => `  ${C.dim("│")} ${l}`), "");
+      const ask = row.state === "needs-you" && !textErr ? askOf(text) : null;
+      if (ask) out.push(fitLine(`  ${C.gold(C.bold("asks:"))} ${C.white(ask)}`, cols - 1), "");
       if (mode === "type") out.push(`  ${C.green("›")} ${C.white(buf)}${C.green("▏")}`, "  " + C.dim("⏎ send · esc cancel"));
       else out.push(capLine(keys, cols));
     }
@@ -1397,6 +1405,7 @@ async function wsPreview() {
       else if (/^[1-9]$/.test(str || "") && offered.has(str)) say(str);
       else if (str === "a" && offered.has("a")) { mode = "type"; typingFor = row.key; }
       else if (str === "x" && offered.has("x")) confirmStop = true;
+      else if (str === " ") full = !full;
       else if (str === "h") wsGoHome();
       else if (str === "d") wsDocs();
       api.draw();
