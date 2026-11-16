@@ -16,6 +16,7 @@ test("parseOptions: a numbered run at the end is a question; a list mid-text or 
 test("previewKeys: answer keys only for a waiting tmux agent; a background session can only be opened", () => {
   const waiting = { state: "needs-you", lane: { tmuxSession: "botfighter" } };
   assert.deepEqual(previewKeys(waiting, parseOptions(Q)).map(([k]) => k), ["1", "2", "a", "⏎", "x"]);
+  assert.deepEqual(previewKeys({ state: "idle", lane: { tmuxSession: "joey" } }, parseOptions(Q)).map(([k]) => k), ["a", "⏎", "x"], "an idle agent can be replied to, without option keys");
   assert.deepEqual(previewKeys({ state: "needs-you", lane: { id: "c09d" } }, parseOptions(Q)).map(([k]) => k), ["⏎", "x"]);
   assert.ok(!previewKeys({ state: "working", lane: { tmuxSession: "t" } }).some(([k]) => k === "a"), "never type into a working agent");
   assert.deepEqual(previewKeys({ off: true, state: "idle", lane: {} }), []);
@@ -89,4 +90,12 @@ test("markAsking: a turn that ended on a question waits on you; mid-turn or stil
   const lane = { harness: "claude", sessionId: "s", state: "working" }, now = 1e12;
   assert.equal(markAsking([lane], () => ({ text: ask, mtime: now - 60_000 }), now)[0].state, "needs-you");
   assert.equal(markAsking([lane], () => ({ text: ask, mtime: now - 5_000 }), now)[0].state, "working", "still writing");
+});
+
+test("agoWords: when the message was written, in words", async () => {
+  const { agoWords } = await import("../lib/preview.mjs");
+  const now = 1e12;
+  assert.equal(agoWords(now - 20e3, now), "just now");
+  assert.equal(agoWords(now - 180e3, now), "3 min ago");
+  assert.equal(agoWords(now - 2 * 3600e3, now), "2 h ago");
 });

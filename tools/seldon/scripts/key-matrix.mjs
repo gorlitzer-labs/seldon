@@ -93,7 +93,7 @@ const SCREENS = {
 const where = { list: side, filter: side, keys: side, preview: main, typing: main, confirm: main, projects: main, docs: main };
 // What each screen must show once reached: a key test on a screen that never opened proves nothing.
 const MARK = { list: [side, /NEEDS YOU/], filter: [side, /⌕ ▏/], keys: [side, /ANYWHERE IN WS/], preview: [main, /straight to the queue/],
-  typing: [main, /⏎ send · esc cancel/], confirm: [main, /Stop background-one\?|Stop worker\?/], projects: [main, /your projects/], docs: [main, /docs/] };
+  typing: [main, /⏎ send to \S+ · esc cancel/], confirm: [main, /Stop background-one\?|Stop worker\?/], projects: [main, /your projects/], docs: [main, /docs/] };
 
 // ---- every key ----------------------------------------------------------------------------
 const KEYS = [
