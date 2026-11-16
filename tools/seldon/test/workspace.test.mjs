@@ -99,6 +99,8 @@ test("setupCommands: options first, the two panes last, every key bound twice (A
   assert.ok(verbs.indexOf("new-session") > verbs.lastIndexOf("set"), "every option is set before the panes start");
   const session = cmds.find((c) => c[0] === "new-session"), side = cmds.find((c) => c[0] === "split-window");
   assert.ok(cmds.some((c) => c.join(" ") === "set -g pane-border-status off"), "one title per pane: tmux adds none");
+  assert.ok(cmds.some((c) => c.join(" ") === "set -g pane-border-indicators off"), "no half-coloured divider");
+  assert.ok(cmds.some((c) => c[2] === "window-active-style"), "focus shows as a lighter pane");
   assert.deepEqual(cmds.filter((c) => c[0] === "select-pane").map((c) => c.at(-1)), ["agents", "home"]);
   assert.ok(session.includes(WS_SESSION) && session.at(-1) === "HOMECMD" && session.includes("120"));
   assert.ok(side.includes(String(SIDE_WIDTH)) && side.at(-1) === `${HOME} ws sidebar`);
