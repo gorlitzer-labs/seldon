@@ -17,6 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
+import { WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
 import { tryHold, release as releaseHold, listHolds, findOwner } from "../lib/holds-store.mjs";
 
@@ -1427,6 +1428,7 @@ function help() {
 ${C.bold("seldon")} — the agent factory: your projects, and the stack that runs them.
 
   ${C.bold("seldon")}                 ${C.gold("the panel")} — every agent (claude · codex · opencode) by project; n new lane, p plan
+  ${C.bold("seldon ws")}              ${C.gold("the workspace")} — the agent list beside the agent's own terminal; Alt-1…9 switches
   ${C.bold("seldon hold")} <thing>     take a turn on a shared resource (emulator, unreal, gpu); waits if someone has it
   ${C.bold("seldon release")} <thing>  give it back   ·   ${C.bold("seldon holds")}  who holds what
   ${C.bold("seldon go")} [name|dir]   ${C.gold("get back to work")} — adopt if needed, reopen the room, staff an agent, attach.
@@ -1539,6 +1541,152 @@ function laneCmd(verb, arg, flags) {
   if (r.why) return fail(`can't ${verb} ${lane.name}: ${r.why}`);
   if (!r.ok) return fail(`${verb} failed: ${r.error}`);
   console.log(C.green(`✓ ${verb === "stop" ? "stopped" : "resumed"} ${lane.name}`) + (r.fresh ? C.dim(" (new conversation, same task + worktree)") : ""));
+}
+
+// ---- the workspace: `seldon ws` -------------------------------------------------------
+// The agent list on the left, the selected agent's own terminal on the right, one key to
+// switch (lib/workspace.mjs has the rules; this is the tmux and the drawing). It runs on its
+// own tmux server, so nothing here touches the user's tmux or its config.
+const WS_ROWS = path.join(SELDON_HOME, "ws.json");        // the list, as the sidebar last drew it
+const WS_CURRENT = path.join(SELDON_HOME, "ws-current");  // the key of the agent on the right
+const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+const wsSelf = () => `${shq(process.execPath)} ${shq(fs.realpathSync(process.argv[1]))}`;
+// The right-hand pane with no agent open is the full panel; when it exits, it comes back.
+const wsHome = () => `sh -c ${shq(`while :; do ${wsSelf()}; sleep 0.3; done`)}`;
+const wsTmux = (args, opts = {}) => spawnSync("tmux", ["-L", WS_SOCKET, "-f", "/dev/null", ...args], { encoding: "utf8", ...opts });
+const wsOpt = (name) => (wsTmux(["show-options", "-v", "-t", WS_SESSION, name]).stdout || "").trim();
+const wsReadRows = () => { try { return JSON.parse(fs.readFileSync(WS_ROWS, "utf8")); } catch { return []; } };
+const wsCurrent = () => { try { return fs.readFileSync(WS_CURRENT, "utf8").trim() || null; } catch { return null; } };
+function wsSave(file, text) {
+  fs.mkdirSync(SELDON_HOME, { recursive: true });
+  const tmp = `${file}.${process.pid}`;
+  fs.writeFileSync(tmp, text); fs.renameSync(tmp, file);      // a reader never sees half a file
+}
+// Show `pane`. On a small screen it fills it; on a wide one both panes show.
+function wsFocus(pane, width = null) {
+  const [w0, zoomed] = (wsTmux(["display-message", "-p", "-t", `${WS_SESSION}:0`, "#{window_width} #{window_zoomed_flag}"]).stdout || "").trim().split(" ");
+  const narrow = (width ?? Number(w0)) < NARROW;      // `width`: the screen about to attach
+  if (!pane && narrow && !wsCurrent()) pane = wsOpt("@side");     // a phone with no agent open starts on the list
+  if (pane) wsTmux(["select-pane", ...(narrow ? ["-Z"] : []), "-t", pane]);
+  if (narrow !== (zoomed === "1")) wsTmux(["resize-pane", "-Z", "-t", `${WS_SESSION}:0`]);
+  if (!narrow) wsTmux(["resize-pane", "-t", wsOpt("@side"), "-x", String(SIDE_WIDTH)]);   // a resize stretches it otherwise
+}
+function wsOpen(row) {
+  const main = wsOpt("@main");
+  wsTmux(["respawn-pane", "-k", "-t", main, row.cmd]);
+  wsSave(WS_CURRENT, row.off ? "" : row.key);
+  wsFocus(main);
+}
+function wsGoHome() {
+  const main = wsOpt("@main");
+  wsTmux(["respawn-pane", "-k", "-t", main, wsHome()]);
+  wsSave(WS_CURRENT, "");
+  wsFocus(main);
+}
+
+// The left-hand pane: the list. It also writes the list to disk, which is how a key pressed
+// anywhere in the workspace (`seldon ws pick 3`, run by tmux) knows what "3" is.
+async function wsSidebar() {
+  ensureSiblingPath();
+  const machines = listMachines();
+  const seen = new Map();
+  const poll = () => {
+    for (const m of machines) {
+      const was = seen.get(m.name) || {};
+      if (was.inflight || (was.at && Date.now() - was.at < 10_000)) continue;
+      seen.set(m.name, { ...was, inflight: true });
+      fetchLanes(m, (r) => { seen.set(m.name, { groups: r.lanes ? remoteGroups(m, r.lanes) : was.groups || [], error: r.error || null, at: Date.now(), inflight: false }); });
+    }
+  };
+  let rows = [], cur = 0, note = "";
+  const home = wsHome();
+  const load = () => {
+    poll();
+    let groups = [];
+    try { groups = [...readLanes(), ...[...seen.values()].flatMap((v) => v.groups || [])]; } catch (e) { note = C.red(e.message); }
+    const down = new Set([...seen].filter(([, v]) => v.error).map(([name]) => name));
+    const prev = rows[cur]?.key;
+    rows = wsRows(groups, down);
+    const keep = rows.findIndex((r) => r.key === prev);
+    cur = keep >= 0 ? keep : Math.min(cur, Math.max(0, rows.length - 1));
+    wsSave(WS_ROWS, JSON.stringify(rows.map((r) => ({ n: r.n, key: r.key, name: r.name, state: r.state, off: r.off, cmd: paneCommand(r, { machines, home }) }))));
+  };
+  const tint = { "needs-you": C.gold, working: C.green, running: C.green, idle: C.dim, failed: C.red, stopped: C.dim, off: C.dim };
+  const draw = () => {
+    const width = process.stdout.columns || 38, height = process.stdout.rows || 40;
+    const open = wsCurrent(), h = wsHeadline(rows);
+    const head = [` ${C.bold("SELDON")}  ${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`, ""];
+    const foot = ["", C.dim(" ⏎ open · n next ⚑ · h home"), C.dim(" Alt-1…9 from any pane · q leave"), ...(note ? [" " + note] : [])];
+    const body = []; let curLine = 0, last = null;
+    if (!rows.length) body.push(C.dim(" no agents running"), C.dim(" h, then n starts one"));
+    const faces = assignEmoji(rows.map((r) => r.name));
+    rows.forEach((r, i) => {
+      if (r.project !== last) { if (last !== null) body.push(""); body.push(" " + C.dim(r.project.slice(0, width - 2))); last = r.project; }
+      const c = rowCells(r, width, ago, faces.get(r.name)), color = tint[c.state] || ((x) => x);
+      const mark = i === cur ? C.gold("❯") : r.key === open ? C.cyan("▸") : " ";
+      if (i === cur) curLine = body.length;
+      body.push(`${mark}${C.dim(c.n)} ${color(c.glyph)} ${c.emoji} ${i === cur ? C.bold(c.name) : c.name}`);
+      body.push(`        ${color(c.sub)}`);
+    });
+    const room = Math.max(2, height - head.length - foot.length);
+    const from = Math.max(0, Math.min(curLine - Math.floor(room / 2), body.length - room));
+    clearScreen();
+    process.stdout.write([...head, ...body.slice(from, from + room), ...foot].join("\n"));
+  };
+  const openRow = (r) => { if (r) { wsOpen(wsReadRows().find((x) => x.key === r.key) || r); note = ""; } };
+  load();
+  setInterval(() => { load(); draw(); }, 2000);
+  process.stdout.on("resize", draw);
+  await rawSession({
+    draw,
+    onError: (e) => { note = C.red(e.message); },
+    onKey: (str, key, api) => {
+      if (key?.name === "up" || str === "k") cur = Math.max(0, cur - 1);
+      else if (key?.name === "down" || str === "j") cur = Math.min(rows.length - 1, cur + 1);
+      else if (key?.name === "return") openRow(rows[cur]);
+      else if (/^[1-9]$/.test(str || "")) openRow(findRow(rows, str));
+      else if (str === "n") { const r = nextNeeding(rows, wsCurrent()); if (r) openRow(r); else note = C.dim("nobody is waiting on you"); }
+      else if (str === "h") wsGoHome();
+      else if (str === "r") load();
+      else if (str === "q" || (key?.ctrl && key.name === "c")) wsTmux(["detach-client"]);
+      api.draw();
+    },
+  });
+}
+
+function wsCmd(sub, arg) {
+  const fail = (msg) => { console.log(C.red(msg)); process.exitCode = 1; };
+  if (!has("tmux")) return fail("the workspace needs tmux — install it (brew install tmux / apt install tmux), then: seldon ws");
+  if (sub === "sidebar") return wsSidebar();
+  if (sub === "fit") return wsFocus(null);
+  if (sub === "list") return wsFocus(wsOpt("@side"));
+  if (sub === "home") return wsGoHome();
+  if (sub === "pick" || sub === "next") {
+    const rows = wsReadRows();
+    const row = sub === "pick" ? findRow(rows, arg) : nextNeeding(rows, wsCurrent());
+    if (row) wsOpen(row);
+    else wsTmux(["display-message", sub === "pick" ? `no agent ${arg ?? ""}` : "nobody is waiting on you"]);
+    return;
+  }
+  if (sub === "stop") {
+    wsTmux(["kill-server"]);
+    return console.log(C.green("✓ workspace closed") + C.dim(" — your agents keep running"));
+  }
+  if (sub) return fail("usage: seldon ws   (open the workspace) · seldon ws stop   (close it; agents keep running)");
+  if (process.env.SELDON_WS) return console.log(C.dim("you are already in the workspace — Alt-s for the list, Alt-q to leave"));
+  if (wsTmux(["has-session", "-t", WS_SESSION]).status !== 0) {
+    const cmds = setupCommands({ self: wsSelf(), home: wsHome(), cols: process.stdout.columns || 200, rows: process.stdout.rows || 50 });
+    const made = wsTmux(cmds.flatMap((c, i) => (i ? [";", ...c] : c)));
+    if (made.status !== 0) return fail(`could not start the workspace: ${(made.stderr || "").trim() || "tmux failed"} (it needs tmux 3.2 or newer)`);
+    const panes = (wsTmux(["list-panes", "-t", `${WS_SESSION}:0`, "-F", "#{pane_left} #{pane_id}"]).stdout || "").trim().split("\n")
+      .map((l) => l.split(" ")).sort((a, b) => Number(a[0]) - Number(b[0]));
+    wsTmux(["set-option", "-t", WS_SESSION, "@side", panes[0][1]]);
+    wsTmux(["set-option", "-t", WS_SESSION, "@main", panes[panes.length - 1][1]]);
+    wsSave(WS_CURRENT, "");
+  }
+  wsFocus(null, process.stdout.columns || null);      // fit this screen before it shows
+  const env = { ...process.env }; delete env.TMUX;
+  process.exitCode = spawnSync("tmux", ["-L", WS_SOCKET, "attach", "-t", WS_SESSION], { stdio: "inherit", env }).status ?? 1;
 }
 
 // `seldon tell "…"` — message the operator on Telegram, from any agent. The token comes from
@@ -1801,6 +1949,11 @@ function parseArgv(raw) {
   return { flags, positional };
 }
 
+// Inside the workspace $TMUX points at the workspace's own tmux server. Lanes live on the
+// default one, so every tmux call seldon makes from here (listing panes, attaching) must not
+// follow it; the workspace's own calls name their server explicitly.
+if (process.env.SELDON_WS) delete process.env.TMUX;
+
 const rawArgv = process.argv.slice(2);
 // Everything after a bare `--` is a command to run (`seldon hold emulator -- ./gradlew test`),
 // never seldon's own flags.
@@ -1840,6 +1993,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "lanes") return lanesCmd(flags);
   if (cmd === "machines") return machinesCmd(tokens[0], tokens[1], tokens[2]);
   if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags);
+  if (cmd === "ws" || cmd === "workspace") return wsCmd(tokens[0], tokens[1]);
   if (cmd === "tell") return tellCmd(tokens, flags);
   if (cmd === "inbox") return inboxCmd(flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);

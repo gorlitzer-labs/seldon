@@ -9,64 +9,73 @@
  ╚══════╝╚══════╝╚══════╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝
 ```
 
-**One screen for every coding agent** — Claude Code, Codex, opencode — on every project and
-machine: what is working, what needs you, what is next on the plan.
-
-`seldon` is the panel. `seldon install` adds the optional add-ons (rooms, voice, secrets, the
-plan), each via its native method (npm for the Node tools, a shell installer for bifrost, a
-venv for demerzel).
+**Every coding agent you run — Claude Code, Codex, opencode — on every project, every machine,
+one screen.** See who needs you. Jump there. Answer. Move on.
 
 ## Install
 
 ```bash
-pnpm add -g @gorlitzer-labs/seldon     # or: bun add -g …  ·  npm i -g …
+pnpm add -g @gorlitzer-labs/seldon     # or bun / npm
+seldon ws              # the workspace
 seldon                 # the panel
-seldon install         # the add-on checklist — ↑↓ move · space pick · a all · enter
+seldon install         # add-ons: ↑↓ move · space pick · enter
 ```
 
-Or name the modules directly:
+## The workspace — `seldon ws`
 
-```bash
-seldon install foundation comb   # install just these
-seldon doctor                    # check external deps (tmux, sops, age, tailscale, python)
-seldon list                      # everything available
+Every agent, on every machine, beside the one you're talking to. One key to switch.
+
+```text
+ SELDON  ⚑ 2  ● 3               │ ── fix-save-crash ──────────────────────────
+                                │ ❯ fix the save crash on resume
+ stranded                       │   Read src/save/slot.ts
+❯1 ⚑ 🦊 fix-save-crash          │   Allow this command?  ./gradlew test
+        needs you · permission  │   1 Yes  2 Always  3 No
+ 2 ● 🐙 smoke-harness           │
+        working · 40m · codex   │
+ weather                        │
+ 3 ⚑ 🦉 add-cache               │
+        needs you · @mini       │
+ 4 ○ 🐢 docs-pass               │
+ SELDON          Alt-1…9 agent · Alt-n next ⚑ · Alt-s list · Alt-h home · Alt-q leave
 ```
+
+| key | does |
+|---|---|
+| `Alt-1`…`9` | open that agent |
+| `Alt-n` | next agent that needs you |
+| `Alt-s` | the list (on a phone it's behind this key) |
+| `Alt-h` | home: the full panel on the right |
+| `Alt-q` | leave. Agents keep running |
+
+- **Real terminals.** The right side is the agent itself, not a copy.
+- **Switching never stops anything.** Leave, reconnect from anywhere, it's all still there.
+- **Both laptops, one list.** Agents on `seldon machines` open over ssh in the same pane. A sleeping one shows ☾ and waits.
+- **Phone.** `ssh` in, run `seldon ws`. Under 90 columns one pane fills the screen.
+- **Emoji per agent.** Same name, same face, everywhere.
+- **No Alt key?** `Ctrl-g` then the key. macOS: turn on *Option as Meta*.
+- **Your tmux is untouched.** It runs on its own server. `seldon ws stop` closes it.
 
 ## The panel — `seldon`
 
 ```text
-  SELDON   1 need you · 2 working · 1 idle   ● watcher  ○ voice
+  SELDON   1 need you · 2 working · 1 idle   ● watcher
 
   ❯ stranded               plan 5 · 2 done
-      ⚑ fix-save-crash             claude    needs you: permission prompt             2m
-      ● smoke-harness              codex     working                                  40m
-    weather                plan 2 · 0 done
-      ● add-cache                  claude    working                                  12m
-      ○ docs-pass                  claude    idle                                     1h
-
-  ↑↓ move · ⏎ open · x stop · R resume · n new lane · p plan · r refresh · q quit
-  U start stack · D stop stack · i install
+      ⚑ fix-save-crash             claude    needs you: permission prompt   2m
+      ● smoke-harness              codex     working                        40m
 ```
-
-Every coding agent on this machine — Claude Code, Codex, opencode — grouped by project (a
-worktree counts for its main repo), most urgent first, refreshed every two seconds. `⏎` on an
-agent opens it; `⏎` on a project runs `go`. Claude agents report their own state via
-`claude agents --json`; Codex and opencode do after `seldon setup` (until then they read
-*running*). Without a terminal
-(a script, a hook, an agent's shell) the same rows are printed as plain text.
 
 | key | does |
 |---|---|
-| `n` | new lane: type the task, pick `1` claude · `2` codex · `3` opencode (⏎ = claude) |
-| `p` | the project's plan (`docs/QUEUE.md`); `⏎` on an item starts a lane on it, `a` adds one |
-| `⏎` | on an agent: open it · on a project: `seldon go` |
-| `x` `x` | stop the agent (asks twice) |
-| `R` | resume what a reboot stopped; on a project, all of its stopped lanes |
+| `n` | new lane: task, then `1` claude · `2` codex · `3` opencode |
+| `p` | the plan (`docs/QUEUE.md`); `⏎` starts a lane on an item |
+| `⏎` | open the agent |
+| `x` `x` | stop it |
+| `R` | resume what a reboot stopped |
 
-Every lane gets its own branch and worktree. Claude lanes run as `claude --bg -w <slug>`, so
-they live under Claude's own supervisor and show in `claude agents` too. Codex and opencode
-lanes run in tmux (`seldon_<slug>`), in a worktree under `~/.seldon/worktrees/`, and are
-recorded in `~/.seldon/lanes.json`. A plan item shows the lane working on it.
+Each lane gets its own branch and worktree. Claude lanes run under Claude's supervisor
+(`claude --bg -w`); Codex and opencode run in tmux (`seldon_<slug>`).
 
 ## Lanes from the command line
 
@@ -131,8 +140,7 @@ seldon machines                                    # each one, and whether it an
 - **How it reaches them:** the panel runs `ssh <machine> seldon lanes --json` in the background
   every 10 seconds, so a sleeping machine never freezes it, and it acts with
   `ssh <machine> seldon lane <verb> <key>`.
-- **From a phone:** `ssh` to any one machine and run `seldon`. Below 70 columns it switches to
-  one line per lane.
+- **From a phone:** `ssh` to any one machine and run `seldon ws`.
 
 ## On Telegram — `seldon tell`
 

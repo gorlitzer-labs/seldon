@@ -37,6 +37,11 @@ minutes.
 
 ## How you use it
 
+`seldon ws` — all your agents on the left, the one you're talking to on the right.
+`Alt-1…9` switches, `Alt-n` jumps to whoever needs you. Works over ssh from a phone.
+
+In the panel (`seldon`):
+
 | key | does |
 |---|---|
 | `n` | **new lane**: type a task, pick claude / codex / opencode. It runs on its own branch, in its own worktree |
