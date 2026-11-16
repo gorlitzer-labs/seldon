@@ -17,7 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
-import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand } from "../lib/steward.mjs";
+import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed } from "../lib/steward.mjs";
 import { parseOptions, previewKeys, previewBody, stateWords, askOf, formatBody, summaryOf, agoWords } from "../lib/preview.mjs";
 import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
@@ -1492,6 +1492,7 @@ function stewardCmd(verb, flags) {
   // seldon's own folder first on its PATH, so `seldon …` runs as is and matches the allowed list
   const r = tm("new-session", "-d", "-s", STEWARD_SESSION, "-c", dir, "-x", "160", "-y", "45", "-e", `PATH=${process.env.PATH}`, argv.map(shq).join(" "));
   if (r.status !== 0) { console.log(C.red("could not start the steward: ") + (r.stderr || "").trim()); process.exitCode = 1; return; }
+  startWatch();          // the watcher passes new waits to the steward
   console.log(C.green("✓ steward started") + C.dim(` (${typeof flags.model === "string" ? flags.model : "sonnet"}) — row 1 in seldon ws; ask it "what needs me?"`));
 }
 
@@ -1784,7 +1785,7 @@ function tellInBackground(fields) {
 async function watchCmd(flags) {
   ensureSiblingPath();
   const every = parseDuration(flags.interval, 5000) || 5000;
-  let prev = new Map();
+  let prev = new Map(), feed = [];
   const stamp = () => new Date().toTimeString().slice(0, 8);
   console.log(`${stamp()} seldon watch — every ${every / 1000}s`);
   for (;;) {
@@ -1797,6 +1798,15 @@ async function watchCmd(flags) {
       tellInBackground(watchCard(e, { machine: os.hostname().split(".")[0] }));
     }
     prev = new Map(lanes.map((l) => [l.key, l.state]));
+    // the steward, if it runs, hears about new waits on its own (batched, only while it is free)
+    const f = stewardFeed(feed, lanes);
+    feed = f.queue;
+    if (f.say) {
+      const steward = lanes.find((l) => l.name === STEWARD && !l.machine);
+      const how = steward ? sayCommands(steward, f.say) : { why: "not running" };
+      const ok = !how.why && how.cmds.every(([b, ...a]) => spawnSync(b, a).status === 0);
+      console.log(`${stamp()} steward ${ok ? "told" : "not told (" + (how.why || "tmux refused") + ")"}: ${f.say}`);
+    }
     if (flags.once) return;
     await new Promise((r) => setTimeout(r, every));
   }
