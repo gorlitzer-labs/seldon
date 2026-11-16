@@ -129,3 +129,15 @@ test("wsHeadline: who needs you and who is busy, not counting unreachable machin
   assert.deepEqual(wsHeadline(wsRows(groups)), { need: 2, busy: 1, total: 3 });
   assert.deepEqual(wsHeadline(wsRows(groups, new Set(["mini"]))), { need: 1, busy: 1, total: 3 });
 });
+
+test("tooSmall: nothing when it fits, a centred btop-style notice when it does not", async () => {
+  const { tooSmall } = await import("../lib/workspace.mjs");
+  assert.equal(tooSmall(80, 24), null);
+  assert.equal(tooSmall(30, 10), null);
+  assert.equal(tooSmall(38, 40), null);                         // the workspace list pane itself
+  assert.equal(tooSmall(undefined, undefined), null);          // no terminal: never block the screen
+  const s = tooSmall(28, 9);
+  assert.equal(s.at(-2).trim(), "28×9 · needs 30×10");
+  assert.equal(s.length, 3 + Math.floor((9 - 3) / 2));           // vertically centred
+  assert.ok(s.at(-3).startsWith(" ".repeat(5)));                  // horizontally centred
+});

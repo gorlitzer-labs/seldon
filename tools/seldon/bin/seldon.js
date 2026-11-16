@@ -17,7 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
-import { WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
+import { tooSmall, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
 import { parseDuration, describe as describeHold, NAME_RE, DEFAULT_FOR_MS } from "../lib/holds.mjs";
 import { tryHold, release as releaseHold, listHolds, findOwner } from "../lib/holds-store.mjs";
 
@@ -870,13 +870,16 @@ const KEYS = { escapeCodeTimeout: 50 };
 // `onError` gets anything a key handler throws — shown, never swallowed.
 function rawSession({ draw, onKey, onError }) {
   let done = null;
+  process.once("exit", () => process.stdout.write("\x1b[?25h"));
   const listen = () => {
+    process.stdout.write("\x1b[?25l");               // no stray cursor blinking after the hints
     readline.emitKeypressEvents(process.stdin, KEYS);
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.on("keypress", handler);
   };
   const release = () => {
+    process.stdout.write("\x1b[?25h");
     process.stdin.off("keypress", handler);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     process.stdin.pause();
@@ -948,6 +951,7 @@ async function panel({ newFor = null } = {}) {
   // Below 70 columns (a phone over ssh) a lane is one short line: glyph, name, the state in a
   // word. The full detail is one ⏎ away.
   const narrow = () => (process.stdout.columns || 100) < 70;
+  let foot = [];
   const laneCells = (l, sel) => {
     const color = tint[l.state] || ((x) => x);
     const name = (l.name || l.id || "?");
@@ -972,22 +976,21 @@ async function panel({ newFor = null } = {}) {
         const plan = p.hive ? C.dim(`plan ${p.hive.queueOpen} · ${p.hive.done} done`) : "";
         const why = p.hive?.needsYou && p.hive.why ? C.gold("  ⚑ " + p.hive.why) : "";
         const others = unlistedAgents(p);
-        out.push(`  ${cursor} ${pad(p.name, 22, C.bold)} ${plan}${others.length ? C.green("  agents: " + others.join(", ")) : ""}${why}`);
-        if (sel && !narrow()) out.push(`      ${C.dim(p.root)}`);
+        // padded to where the lanes' agent column starts, so plan · harness line up
+        out.push(`  ${cursor} ${pad(p.name, 30, C.bold)} ${plan}${others.length ? C.green("  agents: " + others.join(", ")) : ""}${why}`);
       } else {
         out.push(`  ${cursor}   ${laneCells(r.lane, sel)}`);
         if (sel && r.lane.cwd !== r.project.root && !narrow()) out.push(`        ${C.dim(r.lane.cwd)}`);
       }
     });
     const sel = rows[cur];
-    out.push("");
-    if (narrow()) out.push("  " + C.dim(sel?.type === "lane" ? "⏎ open · x stop · R resume · q" : "n lane · p plan · ⏎ go · q"));
-    else {
-      out.push("  " + C.dim(sel?.type === "lane"
-        ? "↑↓ move · ⏎ open · x stop · R resume · n new lane · p plan · r refresh · q quit"
-        : "↑↓ move · n new lane · p plan · ⏎ go (staff + room) · s staff · a room · b board · q quit"));
-      out.push("  " + C.dim("U start stack · D stop stack · i install"));
-    }
+    const hint = (k, w) => C.bold(k) + " " + C.dim(w);
+    foot = narrow()
+      ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("xx", "stop"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("q", "quit")]]
+      : [sel?.type === "lane"
+        ? [hint("⏎", "open"), hint("n", "new agent"), hint("xx", "stop"), hint("R", "resume"), hint("p", "plan"), hint("q", "quit")]
+        : [hint("n", "new agent"), hint("p", "plan"), hint("⏎", "go"), hint("s", "staff"), hint("b", "board"), hint("q", "quit")]];
+    foot = foot.map((hs) => "  " + hs.join("    "));
   };
 
   const drawPlan = (out) => {
@@ -1024,6 +1027,9 @@ async function panel({ newFor = null } = {}) {
   };
 
   const draw = () => {
+    const small = tooSmall(process.stdout.columns, process.stdout.rows);
+    if (small) { clearScreen(); process.stdout.write(small.map((l, i) => (i === small.length - 3 ? C.gold(l) : C.dim(l))).join("\n")); return; }
+    foot = [];
     const out = [""];
     out.push("  " + C.gold(C.bold("SELDON")) + "   " + headline(groups) + "   " + C.dim([
       svc("watcher", !!daemonUp("seldon-watch")), svc("voice", !!daemonUp("demerzel")),
@@ -1036,9 +1042,13 @@ async function panel({ newFor = null } = {}) {
     if (hs.length) out.push("  " + C.dim("held: ") + hs.map((h) => `${C.bold(h.resource)} ${C.dim("→ " + h.who + " " + ago(h.since))}`).join(C.dim("   ")));
     out.push("");
     ({ home: drawHome, plan: drawPlan, input: drawInput, harness: drawHarness })[mode.name](out);
-    if (note) out.push("\n  " + note);
+    if (note) out.push("", "  " + note);
+    // the hints live on the bottom rows, under a rule, like the workspace list
+    const height = process.stdout.rows || 40, cols = process.stdout.columns || 100;
+    const bottom = foot.length ? [C.dim("  " + "─".repeat(Math.max(4, cols - 4))), ...foot] : [];
+    const fill = Math.max(1, height - out.length - bottom.length);
     clearScreen();
-    process.stdout.write(out.join("\n") + "\n");
+    process.stdout.write([...out, ...Array(fill).fill(""), ...bottom].join("\n"));
   };
 
   load(true);
@@ -1616,14 +1626,22 @@ async function wsSidebar() {
   const tint = TINT;
   const draw = () => {
     const width = process.stdout.columns || 38, height = process.stdout.rows || 40;
+    const small = tooSmall(process.stdout.columns, process.stdout.rows);
+    if (small) { clearScreen(); process.stdout.write(small.map((l, i) => (i === small.length - 3 ? C.gold(l) : C.dim(l))).join("\n")); return; }
     const open = wsCurrent(), h = wsHeadline(rows);
-    const head = [` ${C.bold("SELDON")}  ${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`, ""];
-    const foot = ["", C.dim(" ⏎ open · n new agent · tab next ⚑ · h home"), C.dim(" Alt-1…9 from any pane · q leave"), ...(note ? [" " + note] : [])];
+    // Header: name on the left, the two counts that matter right-aligned. A rule under it and
+    // above the hints, which sit on the bottom rows whatever the list's length.
+    const counts = `⚑ ${h.need}  ● ${h.busy}`;
+    const rule = C.dim(" " + "─".repeat(Math.max(4, width - 2)));
+    const head = [` ${C.bold("SELDON")}${" ".repeat(Math.max(1, width - 8 - counts.length))}${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}`, rule];
+    const hint = (k, w) => C.bold(k) + " " + C.dim(w);
+    const foot = [rule, " " + [hint("⏎", "open"), hint("n", "new"), hint("⇥", "next ⚑")].join("   "),
+      " " + [hint("h", "home"), hint("q", "leave"), hint("⌥1-9", "jump")].join("   "), ...(note ? [" " + note] : [])];
     const body = []; let curLine = 0, last = null;
-    if (!rows.length) body.push(C.dim(" no agents running"), C.dim(" h, then n starts one"));
+    if (!rows.length) body.push("", C.dim(" no agents yet"), " " + C.bold("n") + C.dim(" starts one"));
     const faces = assignEmoji(rows.map((r) => r.name));
     rows.forEach((r, i) => {
-      if (r.project !== last) { if (last !== null) body.push(""); body.push(" " + C.dim(r.project.slice(0, width - 2))); last = r.project; }
+      if (r.project !== last) { body.push(" " + C.dim(C.bold(r.project.toUpperCase().slice(0, width - 2)))); last = r.project; }
       const c = rowCells(r, width, ago, faces.get(r.name)), color = tint[c.state] || ((x) => x);
       const mark = i === cur ? C.gold("❯") : r.key === open ? C.cyan("▸") : " ";
       if (i === cur) curLine = body.length;
@@ -1632,8 +1650,9 @@ async function wsSidebar() {
     });
     const room = Math.max(2, height - head.length - foot.length);
     const from = Math.max(0, Math.min(curLine - Math.floor(room / 2), body.length - room));
+    const shown = body.slice(from, from + room);
     clearScreen();
-    process.stdout.write([...head, ...body.slice(from, from + room), ...foot].join("\n"));
+    process.stdout.write([...head, ...shown, ...Array(room - shown.length).fill(""), ...foot].join("\n"));
   };
   const openRow = (r) => { if (r) { wsOpen(wsReadRows().find((x) => x.key === r.key) || r); note = ""; } };
   load();
