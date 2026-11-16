@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { groupByProject } from "./lanes.mjs";
 
-export const REALMS_DIR = join(homedir(), ".config", "bifrost", "realms");
+const REALMS_DIR = join(homedir(), ".config", "bifrost", "realms");
 
 // Read narrowly — two keys, quotes stripped, nothing executed. Sourcing a file to learn a
 // hostname is not something to do.
@@ -79,4 +79,17 @@ export function fetchLanes(machine, cb) {
     const lanes = lastJsonLine(stdout);
     cb(lanes ? { lanes } : { error: err ? (err.killed ? "timed out" : "unreachable") : "no seldon there" });
   });
+}
+
+// Poll every machine's lanes in the background, at most every 10s each, so a slow or sleeping
+// machine never blocks a redraw. `seen` maps name -> { groups, error, at, inflight }.
+export function machinePoller(machines, seen, fetch = fetchLanes) {
+  return () => {
+    for (const m of machines) {
+      const was = seen.get(m.name) || {};
+      if (was.inflight || (was.at && Date.now() - was.at < 10_000)) continue;
+      seen.set(m.name, { ...was, inflight: true });
+      fetch(m, (r) => { seen.set(m.name, { groups: r.lanes ? remoteGroups(m, r.lanes) : was.groups || [], error: r.error || null, at: Date.now(), inflight: false }); });
+    }
+  };
 }
