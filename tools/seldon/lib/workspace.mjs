@@ -137,7 +137,11 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
     ["set", "-g", "status-left", "#[fg=#0b0f14,bg=#00ff9c,bold] ▲ seldon #[bg=#0b0f14,fg=#00ff9c,nobold] "], ["set", "-g", "status-left-length", "16"],
     ["set", "-g", "status-right", "#[fg=#5c6370]⌥1-9 agent · ⌥← list · ⌥→ right · ⌥h home · ⌥d docs · ⌥n next ⚑ · ⌥q leave  #[fg=#00ff9c,bold]%H:%M "],
     ["set", "-g", "status-right-length", "90"], ["set", "-g", "window-status-format", ""], ["set", "-g", "window-status-current-format", ""],
-    ["set", "-g", "pane-border-style", "fg=#1f2a33"], ["set", "-g", "pane-active-border-style", "fg=#00ff9c"],
+    // The pane you are in is a shade lighter; the divider is one quiet line. tmux's default with
+    // two panes colours half the shared border, which reads as a broken line, not as focus.
+    ["set", "-g", "pane-border-style", "fg=#1f2a33"], ["set", "-g", "pane-active-border-style", "fg=#1f2a33"],
+    ["set", "-g", "pane-border-indicators", "off"], ["set", "-g", "pane-border-lines", "single"],
+    ["set", "-g", "window-style", "bg=#0b0f14"], ["set", "-g", "window-active-style", "bg=#121920"],
     ["set", "-g", "pane-border-status", "off"],            // one title per pane: the screen's own
     ["set", "-g", "pane-border-format", " #{?pane_active,#[fg=#00ff9c]#[bold],#[fg=#5c6370]}#{pane_title} "],
     ["set", "-g", "allow-set-title", "off"],                // the agent cannot rename its pane
