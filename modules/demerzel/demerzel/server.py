@@ -306,6 +306,11 @@ async def watch_factory(session: "Session") -> None:
     watcher = Watcher()
     watcher.prime()
     from .skills.timers import due_now
+    from .skills.agents import AgentWatcher
+    loop = asyncio.get_running_loop()
+    agents = AgentWatcher()
+    await loop.run_in_executor(None, agents.prime)
+    tick = 0
     while True:
         try:
             # A due reminder is the same shape as an agent escalation: something
@@ -319,7 +324,13 @@ async def watch_factory(session: "Session") -> None:
                 session.emit_attention("timer")
                 await session.speak_now(
                     f"Time is up{', ' + t.label if t.label else ''}.")
-            for item in watcher.poll():
+            # Agents waiting at a prompt, read from seldon every ~10s. It spawns a
+            # process, so it runs off the event loop.
+            tick += 1
+            fresh = []
+            if tick % max(1, round(10 / WATCH_INTERVAL_S)) == 0:
+                fresh = await loop.run_in_executor(None, agents.poll)
+            for item in [*watcher.poll(), *fresh]:
                 if item.urgency is Urgency.NOW:
                     while session.busy:            # never talk over a turn
                         await asyncio.sleep(0.4)

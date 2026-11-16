@@ -194,7 +194,11 @@ def _handle_factory(transcript: str, ctx: dict) -> str | None:
                             "Nothing was sent.")
                 return ("I am not confident enough that this is you to answer "
                         "for you. Do it from the terminal.")
-            ok, line = fac.answer_decision(awaiting["id"], awaiting["answer"])
+            if awaiting["id"].startswith("lane:"):     # an agent she announced: type it in
+                from .skills import agents as ag
+                ok, line = ag.tell(awaiting["id"][5:], awaiting["answer"])
+            else:
+                ok, line = fac.answer_decision(awaiting["id"], awaiting["answer"])
             return line
         if fac.is_negative(transcript):
             ctx.pop("awaiting_confirm", None)
