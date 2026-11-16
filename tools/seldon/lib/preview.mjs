@@ -22,8 +22,8 @@ export function previewKeys(row, options = []) {
   const open = ["⏎", "open it"];
   if (row.off) return [];
   if (row.state !== "needs-you") return [open, ["x", "stop"]];
-  if (!row.lane?.tmuxSession) return [["⏎", "open it to answer"]];
-  return [...options.map((o) => [String(o.n), short(o.label, 22)]), ["a", "type an answer"], open];
+  if (!row.lane?.tmuxSession) return [["⏎", "open it to answer"], ["x", "stop"]];
+  return [...options.map((o) => [String(o.n), short(o.label, 22)]), ["a", "type an answer"], open, ["x", "stop"]];
 }
 const short = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 

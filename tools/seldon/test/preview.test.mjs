@@ -15,8 +15,8 @@ test("parseOptions: a numbered run at the end is a question; a list mid-text or 
 
 test("previewKeys: answer keys only for a waiting tmux agent; a background session can only be opened", () => {
   const waiting = { state: "needs-you", lane: { tmuxSession: "botfighter" } };
-  assert.deepEqual(previewKeys(waiting, parseOptions(Q)).map(([k]) => k), ["1", "2", "a", "⏎"]);
-  assert.deepEqual(previewKeys({ state: "needs-you", lane: { id: "c09d" } }, parseOptions(Q)).map(([k]) => k), ["⏎"]);
+  assert.deepEqual(previewKeys(waiting, parseOptions(Q)).map(([k]) => k), ["1", "2", "a", "⏎", "x"]);
+  assert.deepEqual(previewKeys({ state: "needs-you", lane: { id: "c09d" } }, parseOptions(Q)).map(([k]) => k), ["⏎", "x"]);
   assert.ok(!previewKeys({ state: "working", lane: { tmuxSession: "t" } }).some(([k]) => k === "a"), "never type into a working agent");
   assert.deepEqual(previewKeys({ off: true, state: "idle", lane: {} }), []);
 });

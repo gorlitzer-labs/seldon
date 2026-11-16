@@ -103,7 +103,7 @@ test("setupCommands: options first, the two panes last, every key bound twice (A
   assert.ok(cmds.some((c) => c[2] === "window-active-style"), "focus shows as a lighter pane");
   assert.deepEqual(cmds.filter((c) => c[0] === "select-pane").map((c) => c.at(-1)), ["agents", "home"]);
   assert.ok(session.includes(WS_SESSION) && session.at(-1) === "HOMECMD" && session.includes("120"));
-  assert.ok(side.includes(String(SIDE_WIDTH)) && side.at(-1) === `${HOME} ws sidebar`);
+  assert.ok(side.includes(String(SIDE_WIDTH)) && /ws sidebar/.test(side.at(-1)) && /while :/.test(side.at(-1)) && /trap .* INT QUIT TSTP/.test(side.at(-1)), "the list restarts itself and ignores Ctrl-C between runs");
   for (const c of [session, side]) assert.ok(c.includes("SELDON_WS=1"), "panes know they are in the workspace");
   assert.ok(cmds.some((c) => c.join(" ") === "set -g prefix None"), "no prefix: keys go to the agent");
   const binds = cmds.filter((c) => c[0] === "bind");
