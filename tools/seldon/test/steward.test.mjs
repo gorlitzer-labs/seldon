@@ -46,3 +46,11 @@ test("the feed batches new waits, waits for the steward to be free, and never re
   assert.equal(stewardFeed([], lanes("needs-you"), now + 11 * BATCH_MS).say, null, "the steward is never told about itself");
   assert.equal(stewardFeed([], [L("wheel", "needs-you")], now).say, null, "no steward running: nothing to tell");
 });
+
+test("relay log: the steward's session is marked, and the log reads newest first", async () => {
+  const { stewardEnv, relayLine, recentRelays } = await import("../lib/steward.mjs");
+  assert.ok(stewardEnv("/p").includes("SELDON_STEWARD=1"), "messages sent from the steward's session are logged");
+  const log = relayLine("joey", "deploy to QA", 1) + "not json\n" + relayLine("tars", "use staging.x.com", 2);
+  assert.deepEqual(recentRelays(log).map((e) => e.to), ["tars", "joey"]);
+  assert.equal(recentRelays(log, 1).length, 1);
+});
