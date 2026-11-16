@@ -1356,7 +1356,8 @@ async function wsPreview() {
     const fill = Math.max(0, rowsN - out.length - bottom.length);
     if (note !== toast.text) { toast.text = note; toast.at = Date.now(); }
     let screen = withToast([...out, ...Array(fill).fill(""), ...bottom], toast, cols, bottom.length);
-    if (confirmStop && row) screen = placeModal(screen, box([C.bold(`Stop ${row.name}?`), "", C.dim("Its conversation and worktree are kept."), "", `${C.white("y")} ${C.dim("yes")}    ${C.white("n")} ${C.dim("no")}`], { title: C.gold("confirm"), paint: C.dim, min: 30 }), cols, rowsN, C.dim);
+    if (confirmStop && row) screen = placeModal(screen, box([C.bold(row.state === "gone" ? `Remove ${row.name}?` : `Stop ${row.name}?`), "",
+      C.dim(row.state === "gone" ? "It only takes it off the list: it had no conversation." : "Its conversation and worktree are kept."), "", `${C.white("y")} ${C.dim("yes")}    ${C.white("n")} ${C.dim("no")}`], { title: C.gold("confirm"), paint: C.dim, min: 30 }), cols, rowsN, C.dim);
     clearScreen();
     process.stdout.write(screen.slice(0, rowsN).join("\n"));
   };
@@ -1369,6 +1370,12 @@ async function wsPreview() {
     onKey: (str, key, api) => {
       if (key?.ctrl && key.name === "c") return api.finish();
       if (confirmStop) {
+        if ((str === "y" || key?.name === "return") && row.state === "gone") {
+          confirmStop = false;
+          const r = spawnSync("claude", ["rm", row.lane.id], { encoding: "utf8", timeout: 15000 });
+          note = r.status === 0 ? C.green(`removed ${row.name}`) : C.red(`could not remove: ${stripAnsi(`${r.stderr || r.stdout || ""}`).trim().split("\n").pop() || "claude rm failed"}`);
+          return api.draw();
+        }
         if (str === "y" || key?.name === "return") {
           confirmStop = false;
           const r = row.machine ? spawnSync("ssh", sshArgs(machines.find((x) => x.name === row.machine) || {}, ["seldon", "lane", "stop", row.remoteKey]), { timeout: 8000 }) : null;
@@ -1951,7 +1958,7 @@ async function wsSidebar() {
     if (!rows.length) body.push(...emptyState(width, "no agents yet", [["n", "start one"], ["d", "docs"]]));
     else if (!list.length) body.push("", C.dim(`  nothing matches "${filter}"`));
     const faces = assignEmoji(rows.map((r) => r.name));
-    const GROUP_PAINT = { "needs you": C.gold, working: C.green, idle: C.dim, stopped: C.red, paused: C.dim };
+    const GROUP_PAINT = { "needs you": C.gold, working: C.green, idle: C.dim, stopped: C.red, paused: C.dim, gone: C.dim };
     const tagW = Math.min(12, Math.max(6, Math.floor(width / 3)));
     list.forEach((r, i) => {
       if (r.group !== last) { if (last !== null) body.push(""); body.push(" " + C.bold((GROUP_PAINT[r.group] || C.dim)(r.group.toUpperCase()))); last = r.group; }

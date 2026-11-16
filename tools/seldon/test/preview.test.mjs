@@ -36,3 +36,19 @@ test("wsRows: grouped needs you → working → idle → paused, numbered in tha
   assert.equal(stateWords(rows[0]), "waiting for an answer");
   assert.equal(stateWords(rows[3]), "paused · mini is asleep");
 });
+
+test("gone: a background session with no saved conversation, older than 10 minutes, not at work", async () => {
+  const { markGone } = await import("../lib/lanes.mjs");
+  const now = 1e12, old = now - 60 * 60_000;
+  const l = (o) => ({ harness: "claude", id: "c09d", sessionId: "s1", state: "needs-you", waitingFor: "you", startedAt: old, ...o });
+  const none = () => false, saved = () => true;
+  assert.equal(markGone([l()], none, now)[0].state, "gone");
+  assert.equal(markGone([l()], saved, now)[0].state, "needs-you", "a saved conversation can be woken");
+  assert.equal(markGone([l({ startedAt: now - 60_000 })], none, now)[0].state, "needs-you", "a young one may not have written yet");
+  assert.equal(markGone([l({ state: "working" })], none, now)[0].state, "working");
+  assert.equal(markGone([l({ id: null })], none, now)[0].state, "needs-you", "interactive sessions are never marked");
+  const row = { state: "gone", lane: { id: "c09d" } };
+  assert.deepEqual(previewKeys(row).map(([k]) => k), ["x"], "the only thing to do is remove it");
+  assert.match(stateWords(row), /gone/);
+  assert.equal(wsRows([{ name: "p", lanes: [{ ...l(), state: "gone", key: "k", name: "dead" }, { key: "a", name: "ok", state: "idle", harness: "claude" }] }]).map((r) => r.group).join(), "idle,gone");
+});
