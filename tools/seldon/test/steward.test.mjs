@@ -37,10 +37,12 @@ test("the feed batches new waits, waits for the steward to be free, and never re
   assert.match(r.say, /wheel, joey/);
   r = stewardFeed(q, lanes("idle", L("wheel", "needs-you"), L("joey", "needs-you")), now + 3 * BATCH_MS); q = r.queue;
   assert.equal(r.say, null, "the same waits are not told twice");
-  r = stewardFeed(q, lanes("idle", L("wheel", "working")), now + 4 * BATCH_MS); q = r.queue;   // wheel was answered
-  r = stewardFeed(q, lanes("idle", L("wheel", "needs-you")), now + 5 * BATCH_MS); q = r.queue;
-  r = stewardFeed(q, lanes("idle", L("wheel", "needs-you")), now + 6 * BATCH_MS + 1);
+  r = stewardFeed(q, lanes("idle", L("wheel", "needs-you"), L("joey", "needs-you")), now + 4.2 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, null, "…not even after another full batch window");
+  r = stewardFeed(q, lanes("idle", L("wheel", "working")), now + 6 * BATCH_MS); q = r.queue;   // wheel was answered
+  r = stewardFeed(q, lanes("idle", L("wheel", "needs-you")), now + 7 * BATCH_MS); q = r.queue;
+  r = stewardFeed(q, lanes("idle", L("wheel", "needs-you")), now + 8 * BATCH_MS + 1);
   assert.match(r.say || "", /wheel/, "a new wait after it was answered is news again");
-  assert.equal(stewardFeed([], lanes("needs-you"), now + 9 * BATCH_MS).say, null, "the steward is never told about itself");
+  assert.equal(stewardFeed([], lanes("needs-you"), now + 11 * BATCH_MS).say, null, "the steward is never told about itself");
   assert.equal(stewardFeed([], [L("wheel", "needs-you")], now).say, null, "no steward running: nothing to tell");
 });
