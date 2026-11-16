@@ -17,7 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
-import { parseOptions, previewKeys, previewBody, stateWords, askOf, formatBody, summaryOf } from "../lib/preview.mjs";
+import { parseOptions, previewKeys, previewBody, stateWords, askOf, formatBody, summaryOf, agoWords } from "../lib/preview.mjs";
 import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
 import { tooSmall, keyLines, emojiFor, WS_SOCKET, WS_SESSION, NARROW, SIDE_WIDTH, assignEmoji, wsRows, nextNeeding, findRow, paneCommand, setupCommands, rowCells, wsHeadline } from "../lib/workspace.mjs";
@@ -1286,7 +1286,7 @@ async function wsPreview() {
   ensureSiblingPath();
   wsSave(WS_PREVIEW_PID, String(process.pid));
   const machines = listMachines();
-  let row = null, text = "", textErr = "", fetchedFor = null, fetchedAt = 0, mode = "view", buf = "", note = "", confirmStop = false, typingFor = null, full = false;
+  let row = null, text = "", textErr = "", fetchedFor = null, fetchedAt = 0, mode = "view", buf = "", note = "", confirmStop = false, typingFor = null, full = false, lastAt = null;
   let problems = [], problemsAt = 0;
   const toast = { text: "", at: 0 };
   const refresh = () => {
@@ -1309,7 +1309,7 @@ async function wsPreview() {
         const line = r && r.status === 0 ? String(r.stdout || "").split("\n").reverse().find((l) => l.trim().startsWith("{")) : null;
         let got = null; try { got = line ? JSON.parse(line) : null; } catch { got = null; }
         text = got?.text || ""; textErr = got ? "" : `could not reach ${row.machine}`;
-      } else { const t = readLaneText(row.lane); text = t.text || ""; textErr = t.error || ""; }
+      } else { const t = readLaneText(row.lane); text = t.text || ""; textErr = t.error || ""; lastAt = t.at || null; }
     }
     // the projects that need you, every 30s: the line at the bottom
     if (Date.now() - problemsAt > 30000 && has("factory")) {
@@ -1336,35 +1336,46 @@ async function wsPreview() {
     const cols = process.stdout.columns || 100, rowsN = process.stdout.rows || 30;
     const small = tooSmall(cols, rowsN);
     if (small) { clearScreen(); process.stdout.write(small.map((l) => C.dim(l)).join("\n")); return; }
-    const out = [""];
-    let keys = [];
-    if (!row) out.push(...emptyState(cols, "no agents yet", [["n", "start one"], ["d", "docs"]]));
-    else {
-      const face = emojiFor(row.name);
-      const paint = { "needs you": C.gold, working: C.green, stopped: C.red }[row.group] || C.dim;
-      out.push(fitLine(`  ${face} ${C.bold(C.white(row.name))}  ${C.dim(`· ${row.machine ? "@" + row.machine : row.project}${row.startedAt ? " · " + ago(row.startedAt) : ""}${row.harness && row.harness !== "claude" ? " · " + row.harness : ""}`)}`, cols - 1));
-      out.push(`  ${paint((row.group === "needs you" ? "⚑ " : row.group === "working" ? "● " : "○ ") + stateWords(row))}`, "");
-      const options = row.state === "needs-you" ? parseOptions(text) : [];
-      keys = previewKeys(row, options);
-      // The end of the message by default, all of it on space; formatted, then the question.
-      const { text: shown, cut } = full ? { text, cut: false } : summaryOf(text);
-      if (cut || full) keys = [...keys, ["␣", full ? "less" : "all of it"]];
-      const room = Math.max(3, rowsN - 14);
-      const look = { bold: (x) => C.bold(C.white(x)), code: C.cyan, ref: C.cyan, version: C.green, dim: C.dim };
-      let body = textErr ? [C.dim(textErr)] : text ? formatBody(shown, Math.max(20, cols - 8), look) : [C.dim(row.off ? "its machine is asleep" : "nothing said yet")];
-      if (body.length > room) body = [C.dim("…"), ...body.slice(-(room - 1))];
-      if (cut) out.push(`  ${C.dim("│ … earlier part hidden · space shows it")}`);
-      out.push(...body.map((l) => `  ${C.dim("│")} ${l}`), "");
-      const ask = row.state === "needs-you" && !textErr ? askOf(text) : null;
-      if (ask) out.push(fitLine(`  ${C.gold(C.bold("asks:"))} ${C.white(ask)}`, cols - 1), "");
-      if (mode === "type") out.push(`  ${C.green("›")} ${C.white(buf)}${C.green("▏")}`, "  " + C.dim("⏎ send · esc cancel"));
-      else out.push(capLine(keys, cols));
-    }
-    const bottom = problems.length ? ["", fitLine("  " + C.dim("⌥h projects   ") + problems.map(([n, w]) => C.gold(n) + " " + C.dim(w)).join("   "), cols - 1), ""] : ["", ""];
-    const fill = Math.max(0, rowsN - out.length - bottom.length);
     if (note !== toast.text) { toast.text = note; toast.at = Date.now(); }
-    let screen = withToast([...out, ...Array(fill).fill(""), ...bottom], toast, cols, bottom.length);
-    if (confirmStop && row) screen = placeModal(screen, box([C.bold(row.state === "gone" ? `Remove ${row.name}?` : `Stop ${row.name}?`), "",
+    if (!row) {
+      const empty = ["", ...emptyState(cols, "no agents yet", [["n", "start one"], ["d", "docs"]])];
+      clearScreen(); process.stdout.write(empty.concat(Array(Math.max(0, rowsN - empty.length)).fill("")).slice(0, rowsN).join("\n")); return;
+    }
+    // A card: who and how (header), what it said and when (the message, filling the height),
+    // what it asks (gold), then what you can do (the bar at the bottom).
+    const W = cols - 2, rule = C.dim("  " + "─".repeat(Math.max(10, W - 2)));
+    const measure = Math.max(30, Math.min(W - 6, 96));                 // a line you can read in one go
+    const statePaint = { "needs you": C.gold, working: C.green, stopped: C.red }[row.group] || C.dim;
+    const glyph = row.group === "needs you" ? "⚑" : row.group === "working" ? "●" : row.group === "gone" ? "✗" : "○";
+    const left = `  ${emojiFor(row.name)} ${C.bold(C.white(row.name))}`;
+    const meta = [statePaint(`${glyph} ${stateWords(row)}`), row.startedAt ? C.dim(ago(row.startedAt)) : "", C.dim(row.machine ? "@" + row.machine : row.project),
+      row.harness && row.harness !== "claude" ? C.dim(row.harness) : ""].filter(Boolean).join(C.dim(" · "));
+    const gap = W - stripAnsi(left).length - stripAnsi(meta).length - 2;
+    const head = gap >= 2 ? [`${left}${" ".repeat(gap)}${meta}`] : [left, `     ${meta}`];
+
+    const options = row.state === "needs-you" ? parseOptions(text) : [];
+    let keys = previewKeys(row, options);
+    const ask = row.state === "needs-you" && !textErr ? askOf(text) : null;
+    const look = { bold: (x) => C.bold(C.white(x)), code: C.cyan, ref: C.cyan, version: C.green, dim: C.dim };
+    let body = textErr ? [C.dim(textErr)] : text ? formatBody(text, measure, look) : [C.dim(row.off ? "its machine is asleep" : row.state === "gone" ? "it never said anything" : "nothing said yet")];
+
+    const askBlock = ask ? [C.gold(C.bold("  ⚑ asks")), ...formatBody(ask, measure, look).map((l) => "    " + C.white(l)), ""] : [];
+    const bottomBar = mode === "type"
+      ? [rule, `  ${C.green("›")} ${C.white(buf)}${C.green("▏")}`, "  " + C.dim(`⏎ send to ${row.name} · esc cancel`), ""]
+      : null;
+    const problemLine = problems.length ? [fitLine("  " + C.dim("projects  ") + problems.map(([n, w]) => C.gold(n) + " " + C.dim(w)).join("   "), W)] : [];
+    // the room the message gets: everything the header, the ask and the bar do not use
+    const fixed = 1 + head.length + 1 + 2 + 1 + askBlock.length + (bottomBar ? bottomBar.length : 4) + problemLine.length;
+    const room = Math.max(3, rowsN - fixed);
+    const hidden = body.length > room;
+    if (hidden) body = full ? body.slice(0, room) : body.slice(-room);
+    if (hidden) keys = [...keys, ["space", full ? "the end" : "earlier"]];
+    const label = `  ${C.cyan(C.bold("LAST MESSAGE"))}${lastAt ? C.dim(" · " + agoWords(lastAt)) : ""}${hidden ? C.dim(full ? "  · the start" : "  · the end") : ""}`;
+    const bar = bottomBar || [rule, capLine(keys, cols), ...problemLine, ""];
+    const top = ["", ...head, rule, label, "", ...body.map((l) => "   " + l)];
+    const fill = Math.max(0, rowsN - top.length - askBlock.length - bar.length);
+    let screen = withToast([...top, ...Array(fill).fill(""), ...askBlock, ...bar], toast, cols, bar.length);
+    if (confirmStop) screen = placeModal(screen, box([C.bold(row.state === "gone" ? `Remove ${row.name}?` : `Stop ${row.name}?`), "",
       C.dim(row.state === "gone" ? "It only takes it off the list: it had no conversation." : "Its conversation and worktree are kept."), "", `${C.white("y")} ${C.dim("yes")}    ${C.white("n")} ${C.dim("no")}`], { title: C.gold("confirm"), paint: C.dim, min: 30 }), cols, rowsN, C.dim);
     clearScreen();
     process.stdout.write(screen.slice(0, rowsN).join("\n"));
@@ -1405,7 +1416,7 @@ async function wsPreview() {
       else if (/^[1-9]$/.test(str || "") && offered.has(str)) say(str);
       else if (str === "a" && offered.has("a")) { mode = "type"; typingFor = row.key; }
       else if (str === "x" && offered.has("x")) confirmStop = true;
-      else if (str === " ") full = !full;
+      else if (str === " ") full = !full;     // the start of a long message, or back to its end
       else if (str === "h") wsGoHome();
       else if (str === "d") wsDocs();
       api.draw();
@@ -1788,7 +1799,7 @@ function readLaneText(lane) {
   if (how.why) return { error: how.why };
   if (how.transcript) {
     const dir = path.join(os.homedir(), ".claude", "projects");
-    try { for (const d of fs.readdirSync(dir)) { const f = path.join(dir, d, how.transcript); if (fs.existsSync(f)) return { text: lastAssistantText(fs.readFileSync(f, "utf8")) }; } } catch {}
+    try { for (const d of fs.readdirSync(dir)) { const f = path.join(dir, d, how.transcript); if (fs.existsSync(f)) return { text: lastAssistantText(fs.readFileSync(f, "utf8")), at: fs.statSync(f).mtimeMs }; } } catch {}
     return { error: "its conversation file is gone" };
   }
   const r = spawnSync(how.bin, how.args, { encoding: "utf8" });

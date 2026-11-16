@@ -22,9 +22,13 @@ export function previewKeys(row, options = []) {
   const open = ["⏎", "open it"];
   if (row.off) return [];
   if (row.state === "gone") return [["x", "remove it from the list"]];
-  if (row.state !== "needs-you") return [open, ["x", "stop"]];
-  if (!row.lane?.tmuxSession) return [["⏎", "open it to answer"], ["x", "stop"]];
-  return [...options.map((o) => [String(o.n), short(o.label, 22)]), ["a", "type an answer"], open, ["x", "stop"]];
+  // Reply is offered to an agent at rest (waiting or idle) that seldon can type into. Never to
+  // one at work: typing would land in the middle of what it is doing.
+  const atRest = row.state === "needs-you" || row.state === "idle";
+  if (!atRest) return [open, ["x", "stop"]];
+  if (!row.lane?.tmuxSession) return [["⏎", row.state === "needs-you" ? "open it to answer" : "open it"], ["x", "stop"]];
+  const opts = row.state === "needs-you" ? options.map((o) => [String(o.n), short(o.label, 22)]) : [];
+  return [...opts, ["a", "reply"], open, ["x", "stop"]];
 }
 const short = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
@@ -116,4 +120,13 @@ export function summaryOf(text) {
   let keep = paras.slice(-1);
   if (/^\s*(\d[.)]|[-*•])\s/.test(keep[0]) && paras.length > 2) keep = paras.slice(-2);
   return { text: keep.join("\n\n"), cut: true };
+}
+
+// "3 min ago" for when the message was written.
+export function agoWords(ms, now = Date.now()) {
+  const s = Math.max(0, Math.round((now - ms) / 1000));
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86400)} d ago`;
 }
