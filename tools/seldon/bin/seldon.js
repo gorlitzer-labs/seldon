@@ -8,11 +8,11 @@ import fs from "node:fs";
 import os from "node:os";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
-import { ensureSiblingPath, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
+import { ensureSiblingPath, has, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
 import { readLanes, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
 import { openCommand, stopCommand, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
-import { listMachines, addMachine, fetchLanes, remoteGroups, sshArgs, lastJsonLine } from "../lib/machines.mjs";
+import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
@@ -63,8 +63,8 @@ function run(cmd, args, opts = {}) {
   return r.status === 0;
 }
 
-// Is a command on PATH? (used to pick the fastest package manager)
-const has = (bin) => { try { execSync(`command -v ${bin}`, { stdio: "ignore" }); return true; } catch { return false; } };
+// Colour per lane state, shared by the panel and the workspace list.
+const TINT = { "needs-you": C.gold, working: C.green, running: C.green, idle: C.dim, failed: C.red, stopped: C.dim, off: C.dim };
 
 // A usable uv, for Python modules. Prefer one on PATH; else a prior isolated
 // copy; else bootstrap uv into ~/.seldon/bin with NO shell/profile changes.
@@ -326,7 +326,7 @@ async function doInstall(ids, { dev } = {}) {
   const bad = results.filter(([, r]) => !r).map(([i]) => i);
   console.log("\n" + C.bold("Done. ") + C.green(good.join(", ") || "—") + (bad.length ? "  " + C.red("failed: " + bad.join(", ")) : ""));
   // demerzel's models are the heavy part — offer to pull them now, at install time.
-  if (good.includes("demerzel")) await ensureDemerzelModels({ ask: true });
+  if (good.includes("demerzel")) await ensureDemerzelModels();
 }
 
 // ---- uninstall --------------------------------------------------------------
@@ -495,30 +495,6 @@ function demerzelModelsMissing() {
 const demerzelModelsReady = () => demerzelModelsMissing().length === 0;
 const demerzelInstalled = () => fs.existsSync(path.join(SELDON_HOME, "demerzel", ".venv", "bin", "python"));
 
-// This machine's Tailscale IPv4 (100.64.0.0/10), or null. Tries PATH then the
-// macOS app location. Used to expose the voice to your phone over the tailnet.
-function tailnetIp() {
-  for (const bin of ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/tailscale"]) {
-    try {
-      const ip = execSync(`${bin} ip -4`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim().split(/\s+/)[0];
-      if (/^100\./.test(ip)) return ip;
-    } catch {}
-  }
-  // CLI missing/moved? The tailnet address is still on a utun interface —
-  // read it straight from the OS (Tailscale's CGNAT range is 100.64.0.0/10).
-  try {
-    const out = execSync("ifconfig", { stdio: ["ignore", "pipe", "ignore"] }).toString();
-    const m = out.match(/inet (100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)/);
-    if (m) return m[1];
-  } catch {}
-  try { // linux `ip addr`
-    const out = execSync("ip -4 addr", { stdio: ["ignore", "pipe", "ignore"] }).toString();
-    const m = out.match(/inet (100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)/);
-    if (m) return m[1];
-  } catch {}
-  return null;
-}
-
 // Find the Tailscale CLI (PATH, homebrew, or the macOS app bundle).
 function tailscaleBin() {
   for (const b of ["tailscale", "/opt/homebrew/bin/tailscale", "/usr/local/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/tailscale", "/usr/bin/tailscale"]) {
@@ -571,7 +547,7 @@ function tailscaleServeSetup() {
 // Fetch demerzel's model set (~25 GB) — offered, never silent. Respects the
 // chosen LLM (DEMERZEL_LLM) so `seldon install demerzel` / `seldon up` pull the
 // model you'll actually run. --models forces yes, --no-models forces skip.
-async function ensureDemerzelModels({ ask = true } = {}) {
+async function ensureDemerzelModels() {
   if (!demerzelInstalled() || !platformOk(byId.demerzel)) return false;
   if (demerzelModelsReady()) return true;
   const home = path.join(SELDON_HOME, "demerzel");
@@ -691,7 +667,7 @@ async function up() {
     const home = path.join(SELDON_HOME, "demerzel");
     if (!platformOk(dem)) later.push("Voice (demerzel) needs macOS on Apple silicon — skipped here.");
     else {
-      if (!demerzelModelsReady()) await ensureDemerzelModels({ ask: true });  // offer the fetch inline
+      if (!demerzelModelsReady()) await ensureDemerzelModels();  // offer the fetch inline
       if (demerzelModelsReady()) {
         const env = { ...process.env };
         // --- choose the brain (remembered) ---
@@ -945,14 +921,7 @@ async function panel() {
   // slow or sleeping machine never freezes this screen; `seen` says how each one answered.
   const machines = listMachines();
   const seen = new Map();                      // name -> { groups, error, at, inflight }
-  const pollMachines = () => {
-    for (const m of machines) {
-      const was = seen.get(m.name) || {};
-      if (was.inflight || (was.at && Date.now() - was.at < 10_000)) continue;
-      seen.set(m.name, { ...was, inflight: true });
-      fetchLanes(m, (r) => { seen.set(m.name, { groups: r.lanes ? remoteGroups(m, r.lanes) : was.groups || [], error: r.error || null, at: Date.now(), inflight: false }); });
-    }
-  };
+  const pollMachines = machinePoller(machines, seen);
   const machineOf = (name) => machines.find((m) => m.name === name);
   // Run seldon (or foundation) on a machine. `tty`: it may need a terminal (a trust dialog),
   // so it inherits this one; otherwise its output is captured for the note line.
@@ -975,7 +944,7 @@ async function panel() {
   const allLanes = () => groups.flatMap((g) => g.lanes);
 
   const svc = (label, on) => (on ? C.green("●") : C.dim("○")) + " " + label;
-  const tint = { "needs-you": C.gold, working: C.green, running: C.green, idle: C.dim, failed: C.red, stopped: C.dim };
+  const tint = TINT;
   // Below 70 columns (a phone over ssh) a lane is one short line: glyph, name, the state in a
   // word. The full detail is one ⏎ away.
   const narrow = () => (process.stdout.columns || 100) < 70;
@@ -1590,14 +1559,7 @@ async function wsSidebar() {
   ensureSiblingPath();
   const machines = listMachines();
   const seen = new Map();
-  const poll = () => {
-    for (const m of machines) {
-      const was = seen.get(m.name) || {};
-      if (was.inflight || (was.at && Date.now() - was.at < 10_000)) continue;
-      seen.set(m.name, { ...was, inflight: true });
-      fetchLanes(m, (r) => { seen.set(m.name, { groups: r.lanes ? remoteGroups(m, r.lanes) : was.groups || [], error: r.error || null, at: Date.now(), inflight: false }); });
-    }
-  };
+  const poll = machinePoller(machines, seen);
   let rows = [], cur = 0, note = "";
   const home = wsHome();
   const load = () => {
@@ -1611,7 +1573,7 @@ async function wsSidebar() {
     cur = keep >= 0 ? keep : Math.min(cur, Math.max(0, rows.length - 1));
     wsSave(WS_ROWS, JSON.stringify(rows.map((r) => ({ n: r.n, key: r.key, name: r.name, state: r.state, off: r.off, cmd: paneCommand(r, { machines, home }) }))));
   };
-  const tint = { "needs-you": C.gold, working: C.green, running: C.green, idle: C.dim, failed: C.red, stopped: C.dim, off: C.dim };
+  const tint = TINT;
   const draw = () => {
     const width = process.stdout.columns || 38, height = process.stdout.rows || 40;
     const open = wsCurrent(), h = wsHeadline(rows);
@@ -1934,7 +1896,7 @@ function holdsCmd() {
 // (`--no-attach`). The value form has to be CONSUMED: filtering out everything starting with
 // `--` and keeping the rest as positionals read `seldon go --agent claude` as the project
 // named "claude".
-const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "port", "pm", "stall", "dir", "for", "wait", "as", "note", "interval", "task", "owner", "file", "token-name", "card"]);
+const VALUE_FLAGS = new Set(["agent", "model", "effort", "name", "pm", "dir", "for", "wait", "as", "note", "interval", "task", "file", "token-name", "card"]);
 function parseArgv(raw) {
   const flags = {}, positional = [];
   for (let i = 0; i < raw.length; i++) {
@@ -1993,11 +1955,11 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "lanes") return lanesCmd(flags);
   if (cmd === "machines") return machinesCmd(tokens[0], tokens[1], tokens[2]);
   if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags);
-  if (cmd === "ws" || cmd === "workspace") return wsCmd(tokens[0], tokens[1]);
+  if (cmd === "ws") return wsCmd(tokens[0], tokens[1]);
   if (cmd === "tell") return tellCmd(tokens, flags);
   if (cmd === "inbox") return inboxCmd(flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
-  if (cmd === "panel" || cmd === "board") return panel();
+  if (cmd === "panel") return panel();
   if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
   if (cmd === "install") return install_picker({ dev });   // `install` with no ids
 

@@ -1,7 +1,7 @@
 /** machines.mjs — other machines, read from bifrost's realms; seldon on the far end. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseRealmFile, sshArgs, lastJsonLine, remoteGroups } from "../lib/machines.mjs";
+import { parseRealmFile, sshArgs, lastJsonLine, remoteGroups, machinePoller } from "../lib/machines.mjs";
 
 test("realm files are read, never run — and DEVICE_* still works", () => {
   assert.deepEqual(parseRealmFile('REALM_HOST="mini.tail1234.ts.net"\nREALM_USER=franz\n'), { host: "mini.tail1234.ts.net", user: "franz" });
@@ -30,4 +30,14 @@ test("a machine's lanes become their own projects, keyed so they never collide",
   assert.equal(gs[0].root, "mini:/r/s");
   assert.equal(gs[0].remoteRoot, "/r/s");
   assert.deepEqual(gs[0].lanes.map((l) => [l.key, l.remoteKey, l.machine]), [["mini/claude:ab", "claude:ab", "mini"], ["mini/tmux:seldon_x", "tmux:seldon_x", "mini"]]);
+});
+
+test("machinePoller: asks each machine at most once per 10s and keeps its last lanes when it fails", () => {
+  const seen = new Map(), calls = [];
+  const fake = (m, cb) => { calls.push(m.name); cb(m.name === "mini" ? { error: "ssh: timeout" } : { lanes: [] }); };
+  const poll = machinePoller([{ name: "mini" }, { name: "arrancar" }], seen, fake);
+  poll(); poll();
+  assert.deepEqual(calls, ["mini", "arrancar"]);
+  assert.equal(seen.get("mini").error, "ssh: timeout");
+  assert.equal(seen.get("arrancar").error, null);
 });

@@ -52,11 +52,6 @@ export function gitRootOf(dir) {
 const realish = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
 export const sameDir = (a, b) => !!a && !!b && realish(a) === realish(b);
 
-// A repo carries its hive in .factory.json — the local truth, which survives a pruned or
-// hand-edited registry.
-export function localHive(dir) {
-  try { return JSON.parse(readFileSync(path.join(dir, ".factory.json"), "utf8")); } catch { return null; }
-}
 
 /**
  * What did the user mean, and what do we know about it?
