@@ -2,6 +2,9 @@
 // or three and shows a couple of examples you can type. Pure data + search, so it is tested.
 
 export const TOPICS = [
+  { id: "steward", title: "The steward", tags: "steward assistant one agent relay orders boss manager",
+    what: ["The one agent you talk to. It turns what your agents ask into one short", "message, sends each one your answer, and carries out your orders.", "It never decides for you."],
+    examples: [["seldon steward", "start it: row 1 in the list"], ["what needs me?", "ask it, then answer \"1 yes, 2 later\""], ["seldon steward stop", "stop it"]] },
   { id: "workspace", title: "The workspace", tags: "ws start open terminal",
     what: ["Every agent from both laptops in one terminal: the list on the left,", "the agent you talk to on the right. Leaving never stops an agent."],
     examples: [["seldon ws", "open it (again: reconnects)"], ["seldon ws stop", "close it, agents keep going"]] },
