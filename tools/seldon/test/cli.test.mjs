@@ -35,8 +35,10 @@ test("`list` shows all six modules, exit 0", () => {
 test("`--help` documents the lifecycle + install/uninstall commands", () => {
   const { code, out } = run(["--help"]);
   assert.equal(code, 0);
-  for (const cmd of ["seldon up", "seldon down", "seldon status", "seldon install", "seldon uninstall", "--brain", "--tailnet"])
-    assert.ok(out.includes(cmd), `help mentions ${cmd}`);
+  const plain = out.replace(/\x1b\[[0-9;]*m/g, "");
+  for (const cmd of ["seldon ws", "seldon ls", "seldon up", "seldon down", "seldon status", "seldon install", "seldon uninstall", "--brain", "--tailnet"])
+    assert.ok(plain.includes(cmd), `help mentions ${cmd}`);
+  for (const line of plain.split("\n")) assert.ok(line.length <= 80, `help line fits 80 columns: ${line}`);
 });
 
 test("`doctor` runs and reports on external deps, exit 0", () => {
@@ -58,10 +60,10 @@ test("`uninstall` with no targets and no --all refuses, exit 1", () => {
   assert.match(out, /nothing to uninstall|--all/i);
 });
 
-test("an unknown command prints help and exits 1", () => {
+test("an unknown command says so and exits 1", () => {
   const { code, out } = run(["frobnicate"]);
   assert.equal(code, 1);
-  assert.match(out, /seldon/i);
+  assert.match(out, /unknown command: frobnicate/);
 });
 
 test("no args without a TTY never hangs on a picker it cannot draw", () => {

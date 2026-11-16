@@ -1410,42 +1410,52 @@ function list() {
   }
   console.log("");
 }
+// The help, styled like the workspace: a header and a rule, a few short sections, one aligned
+// line per command, and every line cut to the window so nothing ever wraps.
 function help() {
-  console.log(`
-${C.bold("seldon")} — the agent factory: your projects, and the stack that runs them.
-
-  ${C.bold("seldon")}                 ${C.gold("the panel")} — every agent (claude · codex · opencode) by project; n new lane, p plan
-  ${C.bold("seldon ws")}              ${C.gold("the workspace")} — the agent list beside the agent's own terminal; Alt-1…9 switches
-  ${C.bold("seldon hold")} <thing>     take a turn on a shared resource (emulator, unreal, gpu); waits if someone has it
-  ${C.bold("seldon release")} <thing>  give it back   ·   ${C.bold("seldon holds")}  who holds what
-  ${C.bold("seldon go")} [name|dir]   ${C.gold("get back to work")} — adopt if needed, reopen the room, staff an agent, attach.
-                         Idempotent, and it prints every step it skipped. Run it from inside a repo.
-  ${C.bold("seldon up")}              start the stack (voice + supervisor) and print where to go
-  ${C.bold("seldon up --tailnet")}    expose the voice over HTTPS (tailscale serve) so the mic works on your phone
-  ${C.bold("seldon tell")} "…"         message yourself on Telegram (--file to send one; --setup once)
-  ${C.bold("seldon inbox")} [--dir d]   save what you send the bot to a folder here (no agent, no tokens)
-  ${C.bold("seldon up --brain=X")}    pick the voice brain: qwen (in-process) | bonsai (local server); remembered
-  ${C.bold("seldon status")}          what's running   ·   ${C.bold("seldon down")}  stop it
-  ${C.bold("seldon adopt")} [dir]     put an existing repo on the line: foundation docs (never overwritten),
-                         an apiary hive, supervised by factory — and print what's next. Safe to re-run.
-  ${C.dim("go takes --agent claude|codex, --model <id>, --effort <lvl>, --name <n>,")}
-  ${C.dim("        --no-staff (do not start an agent), --no-attach (do not open the room) and")}
-  ${C.dim("        --attach (open it even with no terminal detected — inside tmux, or from a script).")}
-  ${C.bold("seldon install")} [ids…]  install everything picked, or the named modules (no ids: the picker)
-  ${C.bold("seldon uninstall")} ids…  remove the named modules (global CLI / isolated venv)
-  ${C.bold("seldon uninstall --all")} remove the whole stack (also drops ~/.seldon)
-  ${C.bold("seldon doctor")} [ids…]   check external deps (tmux, sops, age, tailscale, python…)
-  ${C.bold("seldon list")}            list the modules
-  ${C.bold("seldon --dev")}           link node modules from this checkout instead of npm
-  ${C.bold("seldon install --pm=pnpm")}  force the node package manager (pnpm|bun|npm; auto-detected)
-  ${C.dim("uninstall takes --yes to skip the confirm prompt.")}
-
-  ${C.dim("node tools install via pnpm/bun if present (faster), else npm.")}
-  ${C.dim("python (demerzel) installs into its own isolated venv — never your system Python;")}
-  ${C.dim("uses uv (auto-installed to ~/.seldon/bin if missing) to fetch a standalone CPython 3.12.")}
-
-  modules: ${MODULES.map((m) => m.id).join(", ")}
-`);
+  let version = "";
+  try { version = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version; } catch {}
+  const cols = Math.max(40, Math.min(process.stdout.columns || 80, 80));
+  const rule = C.dim(" " + "─".repeat(cols - 2));
+  const strip = (x) => x.replace(/\x1b\[[0-9;]*m/g, "");
+  const fit = (line) => (strip(line).length <= cols ? line : strip(line).slice(0, cols - 1) + "…");
+  const row = (cmd, what) => fit(`   ${C.dim("seldon")} ${pad(cmd, 26, C.bold)} ${C.dim(what)}`);
+  const sec = (name) => ["", " " + C.gold(C.bold(name))];
+  const out = [
+    "",
+    ` ${C.bold("SELDON")}${" ".repeat(Math.max(1, cols - 7 - version.length))}${C.dim(version)}`,
+    rule,
+    ...sec("START HERE"),
+    row("ws", "every agent, one terminal"),
+    row("", "the panel: agents by project"),
+    ...sec("AGENTS"),
+    row("ls", "every agent, as text"),
+    row("lane start --task \"…\"", "start one (--agent codex)"),
+    row("lane read <name>", "what it last said"),
+    row("lane say <name> \"yes\"", "answer it, while it waits"),
+    row("lane stop|resume|rm <name>", "stop · bring back · clean up"),
+    row("go [name]", "back into a project"),
+    ...sec("PHONE · VOICE"),
+    row("tell \"…\"", "message your phone on Telegram"),
+    row("inbox", "what you send the bot, saved here"),
+    row("watch", "alerts when an agent needs you"),
+    row("up [--tailnet]", "start the voice + the watcher"),
+    row("up --brain=qwen|bonsai", "pick the voice's model"),
+    row("status · seldon down", "what's running · stop it"),
+    ...sec("MACHINES · SHARED"),
+    row("machines add <n> <u@host>", "the other laptop"),
+    row("hold|release <thing>", "take turns on emulator, gpu…"),
+    ...sec("SETUP"),
+    row("install [ids]", "the stack (no ids: a picker)"),
+    row("uninstall <ids>|--all", "remove (--yes skips the ask)"),
+    row("doctor · seldon list", "check deps · list the modules"),
+    row("adopt [dir]", "put a repo on the line"),
+    "",
+    rule,
+    fit(C.dim(" keys inside ws: ⏎ open · n new · ⇥ next ⚑ · ⌥1-9 jump · q leave")),
+    "",
+  ];
+  console.log(out.join("\n"));
 }
 
 // ---- the watcher: seldon's supervisor -----------------------------------------
@@ -2012,7 +2022,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "holds") return holdsCmd();
   if (cmd === "watch") return watchCmd(flags);
   if (cmd === "report") return reportCmd(tokens[0]);
-  if (cmd === "lanes") return lanesCmd(flags);
+  if (cmd === "lanes" || cmd === "ls") return lanesCmd(flags);
   if (cmd === "machines") return machinesCmd(tokens[0], tokens[1], tokens[2]);
   if (cmd === "lane") return laneCmd(tokens[0], tokens[1], flags, tokens.slice(2));
   if (cmd === "ws") return wsCmd(tokens[0], tokens[1]);
@@ -2020,7 +2030,10 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "inbox") return inboxCmd(flags);
   if (cmd === "setup") return setupCmd(tokens[0], flags);
   if (cmd === "panel") return panel({ newFor: flags.new ? (typeof flags.for === "string" ? flags.for : "") : null });
-  if (cmd && cmd !== "install") { help(); process.exitCode = 1; return; }
+  if (cmd && cmd !== "install") {
+    console.log(C.red(` unknown command: ${cmd}`) + C.dim("   ·   seldon help lists them"));
+    process.exitCode = 1; return;
+  }
   if (cmd === "install") return install_picker({ dev });   // `install` with no ids
 
   // ---- bare `seldon` ----------------------------------------------------------
