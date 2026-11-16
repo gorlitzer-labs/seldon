@@ -73,7 +73,7 @@ In the list: `n` **new agent** (type the task, pick 1 claude · 2 codex · 3 ope
 | `n` | new lane: task, then `1` claude · `2` codex · `3` opencode |
 | `p` | the plan (`docs/QUEUE.md`); `⏎` starts a lane on an item |
 | `⏎` | open the agent |
-| `x` `x` | stop it |
+| `x` | stop it (asks first) |
 | `R` | resume what a reboot stopped |
 
 Each lane gets its own branch and worktree. Claude lanes run under Claude's supervisor
@@ -120,7 +120,7 @@ agent or posts into a room. `seldon watch` runs it in the foreground (`--interva
 ## After a reboot
 
 Claude lanes come back with Claude's own supervisor. A Codex or opencode lane whose tmux
-session is gone (and that you did not stop with `x x`) shows as **stopped**; `R` on it brings
+session is gone (and that you did not stop with `x`) shows as **stopped**; `R` on it brings
 it back, and `R` on a project brings back all of its stopped lanes:
 
 - Claude: `claude respawn` — the same conversation.
