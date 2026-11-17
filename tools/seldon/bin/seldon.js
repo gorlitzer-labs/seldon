@@ -14,7 +14,7 @@ import { countByState, openCommand, stopCommand, readCommand, lastAssistantText,
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
-import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
+import { configFile, sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
 import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed, stewardEnv, relayLine, recentRelays, stewardOutbox, stewardInbox, deliverWhenFree, TELLS_PREFIX } from "../lib/steward.mjs";
@@ -1487,11 +1487,25 @@ const STEWARD_TELLS = path.join(SELDON_HOME, "steward", "tells.jsonl");      // 
 // Running here: its tmux session exists AND this seldon home started it (a marker), so a test
 // sandbox or another setup never sees someone else's steward.
 const STEWARD_MARK = path.join(SELDON_HOME, "steward", "running");
+// The steward's own Telegram bot, once connected (seldon steward --telegram).
+const stewardBot = () => fs.existsSync(configFile("steward"));
+const startStewardInbox = () => {
+  const bot = stewardBot();
+  if (!bot && !readChat()) return;
+  startDaemon("seldon-inbox", process.execPath, [SELF, "inbox", "--steward"], bot ? { env: { ...process.env, SELDON_TELEGRAM: "steward" } } : {});
+};
 const stewardUp = () => fs.existsSync(STEWARD_MARK) && spawnSync("tmux", ["has-session", "-t", `=${STEWARD_SESSION}`], { env: { ...process.env, TMUX: "" } }).status === 0;
 // ---- the steward: the one agent you talk to ------------------------------------------
 // `seldon steward` starts it (or says it runs), `steward stop` stops it. It lives in the tmux
 // session seldon_steward, in ~/.seldon/steward, so `lane say` can type into it like any agent.
 function stewardCmd(verb, flags) {
+  if (flags.telegram) {
+    // connect the steward's own bot: its token in comb as STEWARD_BOT_TOKEN, and you sent it /start
+    const r = spawnSync(process.execPath, [SELF, "tell", "--setup", "--token-name", typeof flags["token-name"] === "string" ? flags["token-name"] : "STEWARD_BOT_TOKEN"],
+      { stdio: "inherit", env: { ...process.env, SELDON_TELEGRAM: "steward" } });
+    if (r.status === 0) { stopDaemon("seldon-inbox"); startStewardInbox(); console.log(C.green("✓ the steward talks on its own bot now") + C.dim(" — @seldontell_bot keeps agents' media")); }
+    process.exitCode = r.status ?? 1; return;
+  }
   const tm = (...a) => spawnSync("tmux", a, { encoding: "utf8", env: { ...process.env, TMUX: "" } });
   const running = tm("has-session", "-t", `=${STEWARD_SESSION}`).status === 0;
   if (verb === "stop") {
@@ -1501,7 +1515,7 @@ function stewardCmd(verb, flags) {
     fs.rmSync(STEWARD_MARK, { force: true });
     return console.log(C.green("✓ steward stopped") + C.dim(" — its conversation is kept; seldon steward starts it again"));
   }
-  if (running) { fs.mkdirSync(path.dirname(STEWARD_MARK), { recursive: true }); fs.writeFileSync(STEWARD_MARK, STEWARD_SESSION); startWatch(); if (readChat()) startDaemon("seldon-inbox", process.execPath, [SELF, "inbox", "--steward"]); return console.log(C.green("● the steward is running") + C.dim(" — it is row 1 in seldon ws; the watcher feeds it")); }
+  if (running) { fs.mkdirSync(path.dirname(STEWARD_MARK), { recursive: true }); fs.writeFileSync(STEWARD_MARK, STEWARD_SESSION); startWatch(); startStewardInbox(); return console.log(C.green("● the steward is running") + C.dim(" — it is row 1 in seldon ws; the watcher feeds it")); }
   ensureSiblingPath();
   if (!has("claude")) { console.log(C.red("the steward is a Claude agent, and claude is not installed here")); process.exitCode = 1; return; }
   const dir = path.join(SELDON_HOME, "steward");
@@ -1512,7 +1526,7 @@ function stewardCmd(verb, flags) {
   if (r.status !== 0) { console.log(C.red("could not start the steward: ") + (r.stderr || "").trim()); process.exitCode = 1; return; }
   fs.writeFileSync(STEWARD_MARK, STEWARD_SESSION);
   startWatch();          // the watcher passes new waits to the steward
-  if (readChat()) startDaemon("seldon-inbox", process.execPath, [SELF, "inbox", "--steward"]);   // your chat → the steward
+  startStewardInbox();   // your chat → the steward
   console.log(C.green("✓ steward started") + C.dim(` (${typeof flags.model === "string" ? flags.model : "sonnet"}) — row 1 in seldon ws; ask it "what needs me?"`));
 }
 
@@ -1796,9 +1810,10 @@ const startWatch = () => startDaemon("seldon-watch", process.execPath, [SELF, "w
 
 // The watcher's news on the phone too, once `seldon tell --setup` has been run. A child
 // `seldon tell` per event, so the token goes through comb exactly as it does for an agent.
-function tellInBackground(fields) {
-  if (process.env.SELDON_NO_NOTIFY || !readChat()) return;
-  const child = spawn(process.execPath, [process.argv[1], "tell", "--card", JSON.stringify(fields)], { stdio: "ignore", detached: true });
+function tellInBackground(fields, profile = null) {
+  const env = profile ? { ...process.env, SELDON_TELEGRAM: profile } : process.env;
+  if (process.env.SELDON_NO_NOTIFY || !fs.existsSync(configFile(profile || undefined))) return;
+  const child = spawn(process.execPath, [process.argv[1], "tell", "--card", JSON.stringify(fields)], { stdio: "ignore", detached: true, env });
   child.on("error", () => {}); child.unref();
 }
 
@@ -1836,7 +1851,7 @@ async function watchCmd(flags) {
       const t = readLaneText(steward);
       const o = stewardOutbox(outSeen, { state: steward.state, text: t.text, at: t.at });
       outSeen = o.seen;
-      if (o.send) { tellInBackground({ kind: "info", text: o.send, lane: "🦚 steward" }); console.log(`${stamp()} steward → telegram`); }
+      if (o.send) { tellInBackground({ kind: "info", text: o.send, lane: "🦚 steward" }, stewardBot() ? "steward" : null); console.log(`${stamp()} steward → telegram`); }
       // agents' notes that waited for it
       let notes = [];
       try { notes = fs.readFileSync(STEWARD_TELLS, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((n) => n.at > tellsAt); } catch {}
