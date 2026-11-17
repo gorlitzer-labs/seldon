@@ -111,8 +111,7 @@ test("setupCommands: options first, the two panes last, every key bound twice (A
     assert.ok(binds.some((c) => c[1] === "-n" && c[2] === `M-${k}`), `Alt-${k}`);
     assert.ok(binds.some((c) => c[1] === "-T" && c[2] === "seldon" && c[3] === k), `Ctrl-g ${k}`);
   }
-  assert.deepEqual(binds.find((c) => c[2] === "M-Left").slice(3), ["run-shell", "-b", `${HOME} ws list`]);
-  assert.deepEqual(binds.find((c) => c[2] === "M-Right").slice(3), ["run-shell", "-b", `${HOME} ws main`]);
+  assert.deepEqual(binds.find((c) => c[2] === "M-Left").slice(3), ["run-shell", "-b", `${HOME} ws back`], "⌥← is back: out of an agent, into the list");
   const alt3 = binds.find((c) => c[2] === "M-3");
   assert.deepEqual(alt3.slice(3), ["run-shell", "-b", `${HOME} ws pick 3`]);
 });
@@ -152,8 +151,8 @@ test("tooSmall: nothing when it fits, a centred btop-style notice when it does n
 test("keyLines: every bound workspace key is on the card, and it fits the 38-column list", async () => {
   const { keyLines, setupCommands: sc } = await import("../lib/workspace.mjs");
   const card = keyLines().join("\n");
-  for (const k of ["⌥1-9", "⌥←", "⌥→", "⌥h", "⌥n", "⌥q", "⌃g"]) assert.ok(card.includes(k), k);
+  for (const k of ["⌥1-9", "⌥←", "⌥h", "⌥n", "⌥q", "⌃g"]) assert.ok(card.includes(k), k);
   const bound = sc({ self: "S" }).filter((c) => c[0] === "bind" && c[1] === "-n").map((c) => c[2]);
-  for (const b of ["M-Left", "M-Right", "M-h", "M-n", "M-q"]) assert.ok(bound.includes(b), `${b} is really bound`);
+  for (const b of ["M-Left", "M-h", "M-n", "M-q"]) assert.ok(bound.includes(b), `${b} is really bound`);
   for (const l of keyLines()) assert.ok(l.length <= 34, `fits inside a box in the list: ${l}`);
 });
