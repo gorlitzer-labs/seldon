@@ -265,3 +265,42 @@ export async function sendCard(token, chatId, fields, file = null) {
     return file ? await sendFile(token, chatId, file, plain) : await sendText(token, chatId, plain);
   }
 }
+
+// ---- the steward's messages on the phone ---------------------------------------------------
+// Not an agent card: a small 🦚, then the message laid out for a phone. Lines the steward wrapped
+// for a terminal are joined back into paragraphs; each numbered item stands on its own with the
+// agent's name in bold and a blank line between items; the question to you, at the end, in bold.
+export function stewardHtml(text) {
+  const paras = String(text ?? "").replace(/\r\n?/g, "\n").trim().split(/\n\s*\n/);
+  const isItem = (l) => /^\s*(\d+[.)]|[-*•])\s+/.test(l);
+  const blocks = [];
+  for (const p of paras) {
+    const items = [];
+    for (const raw of p.split("\n")) {
+      const l = raw.trim();
+      if (!l) continue;
+      if (isItem(l) || !items.length) items.push(l);
+      else items[items.length - 1] += " " + l;          // a wrapped line belongs to the one before
+    }
+    blocks.push(items);
+  }
+  const out = [];
+  blocks.forEach((items, bi) => {
+    for (const it of items) {
+      let html = mdToHtml(it);
+      // "1. joey: deploy?"  →  <b>1. joey</b> · deploy?
+      html = html.replace(/^(\d+)[.)]\s+([^:·—]{1,40}?)\s*[:—]\s+/, (_, n, who) => `<b>${n}. ${who}</b> · `);
+      out.push(html);
+      if (/^\d+[.)]/.test(it)) out.push("");             // air between numbered items
+    }
+    if (bi < blocks.length - 1 && out.at(-1) !== "") out.push("");
+  });
+  while (out.at(-1) === "") out.pop();
+  // the question it ends on, in bold, on its own line
+  const last = out.length - 1;
+  if (last >= 0 && /\?\s*$/.test(out[last]) && !/^<b>\d/.test(out[last])) {
+    const m = out[last].match(/^(.*?[.!:])\s+([^.!?]*\?)\s*$/);
+    out[last] = m ? `${m[1]}\n\n<b>${m[2]}</b>` : `<b>${out[last]}</b>`;
+  }
+  return `🦚 <b>steward</b>\n\n${out.join("\n")}`;
+}
