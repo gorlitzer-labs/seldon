@@ -17,7 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
-import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed, stewardEnv, relayLine, recentRelays } from "../lib/steward.mjs";
+import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed, stewardEnv, relayLine, recentRelays, stewardOutbox, stewardInbox, deliverWhenFree, TELLS_PREFIX } from "../lib/steward.mjs";
 import { parseOptions, previewKeys, previewBody, stateWords, askOf, formatBody, summaryOf, agoWords } from "../lib/preview.mjs";
 import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
@@ -1483,6 +1483,11 @@ async function docsView(query = "") {
 }
 
 const STEWARD_RELAYS = path.join(SELDON_HOME, "steward", "relay.jsonl");
+const STEWARD_TELLS = path.join(SELDON_HOME, "steward", "tells.jsonl");      // agents' notes, waiting for the steward
+// Running here: its tmux session exists AND this seldon home started it (a marker), so a test
+// sandbox or another setup never sees someone else's steward.
+const STEWARD_MARK = path.join(SELDON_HOME, "steward", "running");
+const stewardUp = () => fs.existsSync(STEWARD_MARK) && spawnSync("tmux", ["has-session", "-t", `=${STEWARD_SESSION}`], { env: { ...process.env, TMUX: "" } }).status === 0;
 // ---- the steward: the one agent you talk to ------------------------------------------
 // `seldon steward` starts it (or says it runs), `steward stop` stops it. It lives in the tmux
 // session seldon_steward, in ~/.seldon/steward, so `lane say` can type into it like any agent.
@@ -1492,9 +1497,11 @@ function stewardCmd(verb, flags) {
   if (verb === "stop") {
     if (!running) return console.log(C.dim("the steward is not running"));
     tm("kill-session", "-t", `=${STEWARD_SESSION}`);
+    stopDaemon("seldon-inbox");
+    fs.rmSync(STEWARD_MARK, { force: true });
     return console.log(C.green("✓ steward stopped") + C.dim(" — its conversation is kept; seldon steward starts it again"));
   }
-  if (running) { startWatch(); return console.log(C.green("● the steward is running") + C.dim(" — it is row 1 in seldon ws; the watcher feeds it")); }
+  if (running) { fs.mkdirSync(path.dirname(STEWARD_MARK), { recursive: true }); fs.writeFileSync(STEWARD_MARK, STEWARD_SESSION); startWatch(); if (readChat()) startDaemon("seldon-inbox", process.execPath, [SELF, "inbox", "--steward"]); return console.log(C.green("● the steward is running") + C.dim(" — it is row 1 in seldon ws; the watcher feeds it")); }
   ensureSiblingPath();
   if (!has("claude")) { console.log(C.red("the steward is a Claude agent, and claude is not installed here")); process.exitCode = 1; return; }
   const dir = path.join(SELDON_HOME, "steward");
@@ -1503,7 +1510,9 @@ function stewardCmd(verb, flags) {
   // seldon's own folder first on its PATH, so `seldon …` runs as is and matches the allowed list
   const r = tm("new-session", "-d", "-s", STEWARD_SESSION, "-c", dir, "-x", "160", "-y", "45", ...stewardEnv(process.env.PATH), argv.map(shq).join(" "));
   if (r.status !== 0) { console.log(C.red("could not start the steward: ") + (r.stderr || "").trim()); process.exitCode = 1; return; }
+  fs.writeFileSync(STEWARD_MARK, STEWARD_SESSION);
   startWatch();          // the watcher passes new waits to the steward
+  if (readChat()) startDaemon("seldon-inbox", process.execPath, [SELF, "inbox", "--steward"]);   // your chat → the steward
   console.log(C.green("✓ steward started") + C.dim(` (${typeof flags.model === "string" ? flags.model : "sonnet"}) — row 1 in seldon ws; ask it "what needs me?"`));
 }
 
@@ -1796,7 +1805,7 @@ function tellInBackground(fields) {
 async function watchCmd(flags) {
   ensureSiblingPath();
   const every = parseDuration(flags.interval, 5000) || 5000;
-  let prev = new Map(), feed = [];
+  let prev = new Map(), feed = [], outSeen, tellsAt = 0;
   const stamp = () => new Date().toTimeString().slice(0, 8);
   console.log(`${stamp()} seldon watch — every ${every / 1000}s`);
   for (;;) {
@@ -1805,8 +1814,11 @@ async function watchCmd(flags) {
     for (const e of transitions(prev, lanes)) {
       console.log(`${stamp()} ${e.text}`);
       const where = path.basename(e.lane.project || e.lane.cwd || "");
-      notify(e.to === "needs-you" ? "Seldon · needs you" : "Seldon", `${e.text} — ${where}`);
-      tellInBackground(watchCard(e, { machine: os.hostname().split(".")[0] }));
+      // with the steward running, it speaks for the agents: no card per agent
+      if (!lanes.some((l) => l.name === STEWARD && !l.machine)) {
+        notify(e.to === "needs-you" ? "Seldon · needs you" : "Seldon", `${e.text} — ${where}`);
+        tellInBackground(watchCard(e, { machine: os.hostname().split(".")[0] }));
+      }
     }
     prev = new Map(lanes.map((l) => [l.key, l.state]));
     // the steward, if it runs, hears about new waits on its own (batched, only while it is free)
@@ -1817,6 +1829,22 @@ async function watchCmd(flags) {
       const how = steward ? sayCommands(steward, f.say) : { why: "not running" };
       const ok = !how.why && how.cmds.every(([b, ...a]) => spawnSync(b, a).status === 0);
       console.log(`${stamp()} steward ${ok ? "told" : "not told (" + (how.why || "tmux refused") + ")"}: ${f.say}`);
+    }
+    const steward = lanes.find((l) => l.name === STEWARD && !l.machine);
+    if (steward) {
+      // the steward's new message → your phone, as one card
+      const t = readLaneText(steward);
+      const o = stewardOutbox(outSeen, { state: steward.state, text: t.text, at: t.at });
+      outSeen = o.seen;
+      if (o.send) { tellInBackground({ kind: "info", text: o.send, lane: "🦚 steward" }); console.log(`${stamp()} steward → telegram`); }
+      // agents' notes that waited for it
+      let notes = [];
+      try { notes = fs.readFileSync(STEWARD_TELLS, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((n) => n.at > tellsAt); } catch {}
+      const d = deliverWhenFree(notes.map((n) => `${n.from} (${n.kind}): ${n.text}`), steward.state, TELLS_PREFIX);
+      if (d.say) {
+        const how = sayCommands(steward, d.say);
+        if (!how.why && how.cmds.every(([b, ...a]) => spawnSync(b, a).status === 0)) { tellsAt = Math.max(...notes.map((n) => n.at)); console.log(`${stamp()} steward got ${notes.length} note(s)`); }
+      }
     }
     if (flags.once) return;
     await new Promise((r) => setTimeout(r, every));
@@ -2175,6 +2203,15 @@ function pipedIn() {
 
 async function tellCmd(words, flags) {
   const fail = (msg) => { console.error(C.red(msg)); process.exitCode = 1; };
+  // While the steward runs, an agent's text note goes to it, not to the phone: one voice, less
+  // noise. Files, cards from the watcher, setup, the steward itself and --direct still go straight.
+  if (!flags.file && !flags.card && !flags.setup && !flags.direct && process.env.SELDON_STEWARD !== "1" && words.length && stewardUp()) {
+    const kind = Object.keys(KINDS).find((k) => flags[k]) || "info";
+    const where = tellContext();
+    fs.mkdirSync(path.dirname(STEWARD_TELLS), { recursive: true });
+    fs.appendFileSync(STEWARD_TELLS, JSON.stringify({ from: where.project || "an agent", kind, text: words.join(" "), at: Date.now() }) + "\n");
+    return console.log(C.green("✓ passed to the steward") + C.dim(" — it tells Franco what matters (--direct sends to the phone anyway)"));
+  }
   const t = telegramToken(flags);
   if (!t) return;
   const { token, name } = t;
@@ -2224,10 +2261,19 @@ async function inboxCmd(flags) {
   fs.mkdirSync(dir, { recursive: true });
   const stamp = () => new Date().toTimeString().slice(0, 8);
   console.log(`${stamp()} seldon inbox → ${dir}`);
-  let offset;
+  let offset, toSteward = [];
   for (;;) {
+    // what you wrote for the steward goes in as soon as it is free
+    if (toSteward.length) {
+      const st = readLanes().flatMap((g) => g.lanes).find((l) => l.name === STEWARD && !l.machine);
+      const d = stewardInbox(toSteward, st?.state);
+      if (d.say && st) {
+        const how = sayCommands(st, d.say);
+        if (!how.why && how.cmds.every(([b, ...a]) => spawnSync(b, a).status === 0)) { toSteward = d.queue; console.log(`${stamp()} → steward`); }
+      }
+    }
     let updates;
-    try { updates = (await pollUpdates(t.token, offset)).result; }
+    try { updates = (await pollUpdates(t.token, offset, flags.steward ? 10 : 50)).result; }
     catch (e) {
       console.log(`${stamp()} ${e.message}`);
       if (/terminated by other getUpdates/i.test(e.message)) return fail("another reader has this bot (a second inbox, or Claude's Telegram channel) — stop it first");
@@ -2245,6 +2291,9 @@ async function inboxCmd(flags) {
           await downloadFile(t.token, f.fileId, path.join(dir, name));
           fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { file: name, text }), { mode: 0o600 });
           console.log(`${stamp()} saved ${name}`);
+        } else if (text && !text.startsWith("/") && flags.steward && stewardUp()) {
+          toSteward.push(text);                 // your words, for the steward; sent once it is free
+          console.log(`${stamp()} for the steward`);
         } else if (text && !text.startsWith("/")) {
           fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { text }), { mode: 0o600 });
           console.log(`${stamp()} noted`);

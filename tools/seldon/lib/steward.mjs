@@ -43,6 +43,9 @@ When Franco answers ("1 yes, 2 wait till tonight, 3 the first one"):
 When a line starting "seldon:" arrives, it is seldon telling you which agents just started
 waiting: read them (seldon lane read <name> --json) and write Franco one message, as above.
 
+A line starting "Franco (Telegram):" is Franco writing from his phone. Answer him normally:
+your answer reaches his phone on its own. Keep it short, it is read on a phone.
+
 Rules, always:
   - Never decide for Franco. Never answer an agent on your own. If his answer is unclear, ask him.
   - Never type into an agent that is working.
@@ -82,4 +85,33 @@ export function recentRelays(jsonl, n = 5) {
   const out = [];
   for (const l of String(jsonl || "").split("\n")) { try { const e = JSON.parse(l); if (e?.to && typeof e.text === "string") out.push(e); } catch {} }
   return out.slice(-n).reverse();          // newest first
+}
+
+// ---- Telegram: the steward is the voice on your phone ---------------------------------------
+// Out: when the steward finishes a new message (at rest, file quiet a few seconds), it goes to
+// Telegram as one card. The first look only remembers where things are, so starting up never
+// re-sends an old message.
+export const QUIET_MS = 8000;
+export function stewardOutbox(seen, steward, now = Date.now()) {
+  if (!steward || !steward.text || !steward.at) return { seen, send: null };
+  if (!seen) return { seen: { at: steward.at }, send: null };
+  const atRest = steward.state === "idle" || steward.state === "needs-you";
+  if (!atRest || steward.at <= seen.at || now - steward.at < QUIET_MS) return { seen, send: null };
+  return { seen: { at: steward.at }, send: steward.text };
+}
+// In: what you write in the chat waits until the steward is free, then goes in as one line.
+export const FROM_PHONE = "Franco (Telegram):";
+export function stewardInbox(queue, stewardState) {
+  const atRest = stewardState === "idle" || stewardState === "needs-you";
+  if (!queue.length || !atRest) return { queue, say: null };
+  return { queue: [], say: `${FROM_PHONE} ${queue.join(" · ")}` };
+}
+
+// Agents' own text messages (seldon tell, no file) go to the steward while it runs, not to your
+// phone: it passes on what matters in its next message. Media still go straight to you.
+export const TELLS_PREFIX = "seldon: your agents sent Franco these notes; pass on only what he needs, in your next message:";
+export function deliverWhenFree(queue, stewardState, prefix) {
+  const atRest = stewardState === "idle" || stewardState === "needs-you";
+  if (!queue.length || !atRest) return { queue, say: null };
+  return { queue: [], say: `${prefix} ${queue.join(" · ")}` };
 }
