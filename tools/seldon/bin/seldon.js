@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
-import { ensureSiblingPath, has, forgetProject, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
+import { ensureSiblingPath, has, forgetProject, newProjectPlan, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
 import { readLanes, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
 import { countByState, openCommand, stopCommand, readCommand, lastAssistantText, sayCommands, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
@@ -1495,6 +1495,37 @@ const startStewardInbox = () => {
   startDaemon("seldon-inbox", process.execPath, [SELF, "inbox", "--steward"], bot ? { env: { ...process.env, SELDON_TELEGRAM: "steward" } } : {});
 };
 const stewardUp = () => fs.existsSync(STEWARD_MARK) && spawnSync("tmux", ["has-session", "-t", `=${STEWARD_SESSION}`], { env: { ...process.env, TMUX: "" } }).status === 0;
+// ---- seldon new: a new project, and an agent on it ------------------------------------
+// seldon new <name> [--task "…"] [--agent codex] [--dir ~/Desktop]: a new folder with git and a
+// first commit; with a task, an agent starts on it. --ask asks for each (the N key in the list).
+async function newCmd(name, flags) {
+  const fail = (msg) => { console.log(C.red(msg)); process.exitCode = 1; };
+  let task = typeof flags.task === "string" ? flags.task : "", agent = typeof flags.agent === "string" ? flags.agent : "claude";
+  if (flags.ask) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const q = (p) => new Promise((r) => rl.question(p, r));
+    console.log(`\n  ${C.cyan(C.bold("NEW PROJECT"))}  ${C.dim("a new folder with git, and an agent on it · empty name cancels")}\n`);
+    name = (await q(`  ${C.white("name")}  ${C.dim("(folder)")} › `)).trim();
+    if (!name) { rl.close(); return; }
+    task = (await q(`  ${C.white("task")}  ${C.dim("(empty: no agent yet)")} › `)).trim();
+    if (task) agent = ({ "1": "claude", "2": "codex", "3": "opencode", "": "claude" })[(await q(`  ${C.white("agent")} ${C.dim("1 claude · 2 codex · 3 opencode")} › `)).trim()] || "claude";
+    rl.close();
+  }
+  const base = path.resolve(typeof flags.dir === "string" ? flags.dir.replace(/^~/, os.homedir()) : path.join(os.homedir(), "Desktop"));
+  const plan = newProjectPlan(name, base, fs.existsSync);
+  if (plan.why) return fail(plan.why);
+  fs.mkdirSync(plan.dir, { recursive: true });
+  fs.writeFileSync(path.join(plan.dir, "README.md"), `# ${name}\n${task ? `\n${task}\n` : ""}`);
+  const git = (...a) => spawnSync("git", ["-C", plan.dir, ...a], { encoding: "utf8" });
+  if (git("init", "-q", "-b", "main").status !== 0 || git("add", "README.md").status !== 0 || git("commit", "-q", "-m", "start").status !== 0)
+    return fail(`made ${plan.dir}, but git init/commit failed — is git set up (user.name, user.email)?`);
+  console.log(C.green(`✓ ${plan.dir}`) + C.dim(" — git, first commit"));
+  if (!task) return console.log(C.dim(`  an agent on it: seldon lane start ${plan.dir} --task "…"`));
+  const r = startLane({ root: plan.dir, name, task, harness: agent });
+  if (!r.ok) return fail(`the folder is ready, but the agent did not start: ${r.error}`);
+  console.log(C.green(`✓ ${agent} started on it`) + C.dim(` (${r.slug}) — it shows in seldon ws`));
+}
+
 // ---- the steward: the one agent you talk to ------------------------------------------
 // `seldon steward` starts it (or says it runs), `steward stop` stops it. It lives in the tmux
 // session seldon_steward, in ~/.seldon/steward, so `lane say` can type into it like any agent.
@@ -1767,6 +1798,7 @@ function help() {
     ...sec("START HERE"),
     row("ws", "every agent, one terminal"),
     row("steward [stop]", "the one agent you talk to"),
+    row("new <name> --task \"…\"", "a new project + an agent on it"),
     row("", "the panel: agents by project"),
     ...sec("AGENTS"),
     row("docs [word]", "short how-tos, searchable"),
@@ -1982,6 +2014,15 @@ function wsOpen(row) {
   wsSave(WS_CURRENT, row.off ? "" : row.key);
   wsFocus(main);
 }
+// Run a seldon command in the right pane (its prompts there), then back to the card.
+function wsRun(args, title) {
+  const main = wsOpt("@main");
+  wsTmux(["respawn-pane", "-k", "-t", main, `sh -c ${shq(`trap '' INT QUIT TSTP; ${wsSelf()} ${args.map(shq).join(" ")}; printf '\\n  ⏎ back'; read _; exec ${wsHome()}`)}`]);
+  wsTmux(["select-pane", "-t", main, "-T", title]);
+  wsTmux(["set", "-t", WS_SESSION, "@mainmode", "run"]);
+  wsSave(WS_CURRENT, "");
+  wsFocus(main);
+}
 // ⌥d or d in the list: the docs on the right, like home.
 function wsDocs() {
   const main = wsOpt("@main");
@@ -2128,6 +2169,7 @@ async function wsSidebar() {
         if (str === "a" || str === "x") wsFocus(wsOpt("@main"));     // typing / confirming happens there, then comes back
       }
       else if (str === "n") wsNewAgent(shownRows()[cur]);
+      else if (str === "N") wsRun(["new", "--ask"], "new project");
       else if (key?.name === "tab") {
         const r = nextNeeding(rows, wsSelected());
         if (!r) note = C.gold("nobody is waiting on you");
@@ -2513,6 +2555,7 @@ const ids = tokens.filter((id) => byId[id]);           // only the valid module 
   if (cmd === "setup") return setupCmd(tokens[0], flags);
   if (cmd === "docs") return docsView(tokens.join(" "));
   if (cmd === "steward") return stewardCmd(tokens[0], flags);
+  if (cmd === "new") return newCmd(tokens[0], flags);
   if (cmd === "panel") return panel({ newFor: flags.new ? (typeof flags.for === "string" ? flags.for : "") : null });
   if (cmd && cmd !== "install") {
     console.log(C.red(` unknown command: ${cmd}`) + C.dim("   ·   seldon help lists them"));

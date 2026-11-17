@@ -9,7 +9,7 @@ export const STEWARD_SESSION = "seldon_steward";
 // stopping them: never your files, never anything else.
 export const STEWARD_ALLOWED = [
   "Bash(seldon lanes:*)", "Bash(seldon ls:*)", "Bash(seldon lane read:*)", "Bash(seldon lane say:*)",
-  "Bash(seldon lane start:*)", "Bash(seldon lane stop:*)", "Bash(seldon machines:*)",
+  "Bash(seldon lane start:*)", "Bash(seldon lane stop:*)", "Bash(seldon machines:*)", "Bash(seldon new:*)",
 ];
 export const STEWARD_DENIED = ["Edit", "Write", "NotebookEdit"];
 
@@ -31,6 +31,7 @@ Tools (seldon, run with Bash, exactly as written: \`seldon …\`, never prefixed
                                     every one is logged and Franco sees the log under your messages
   seldon lane start <dir> --task "…" [--agent claude|codex|opencode]    start an agent
   seldon lane stop <name>           stop one
+  seldon new <name> --task "…" [--agent codex]   a new project folder (git), with an agent on the task
 
 When Franco asks "what needs me" or you are asked to check:
   1. List the agents. For each one waiting, read its last message.

@@ -125,3 +125,16 @@ export function forgetProject(name, reg = path.join(os.homedir(), ".factory", "h
   fs.writeFileSync(reg, JSON.stringify(kept, null, 2) + "\n");
   return { ok: true };
 }
+
+// ---- a new project ----------------------------------------------------------------------
+// `seldon new <name>`: a new folder with git, in your projects folder. Only a plain name (no
+// slashes, no dots at the start), and only a folder that does not exist yet: it never touches
+// one that does. Returns { dir } or { why }.
+export function newProjectPlan(name, base, exists) {
+  const n = String(name || "").trim();
+  if (!n) return { why: "give it a name: seldon new <name>" };
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(n)) return { why: `"${n}" is not a plain folder name: letters, digits, - _ . only` };
+  const dir = path.join(base, n);
+  if (exists(dir)) return { why: `${dir} already exists: seldon new only makes new folders` };
+  return { dir };
+}
