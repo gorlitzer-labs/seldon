@@ -1331,6 +1331,7 @@ async function wsPreview() {
       else { ok = how.cmds.every(([b, ...a]) => spawnSync(b, a).status === 0); why = "tmux refused"; }
     }
     note = ok ? C.green(`told it: ${words.length > 40 ? words.slice(0, 39) + "…" : words}`) : C.red(`not sent: ${why}`);
+    toast.text = note; toast.at = Date.now();      // every answer shows, even the same words twice
     fetchedAt = 0;
   };
   const draw = () => {
@@ -1410,11 +1411,12 @@ async function wsPreview() {
           const res = row.machine ? { ok: r?.status === 0 } : stopLane({ ...row.lane, state: row.state, machine: null });
           note = res.why ? C.gold(`can't stop: ${res.why}`) : res.ok ? C.green(`stopped ${row.name}`) : C.red(`could not stop: ${res.error || "ssh failed"}`);
         } else if (str === "n" || key?.name === "escape") confirmStop = false;
+        if (!confirmStop) wsFocus(wsOpt("@side"));
         return api.draw();
       }
       if (mode === "type") {
-        if (key?.name === "escape") { mode = "view"; buf = ""; }
-        else if (key?.name === "return") { if (buf.trim() && typingFor === row?.key) say(buf.trim()); mode = "view"; buf = ""; }
+        if (key?.name === "escape") { mode = "view"; buf = ""; wsFocus(wsOpt("@side")); }
+        else if (key?.name === "return") { if (buf.trim() && typingFor === row?.key) say(buf.trim()); mode = "view"; buf = ""; wsFocus(wsOpt("@side")); }
         else if (key?.name === "backspace") buf = buf.slice(0, -1);
         else if (str && str >= " " && !key?.ctrl && !key?.meta) buf += str;
         return api.draw();
@@ -1769,8 +1771,8 @@ function help() {
     ...sec("KEYS"),
     ...keyLines({ key: C.white, dim: C.dim, title: (t) => C.dim(t) }).map((l) => (l ? "   " + l : "")),
     "",
-    hintRule([C.dim("in ws"), `${C.white("⌥1-9")} ${C.dim("agent")}`, `${C.white("⌥←")} ${C.dim("list")}`, `${C.white("⌥→")} ${C.dim("right")}`,
-      `${C.white("⌥h")} ${C.dim("home")}`, `${C.white("⌥n")} ${C.dim("next ⚑")}`, `${C.white("⌥q")} ${C.dim("leave")}`], cols - 1, C.dim),
+    hintRule([C.dim("in ws"), `${C.white("␣")} ${C.dim("enter")}`, `${C.white("a")} ${C.dim("reply")}`, `${C.white("⌥←")} ${C.dim("back")}`,
+      `${C.white("⌥h")} ${C.dim("projects")}`, `${C.white("⌥n")} ${C.dim("next ⚑")}`, `${C.white("⌥q")} ${C.dim("leave")}`], cols - 1, C.dim),
     "",
   ];
   console.log(out.join("\n"));
@@ -1994,7 +1996,12 @@ async function wsSidebar() {
   const home = wsHome();
   // The rows the list shows: all of them, or those whose name or project holds the filter.
   const shownRows = () => (filter ? rows.filter((r) => `${r.name} ${r.project}`.toLowerCase().includes(filter.toLowerCase())) : rows);
-  const select = (i) => { const list = shownRows(); cur = Math.max(0, Math.min(i, list.length - 1)); if (list[cur]) wsSave(WS_SEL, list[cur].key); };
+  // moving the selection always shows that agent's card on the right (an open agent closes back to it)
+  const select = (i) => {
+    const list = shownRows(); cur = Math.max(0, Math.min(i, list.length - 1));
+    if (list[cur]) wsSave(WS_SEL, list[cur].key);
+    if (list[cur] && !previewRunning()) wsShowPreview(false);
+  };
   const load = () => {
     poll();
     let groups = [];
@@ -2021,7 +2028,7 @@ async function wsSidebar() {
     const counts = `${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}  ${C.dim(`○ ${Math.max(0, h.total - h.need - h.busy)}`)}`;
     const head = [` ${C.green(C.bold("seldon"))}${" ".repeat(Math.max(1, width - 9 - stripAnsi(counts).length))}${counts}`,
       filter !== null ? ` ${C.green("⌕")} ${C.white(filter)}${C.green("▏")}` : ` ${C.dim("⌕ / to filter")}`, ""];
-    const foot = ["", capLine([["⏎", "read"], ["n", "new"], ["⇥", "next"], ["?", ""]], width + 1, "  "), ""];
+    const foot = ["", capLine([["␣", "enter"], ["a", "reply"], ["n", "new"], ["?", ""]], width + 1, "  "), ""];
     const body = []; let curLine = 0, last = null;
     if (!rows.length) body.push(...emptyState(width, "no agents yet", [["n", "start one"], ["d", "docs"]]));
     else if (!list.length) body.push("", C.dim(`  nothing matches "${filter}"`));
@@ -2067,10 +2074,16 @@ async function wsSidebar() {
       if (str === "?") { showKeys = true; return api.draw(); }
       if (key?.name === "up" || str === "k") select(cur - 1);
       else if (key?.name === "down" || str === "j") select(cur + 1);
-      else if (key?.name === "return") { select(cur); wsShowPreview(); }
+      // space or ⏎ enters the agent; ⌥← brings you back here
+      else if (str === " " || key?.name === "return") { const r = shownRows()[cur]; if (r) openRow(r); }
       else if (str === "/") { filter = ""; }
       else if (key?.name === "escape") { filter = null; }
-      else if (/^[1-9]$/.test(str || "")) openRow(findRow(rows, str));
+      // answering happens from here: the keys go to the card on the right, which acts on them
+      else if (/^[1-9]$/.test(str || "") || str === "a" || str === "x") {
+        wsShowPreview(false);
+        wsTmux(["send-keys", "-t", wsOpt("@main"), str]);
+        if (str === "a" || str === "x") wsFocus(wsOpt("@main"));     // typing / confirming happens there, then comes back
+      }
       else if (str === "n") wsNewAgent(shownRows()[cur]);
       else if (key?.name === "tab") {
         const r = nextNeeding(rows, wsSelected());
@@ -2093,6 +2106,8 @@ function wsCmd(sub, arg) {
   if (sub === "preview") return wsPreview();
   if (sub === "fit") return wsFocus(null);
   if (sub === "list") return wsFocus(wsOpt("@side"));
+  // ⌥←: back. Out of an agent's terminal (it keeps running), its card on the right, you in the list.
+  if (sub === "back") { wsShowPreview(false); return wsFocus(wsOpt("@side")); }
   if (sub === "main") return wsFocus(wsOpt("@main"));          // the right pane, whatever it shows
   if (sub === "docs") return wsDocs();
   if (sub === "home") return wsGoHome();

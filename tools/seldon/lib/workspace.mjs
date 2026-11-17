@@ -138,7 +138,7 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
     // round the pane you are in and its title on top.
     ["set", "-g", "status", "on"], ["set", "-g", "status-style", "bg=#0b0f14,fg=#5c6370"],
     ["set", "-g", "status-left", "#[fg=#0b0f14,bg=#00ff9c,bold] ▲ seldon #[bg=#0b0f14,fg=#00ff9c,nobold] "], ["set", "-g", "status-left-length", "16"],
-    ["set", "-g", "status-right", "#[fg=#5c6370]⌥1-9 agent · ⌥← list · ⌥→ right · ⌥h home · ⌥d docs · ⌥n next ⚑ · ⌥q leave  #[fg=#00ff9c,bold]%H:%M "],
+    ["set", "-g", "status-right", "#[fg=#5c6370]␣ enter · ⌥← back · ⌥n next ⚑ · ⌥h projects · ⌥d docs · ⌥q leave  #[fg=#00ff9c,bold]%H:%M "],
     ["set", "-g", "status-right-length", "90"], ["set", "-g", "window-status-format", ""], ["set", "-g", "window-status-current-format", ""],
     // The pane you are in is a shade lighter; the divider is one quiet line. tmux's default with
     // two panes colours half the shared border, which reads as a broken line, not as focus.
@@ -164,8 +164,7 @@ export function setupCommands({ self, home = self, cols = 200, rows = 50 }) {
   cmds.push(["bind", "-n", "M-q", "detach-client"], ["bind", "-T", "seldon", "q", "detach-client"]);
   // Alt-← the list, Alt-→ the right pane as it is (Alt-h replaces it with home). On a phone
   // these flip between the two full-screen views.
-  cmds.push(["bind", "-n", "M-Left", ...argv("list")], ["bind", "-T", "seldon", "Left", ...argv("list")],
-    ["bind", "-n", "M-Right", ...argv("main")], ["bind", "-T", "seldon", "Right", ...argv("main")]);
+  cmds.push(["bind", "-n", "M-Left", ...argv("back")], ["bind", "-T", "seldon", "Left", ...argv("back")]);
   // The session last, so both panes start with every option above already in force.
   cmds.push(
     ["new-session", "-d", "-s", WS_SESSION, "-x", String(cols), "-y", String(rows), "-n", "seldon", "-e", "SELDON_WS=1", home],
@@ -221,10 +220,10 @@ export function tooSmall(cols, rows, min = { cols: MIN_COLS, rows: MIN_ROWS }) {
 // ---- the keys, in one place ----------------------------------------------------------
 // The ? card in the list and the panel, and the KEYS part of `seldon help`, all draw this.
 export const KEYS = [
-  ["anywhere in ws", [["⌥1-9", "open that agent"], ["⌥←", "the agent list"], ["⌥→", "the right pane"], ["⌥h", "projects"], ["⌥d", "docs, searchable"],
-    ["⌥n", "next agent that needs you"], ["⌥q", "leave, agents keep going"], ["⌃g", "then the key, if ⌥ fails"]]],
-  ["in the list", [["↑↓ ⏎", "pick · read its question"], ["/", "filter by name"], ["n", "new agent"], ["⇥", "next that needs you"], ["h d", "projects · docs"]]],
-  ["reading an agent", [["1-9", "pick its numbered option"], ["a", "type an answer"], ["⏎", "open it"], ["←", "back to the list"], ["x", "stop it (asks first)"]]],
+  ["in the list", [["↑↓", "pick: its card shows"], ["␣ ⏎", "enter that agent"], ["a", "reply to it"], ["1-9", "pick its numbered option"],
+    ["x", "stop it (asks first)"], ["/", "filter by name"], ["n", "new agent"], ["⇥", "next that needs you"], ["h d", "projects · docs"]]],
+  ["anywhere", [["⌥←", "back to the list"], ["⌥1-9", "enter that agent"], ["⌥n", "next that needs you"], ["⌥h", "projects"], ["⌥d", "docs"],
+    ["⌥q", "leave, agents keep going"], ["⌃g", "then the key, if ⌥ fails"]]],
   ["in projects", [["⏎", "the plan"], ["n", "new agent"], ["g", "open: room + agent (asks)"], ["x", "forget (asks)"], ["R", "resume"]]],
 ];
 export function keyLines(paint = {}) {

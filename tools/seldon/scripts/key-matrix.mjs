@@ -84,15 +84,16 @@ const SCREENS = {
   list: () => home(),
   filter: () => { home(); send(side(), "/"); sleep(700); },
   keys: () => { home(); send(side(), "?"); sleep(300); },
-  preview: () => { home(); send(side(), "Enter"); sleep(2000); },                // the asker is on top
-  typing: () => { SCREENS.preview(); send(main(), "a"); sleep(400); },
-  confirm: () => { home(); send(side(), "Down"); sleep(300); send(side(), "Enter"); sleep(2000); send(main(), "x"); sleep(600); },
+  // the card follows the selection; its own keys are tested with the right pane focused
+  preview: () => { home(); sleep(1500); ws("select-pane", "-t", main()); },     // the asker is on top
+  typing: () => { home(); sleep(1200); send(side(), "a"); sleep(800); },        // a in the list: reply
+  confirm: () => { home(); send(side(), "Down"); sleep(1800); send(side(), "x"); sleep(800); },   // x in the list: stop, asks
   projects: () => { home(); send(side(), "h"); sleep(2500); },
   docs: () => { home(); send(side(), "d"); sleep(1500); },
 };
 const where = { list: side, filter: side, keys: side, preview: main, typing: main, confirm: main, projects: main, docs: main };
 // What each screen must show once reached: a key test on a screen that never opened proves nothing.
-const MARK = { list: [side, /NEEDS YOU/], filter: [side, /⌕ ▏/], keys: [side, /ANYWHERE IN WS/], preview: [main, /straight to the queue/],
+const MARK = { list: [side, /NEEDS YOU/], filter: [side, /⌕ ▏/], keys: [side, /ANYWHERE/], preview: [main, /straight to the queue/],
   typing: [main, /⏎ send to \S+ · esc cancel/], confirm: [main, /Stop background-one\?|Stop worker\?/], projects: [main, /your projects/], docs: [main, /docs/] };
 
 // ---- every key ----------------------------------------------------------------------------
@@ -166,6 +167,27 @@ if (!ONLY_KEYS || ONLY_KEYS.has("switch")) {
   send(side(), "Down"); sleep(2500); send(main(), "Enter"); sleep(1500);
   for (const s of ["asker", "worker"]) if (/oops/.test(tmux("capture-pane", "-p", "-t", s).stdout)) report("preview", "switch", `half-typed text reached ${s} after picking another agent`);
   if (/oops/.test(cap(main()))) report("preview", "switch", "the half-typed text is still there for another agent");
+  n++;
+}
+
+// In and out: space enters the selected agent, ⌥← brings you back to the list with its card.
+if (!ONLY_KEYS || ONLY_KEYS.has("inout")) {
+  if (!attached()) startClient();
+  home(); sleep(1200); send(side(), "Space"); sleep(1800);
+  if (!/fake claude session|^$/m.test(cap(main())) && /straight to the queue/.test(cap(main()))) report("list", "Space", "space did not enter the agent");
+  send(null, "M-Left"); sleep(2000);
+  if (ws("display", "-p", "-t", "ws", "#{pane_id}").stdout.trim() !== side()) report("agent", "M-Left", "⌥← did not bring you back to the list");
+  if (!/straight to the queue/.test(cap(main()))) report("agent", "M-Left", "⌥← did not show the agent's card again");
+  n++;
+}
+
+// Answering from the list: 1 there picks the waiting agent's first option.
+if (!ONLY_KEYS || ONLY_KEYS.has("listanswer")) {
+  if (!attached()) startClient();
+  tmux("clear-history", "-t", "asker"); tmux("send-keys", "-t", "asker", "-R", "");
+  home(); sleep(1500); send(side(), "1"); sleep(1500);
+  if (!/^1$/m.test(tmux("capture-pane", "-p", "-t", "asker").stdout)) report("list", "1", "1 in the list did not answer the selected waiting agent");
+  if (tmux("capture-pane", "-p", "-t", "worker").stdout.trim()) report("list", "1", "the answer reached the WORKING agent");
   n++;
 }
 
