@@ -88,7 +88,10 @@ const TOAST_PAINT = () => ({ ok: C.green, err: C.red, warn: C.gold, info: C.dim 
 // Lay the current note, while fresh, over a drawn screen as a toast.
 function withToast(lines, t, cols, above) {
   if (!t.text || !fresh(t)) return lines;
-  return placeToast(lines, toastLines(t.text, toastKind(t.text), TOAST_PAINT()), cols, above);
+  // cut to the pane: a toast that wrapped pushed the whole screen up (the list lost its header)
+  const room = Math.max(8, cols - 10), plain = stripAnsi(t.text);
+  const text = plain.length > room ? (t.text.match(/^(\x1b\[[0-9;]*m)*/)?.[0] || "") + plain.slice(0, room - 1) + "…\x1b[0m" : t.text;
+  return placeToast(lines, toastLines(text, toastKind(t.text), TOAST_PAINT()), cols, above);
 }
 // A keycap: the key on the dark block of the tmux borders (#1f2a33), bright. Used for every hint.
 const CAP = (k) => (process.env.NO_COLOR ? `[${k}]` : `\x1b[48;5;236;38;5;255;1m${k}\x1b[0m`);
@@ -1051,7 +1054,7 @@ async function panel({ newFor = null } = {}) {
       ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("x", "stop"), hint("?", "keys"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]]
       : [sel?.type === "lane"
         ? [hint("⏎", "open"), hint("n", "new agent"), hint("x", "stop"), hint("R", "resume"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]
-        : [hint("⏎", "plan"), hint("n", "new agent"), hint("g", "open"), hint("x", "forget"), hint("?", "keys"), hint("q", "quit")]];
+        : [hint("⏎", "plan"), hint("n", "new agent"), hint("g", "open"), hint("x", "forget"), hint("U", "voice on"), hint("D", "voice off"), hint("?", "keys")]];
     foot = ["", ...foot.map((hs) => capLine(hs, process.stdout.columns || 100)), ""];
   };
 
@@ -1287,7 +1290,7 @@ async function wsPreview() {
   ensureSiblingPath();
   wsSave(WS_PREVIEW_PID, String(process.pid));
   const machines = listMachines();
-  let row = null, text = "", textErr = "", fetchedFor = null, fetchedAt = 0, mode = "view", buf = "", note = "", confirmStop = false, typingFor = null, full = false, lastAt = null;
+  let row = null, text = "", textErr = "", fetchedFor = null, fetchedAt = 0, mode = "view", buf = "", note = "", confirmStop = false, typingFor = null, full = false, lastAt = null, confirmWhat = "stop";
   let problems = [], problemsAt = 0;
   const toast = { text: "", at: 0 };
   const refresh = () => {
@@ -1385,8 +1388,11 @@ async function wsPreview() {
     const top = ["", ...head, rule, label, "", ...body.map((l) => "   " + l)];
     const fill = Math.max(0, rowsN - top.length - sent.length - askBlock.length - bar.length);
     let screen = withToast([...top, ...sent, ...Array(fill).fill(""), ...askBlock, ...bar], toast, cols, bar.length);
-    if (confirmStop) screen = placeModal(screen, box([C.bold(row.state === "gone" ? `Remove ${row.name}?` : `Stop ${row.name}?`), "",
-      C.dim(row.state === "gone" ? "It only takes it off the list: it had no conversation." : "Its conversation and worktree are kept."), "", `${C.white("y")} ${C.dim("yes")}    ${C.white("n")} ${C.dim("no")}`], { title: C.gold("confirm"), paint: C.dim, min: 30 }), cols, rowsN, C.dim);
+    const confirmText = confirmWhat === "steward" ? ["Stop the steward?", "Your agents keep running; seldon steward starts it again."]
+      : confirmWhat === "remove" ? [`Remove ${row.name}?`, "Its worktree goes, and its branch if git sees it merged."]
+      : row.state === "gone" ? [`Remove ${row.name}?`, "It only takes it off the list: it had no conversation."]
+      : [`Stop ${row.name}?`, "Its conversation and worktree are kept."];
+    if (confirmStop) screen = placeModal(screen, box([C.bold(confirmText[0]), "", C.dim(confirmText[1]), "", `${C.white("y")} ${C.dim("yes")}    ${C.white("n")} ${C.dim("no")}`], { title: C.gold("confirm"), paint: C.dim, min: 30 }), cols, rowsN, C.dim);
     clearScreen();
     process.stdout.write(screen.slice(0, rowsN).join("\n"));
   };
@@ -1399,6 +1405,18 @@ async function wsPreview() {
     onKey: (str, key, api) => {
       if (key?.ctrl && key.name === "c") return api.finish();
       if (confirmStop) {
+        // remove a stopped agent (its worktree, its branch if merged) or stop the steward: both via seldon itself
+        if ((str === "y" || key?.name === "return") && (confirmWhat === "remove" || confirmWhat === "steward")) {
+          confirmStop = false;
+          const m = row.machine && machines.find((x) => x.name === row.machine);
+          const args = confirmWhat === "steward" ? ["steward", "stop"] : ["lane", "rm", row.machine ? row.remoteKey : row.key];
+          const r = m ? spawnSync("ssh", sshArgs(m, ["seldon", ...args]), { encoding: "utf8", timeout: 20000 })
+            : spawnSync(process.execPath, [SELF, ...args], { encoding: "utf8", timeout: 20000 });
+          const said = stripAnsi(`${r.stdout || ""}${r.stderr || ""}`).trim().split("\n").pop() || "";
+          note = r.status === 0 ? C.green(said.replace(/^✓\s*/, "") || "done") : C.red(said || "it failed");
+          wsFocus(wsOpt("@side"));
+          return api.draw();
+        }
         if ((str === "y" || key?.name === "return") && row.state === "gone") {
           confirmStop = false;
           const r = spawnSync("claude", ["rm", row.lane.id], { encoding: "utf8", timeout: 15000 });
@@ -1426,7 +1444,9 @@ async function wsPreview() {
       else if (key?.name === "return" && row && offered.size) wsOpen(row);
       else if (/^[1-9]$/.test(str || "") && offered.has(str)) say(str);
       else if (str === "a" && offered.has("a")) { mode = "type"; typingFor = row.key; }
-      else if (str === "x" && offered.has("x")) confirmStop = true;
+      else if (str === "x" && offered.has("x")) { confirmStop = true; confirmWhat = "stop"; }
+      else if (str === "r" && offered.has("r")) { confirmStop = true; confirmWhat = "remove"; }
+      else if (str === "S" && offered.has("S")) { confirmStop = true; confirmWhat = "steward"; }
       else if (str === " ") full = !full;     // the start of a long message, or back to its end
       else if (str === "h") wsGoHome();
       else if (str === "d") wsDocs();
@@ -2114,7 +2134,9 @@ async function wsSidebar() {
       filter !== null ? ` ${C.green("⌕")} ${C.white(filter)}${C.green("▏")}` : ` ${C.dim("⌕ / to filter")}`, ""];
     const foot = ["", capLine([["␣", "enter"], ["a", "reply"], ["n", "new"], ["?", ""]], width + 1, "  "), ""];
     const body = []; let curLine = 0, last = null;
-    if (!rows.length) body.push(...emptyState(width, "no agents yet", [["n", "start one"], ["d", "docs"]]));
+    // no steward: say how to get one, in its place at the top
+    if (rows.length && !rows.some((r) => r.group === "steward")) body.push(" " + C.cyan(C.bold("STEWARD")), `  ${C.dim("none yet ·")} ${C.white("S")} ${C.dim("starts it")}`, "");
+    if (!rows.length) body.push(...emptyState(width, "no agents yet", [["n", "start one"], ["S", "steward"]]));
     else if (!list.length) body.push("", C.dim(`  nothing matches "${filter}"`));
     const faces = assignEmoji(rows.map((r) => r.name));
     const GROUP_PAINT = { steward: C.cyan, "needs you": C.gold, working: C.green, idle: C.dim, stopped: C.red, paused: C.dim, gone: C.dim };
@@ -2163,10 +2185,14 @@ async function wsSidebar() {
       else if (str === "/") { filter = ""; }
       else if (key?.name === "escape") { filter = null; }
       // answering happens from here: the keys go to the card on the right, which acts on them
-      else if (/^[1-9]$/.test(str || "") || str === "a" || str === "x") {
+      else if (str === "S" && !rows.some((r) => r.group === "steward")) {
+        const r = spawnSync(process.execPath, [SELF, "steward"], { encoding: "utf8", timeout: 30000 });
+        note = r.status === 0 ? C.green("steward started") : C.red(stripAnsi(r.stdout || r.stderr || "").trim().split("\n").pop() || "could not start it");
+      }
+      else if (/^[1-9]$/.test(str || "") || ["a", "x", "r", "S"].includes(str)) {
         wsShowPreview(false);
         wsTmux(["send-keys", "-t", wsOpt("@main"), str]);
-        if (str === "a" || str === "x") wsFocus(wsOpt("@main"));     // typing / confirming happens there, then comes back
+        if (!/^[1-9]$/.test(str)) wsFocus(wsOpt("@main"));     // a reply or a confirm happens there, then comes back
       }
       else if (str === "n") wsNewAgent(shownRows()[cur]);
       else if (str === "N") wsRun(["new", "--ask"], "new project");
@@ -2177,7 +2203,6 @@ async function wsSidebar() {
       }
       else if (str === "h") wsGoHome();
       else if (str === "d") wsDocs();
-      else if (str === "r") load();
       else if (str === "q") wsTmux(["detach-client"]);
       api.draw();
     },

@@ -99,3 +99,11 @@ test("agoWords: when the message was written, in words", async () => {
   assert.equal(agoWords(now - 180e3, now), "3 min ago");
   assert.equal(agoWords(now - 2 * 3600e3, now), "2 h ago");
 });
+
+test("previewKeys: a stopped agent can be removed; the steward is stopped with S, not x", () => {
+  assert.deepEqual(previewKeys({ state: "stopped", lane: {} }).map(([k]) => k), ["⏎", "r"]);
+  assert.deepEqual(previewKeys({ state: "failed", lane: {} }).map(([k]) => k), ["⏎", "r"]);
+  assert.ok(!previewKeys({ state: "working", lane: { tmuxSession: "t" } }).some(([k]) => k === "r"), "never remove a live agent");
+  const st = previewKeys({ name: "steward", state: "idle", lane: { tmuxSession: "seldon_steward" } });
+  assert.deepEqual(st.map(([k]) => k), ["a", "⏎", "S"]);
+});
