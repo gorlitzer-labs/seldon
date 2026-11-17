@@ -221,7 +221,7 @@ export function tooSmall(cols, rows, min = { cols: MIN_COLS, rows: MIN_ROWS }) {
 // The ? card in the list and the panel, and the KEYS part of `seldon help`, all draw this.
 export const KEYS = [
   ["in the list", [["↑↓", "pick: its card shows"], ["␣ ⏎", "enter that agent"], ["a", "reply to it"], ["1-9", "pick its numbered option"],
-    ["x", "stop it (asks first)"], ["/", "filter by name"], ["n", "new agent"], ["⇥", "next that needs you"], ["h d", "projects · docs"]]],
+    ["x", "stop it (asks first)"], ["/", "filter by name"], ["n", "new agent"], ["N", "new project + agent"], ["⇥", "next that needs you"], ["h d", "projects · docs"]]],
   ["anywhere", [["⌥←", "back to the list"], ["⌥1-9", "enter that agent"], ["⌥n", "next that needs you"], ["⌥h", "projects"], ["⌥d", "docs"],
     ["⌥q", "leave, agents keep going"], ["⌃g", "then the key, if ⌥ fails"]]],
   ["in projects", [["⏎", "the plan"], ["n", "new agent"], ["g", "open: room + agent (asks)"], ["x", "forget (asks)"], ["R", "resume"]]],
