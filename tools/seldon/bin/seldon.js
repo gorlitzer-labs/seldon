@@ -14,7 +14,7 @@ import { countByState, openCommand, stopCommand, readCommand, lastAssistantText,
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonLine } from "../lib/machines.mjs";
 import { notify } from "../lib/notify.mjs";
-import { configFile, sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
+import { configFile, stewardHtml, sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
 import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed, stewardEnv, relayLine, recentRelays, stewardOutbox, stewardInbox, deliverWhenFree, TELLS_PREFIX } from "../lib/steward.mjs";
@@ -1917,7 +1917,7 @@ async function watchCmd(flags) {
       const t = readLaneText(steward);
       const o = stewardOutbox(outSeen, { state: steward.state, text: t.text, at: t.at });
       outSeen = o.seen;
-      if (o.send) { tellInBackground({ kind: "info", text: o.send, lane: "🦚 steward" }, stewardBot() ? "steward" : null); console.log(`${stamp()} steward → telegram`); }
+      if (o.send) { tellInBackground({ steward: true, text: o.send }, stewardBot() ? "steward" : null); console.log(`${stamp()} steward → telegram`); }
       // agents' notes that waited for it
       let notes = [];
       try { notes = fs.readFileSync(STEWARD_TELLS, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((n) => n.at > tellsAt); } catch {}
@@ -2344,7 +2344,8 @@ async function tellCmd(words, flags) {
       // phone says what is going on without the agent having to spell it out.
       const kind = Object.keys(KINDS).find((k) => flags[k]) || "info";
       const fields = typeof flags.card === "string" ? JSON.parse(flags.card) : { kind, text, log, ...tellContext() };
-      await sendCard(token, chat.id, fields, file);
+      if (fields.steward) await sendText(token, chat.id, stewardHtml(fields.text), { html: true });   // the steward's own layout
+      else await sendCard(token, chat.id, fields, file);
     }
     console.log(C.green("✓ sent"));
   } catch (e) { fail(e.message); }

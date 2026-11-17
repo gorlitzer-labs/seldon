@@ -83,3 +83,15 @@ test("each bot has its own config: the steward's never touches the main bot's ch
   assert.match(configFile("steward"), /telegram-steward\.json$/);
   assert.notEqual(configFile("steward"), configFile());
 });
+
+test("stewardHtml: no agent-card header, wrapped lines joined, items apart with names bold, the question bold", async () => {
+  const { stewardHtml } = await import("../lib/telegram.mjs");
+  const real = "Nothing is waiting on you right now.\ntars is idle. Its earlier question is the one from before: should it build the keys? You haven't answered it yet. Tell me\nyes or no and I'll pass it on.";
+  const h = stewardHtml(real);
+  assert.ok(h.startsWith("🦚 <b>steward</b>"));
+  assert.doesNotMatch(h, /INFO|▸/, "not an agent card");
+  assert.match(h, /Tell me yes or no/, "the terminal wrap is joined back");
+  const list = stewardHtml("3 things need you:\n\n1. joey: deploy to QA now?\n2. wheel: merge #196?\n\nWhich first?");
+  assert.match(list, /<b>1\. joey<\/b> · deploy to QA now\?\n\n<b>2\. wheel<\/b> · merge #196\?/);
+  assert.match(list, /<b>Which first\?<\/b>$/);
+});
