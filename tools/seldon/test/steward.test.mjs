@@ -54,3 +54,25 @@ test("relay log: the steward's session is marked, and the log reads newest first
   assert.deepEqual(recentRelays(log).map((e) => e.to), ["tars", "joey"]);
   assert.equal(recentRelays(log, 1).length, 1);
 });
+
+test("telegram out: a new finished steward message goes once; start-up and busy turns send nothing", async () => {
+  const { stewardOutbox, QUIET_MS } = await import("../lib/steward.mjs");
+  const now = 1e12;
+  let r = stewardOutbox(undefined, { state: "idle", text: "old", at: now - 1e6 }, now);
+  assert.equal(r.send, null, "starting up never re-sends the last message");
+  r = stewardOutbox(r.seen, { state: "working", text: "3 things need you…", at: now }, now + QUIET_MS + 1);
+  assert.equal(r.send, null, "not while it is still working");
+  r = stewardOutbox(r.seen, { state: "idle", text: "3 things need you…", at: now }, now + 1000);
+  assert.equal(r.send, null, "not while the file is still being written");
+  r = stewardOutbox(r.seen, { state: "idle", text: "3 things need you…", at: now }, now + QUIET_MS + 1);
+  assert.equal(r.send, "3 things need you…");
+  assert.equal(stewardOutbox(r.seen, { state: "idle", text: "3 things need you…", at: now }, now + 9e5).send, null, "never twice");
+});
+
+test("telegram in: your lines wait for the steward to be free, then go in together", async () => {
+  const { stewardInbox, FROM_PHONE } = await import("../lib/steward.mjs");
+  assert.equal(stewardInbox(["1 yes"], "working").say, null);
+  const r = stewardInbox(["1 yes", "2 wait till tonight"], "idle");
+  assert.equal(r.say, `${FROM_PHONE} 1 yes · 2 wait till tonight`);
+  assert.deepEqual(r.queue, []);
+});
