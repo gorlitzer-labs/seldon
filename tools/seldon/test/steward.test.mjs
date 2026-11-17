@@ -76,3 +76,10 @@ test("telegram in: your lines wait for the steward to be free, then go in togeth
   assert.equal(r.say, `${FROM_PHONE} 1 yes · 2 wait till tonight`);
   assert.deepEqual(r.queue, []);
 });
+
+test("each bot has its own config: the steward's never touches the main bot's chat", async () => {
+  const { configFile } = await import("../lib/telegram.mjs");
+  assert.match(configFile(), /telegram\.json$/);
+  assert.match(configFile("steward"), /telegram-steward\.json$/);
+  assert.notEqual(configFile("steward"), configFile());
+});

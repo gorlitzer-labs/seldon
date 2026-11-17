@@ -18,7 +18,10 @@ export const TOKEN_NAME = "TELEGRAM_BOT_TOKEN";
 export const tokenName = (chat = readChat()) => chat?.tokenName || TOKEN_NAME;
 export const MAX = 4096;                  // Telegram's limit per message
 export const MAX_UPLOAD = 50 * 1024 * 1024;   // a bot may upload up to 50 MB
-const CONFIG = () => join(SELDON_HOME, "telegram.json");
+// One file per bot. SELDON_TELEGRAM=steward picks the steward's own bot (telegram-steward.json);
+// unset, the main one: agents' media and alerts.
+export const configFile = (profile = process.env.SELDON_TELEGRAM) => join(SELDON_HOME, profile ? `telegram-${profile}.json` : "telegram.json");
+const CONFIG = () => configFile();
 
 // ---- pure -------------------------------------------------------------------------
 // Long text goes out in pieces, split at a line break when there is one near the limit.
