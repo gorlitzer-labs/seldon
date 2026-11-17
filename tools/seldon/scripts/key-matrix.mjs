@@ -98,7 +98,7 @@ const MARK = { list: [side, /NEEDS YOU/], filter: [side, /⌕ ▏/], keys: [side
 
 // ---- every key ----------------------------------------------------------------------------
 const KEYS = [
-  ..."abcdefghijklmnopqrstuvwxyz".split(""), ..."ARDQXN".split(""), ..."0123456789".split(""),
+  ..."abcdefghijklmnopqrstuvwxyz".split(""), ..."ARDQXNS".split(""), ..."0123456789".split(""),
   "Enter", "Escape", "Tab", "BTab", "Up", "Down", "Left", "Right", "BSpace", "Space", "/", "?", "Home", "End", "PageUp", "PageDown",
   ..."abcdefhijklmnopqrstuvwxyz".split("").map((c) => `C-${c}`),          // every Ctrl key (C-g is seldon's prefix: below)
   "C-\\", "C-g 3", "C-g Left", "C-g Right", "C-g h", "C-g d", "C-g n", "C-g s", "C-g x", "C-g q",
@@ -153,6 +153,7 @@ for (const [screen, go] of Object.entries(SCREENS)) {
       startClient();
       continue;
     }
+    if (process.env.KM_DEBUG_AFTER) console.log(`--- after ${screen} ${key}\nlist:\n${cap(side())}\nright:\n${cap(main()).slice(0, 600)}`);
     check(screen, key);
     // whatever the key opened (an agent, a prompt): back to a known state for the next key
     if (screen !== "list") ws("respawn-pane", "-k", "-t", main(), "sh", "-c", `trap '' INT QUIT TSTP; while :; do ${process.execPath} ${BIN} ws preview; sleep 0.3; done`);

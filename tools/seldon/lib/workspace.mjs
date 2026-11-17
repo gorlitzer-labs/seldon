@@ -221,10 +221,10 @@ export function tooSmall(cols, rows, min = { cols: MIN_COLS, rows: MIN_ROWS }) {
 // The ? card in the list and the panel, and the KEYS part of `seldon help`, all draw this.
 export const KEYS = [
   ["in the list", [["↑↓", "pick: its card shows"], ["␣ ⏎", "enter that agent"], ["a", "reply to it"], ["1-9", "pick its numbered option"],
-    ["x", "stop it (asks first)"], ["/", "filter by name"], ["n", "new agent"], ["N", "new project + agent"], ["⇥", "next that needs you"], ["h d", "projects · docs"]]],
+    ["x", "stop it (asks first)"], ["r", "remove a stopped one"], ["S", "start / stop steward"], ["/", "filter by name"], ["n", "new agent"], ["N", "new project + agent"], ["⇥", "next that needs you"], ["h d", "projects · docs"]]],
   ["anywhere", [["⌥←", "back to the list"], ["⌥1-9", "enter that agent"], ["⌥n", "next that needs you"], ["⌥h", "projects"], ["⌥d", "docs"],
     ["⌥q", "leave, agents keep going"], ["⌃g", "then the key, if ⌥ fails"]]],
-  ["in projects", [["⏎", "the plan"], ["n", "new agent"], ["g", "open: room + agent (asks)"], ["x", "forget (asks)"], ["R", "resume"]]],
+  ["in projects", [["⏎", "the plan"], ["n", "new agent"], ["g", "open: room + agent (asks)"], ["x", "forget (asks)"], ["R", "resume"], ["U D", "voice on · off"]]],
 ];
 export function keyLines(paint = {}) {
   const k = paint.key || ((x) => x), d = paint.dim || ((x) => x), t = paint.title || ((x) => x);

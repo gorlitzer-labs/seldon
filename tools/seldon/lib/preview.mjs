@@ -22,6 +22,12 @@ export function previewKeys(row, options = []) {
   const open = ["⏎", "open it"];
   if (row.off) return [];
   if (row.state === "gone") return [["x", "remove it from the list"]];
+  // stopped: bring it back, or clean it up (its worktree; its branch too if merged)
+  if (row.state === "stopped" || row.state === "failed") return [["⏎", "open it"], ["r", "remove it"]];
+  if (row.name === "steward" && !row.machine) {
+    const base = previewKeys({ ...row, name: "-" }, options);
+    return [...base.filter(([k]) => k !== "x"), ["S", "stop the steward"]];
+  }
   // Reply is offered to an agent at rest (waiting or idle) that seldon can type into. Never to
   // one at work: typing would land in the middle of what it is doing.
   const atRest = row.state === "needs-you" || row.state === "idle";
