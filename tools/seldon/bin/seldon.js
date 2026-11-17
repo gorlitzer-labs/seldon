@@ -1283,6 +1283,19 @@ async function panel({ newFor = null } = {}) {
   });
 }
 
+// This machine's name, as the others know it: SELDON_MACHINE, else its tailnet name (bankai),
+// else the hostname. Asked once.
+let hereNameCache = null;
+function hereName() {
+  if (hereNameCache) return hereNameCache;
+  let name = process.env.SELDON_MACHINE || "";
+  if (!name) for (const ts of ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/tailscale"]) {
+    try { name = JSON.parse(execSync(`${ts} status --self --json`, { stdio: ["ignore", "pipe", "ignore"], timeout: 3000 }).toString()).Self?.DNSName?.split(".")[0] || ""; } catch {}
+    if (name) break;
+  }
+  return (hereNameCache = name || os.hostname().split(".")[0]);
+}
+
 // ---- the preview: the selected agent's question and the keys that answer it ----------
 // Runs in the workspace's right pane. Follows the selection in the list; ⏎ opens the agent,
 // ← goes back to the list, 1-9 / a answer a waiting tmux agent, x stops one (asks first).
@@ -1353,7 +1366,8 @@ async function wsPreview() {
     const statePaint = { "needs you": C.gold, working: C.green, stopped: C.red }[row.group] || C.dim;
     const glyph = row.group === "needs you" ? "⚑" : row.group === "working" ? "●" : row.group === "gone" ? "✗" : "○";
     const left = `  ${emojiFor(row.name)} ${C.bold(C.white(row.name))}`;
-    const meta = [statePaint(`${glyph} ${stateWords(row)}`), row.startedAt ? C.dim(ago(row.startedAt)) : "", C.dim(row.machine ? "@" + row.machine : row.project),
+    const meta = [statePaint(`${glyph} ${stateWords(row)}`), row.startedAt ? C.dim(ago(row.startedAt)) : "", C.dim(row.project),
+      machines.length || row.machine ? C.cyan(`on ${row.machine || hereName()}`) : "",
       row.harness && row.harness !== "claude" ? C.dim(row.harness) : ""].filter(Boolean).join(C.dim(" · "));
     const gap = W - stripAnsi(left).length - stripAnsi(meta).length - 2;
     const head = gap >= 2 ? [`${left}${" ".repeat(gap)}${meta}`] : [left, `     ${meta}`];
@@ -2130,7 +2144,13 @@ async function wsSidebar() {
     const open = wsCurrent(), h = wsHeadline(rows), list = shownRows();
     // One line per agent, grouped by what they need from you; the project is a grey tag.
     const counts = `${h.need ? C.gold(`⚑ ${h.need}`) : C.dim("⚑ 0")}  ${C.green(`● ${h.busy}`)}  ${C.dim(`○ ${Math.max(0, h.total - h.need - h.busy)}`)}`;
-    const head = [` ${C.green(C.bold("seldon"))}${" ".repeat(Math.max(1, width - 9 - stripAnsi(counts).length))}${counts}`,
+    // every machine and whether it answers: this one first; ✗ asleep or unreachable, … not asked yet
+    const here = hereName();
+    const machLine = machines.length ? fitLine(" " + [`${C.green("●")} ${C.white(here)}`, ...machines.map((m) => {
+      const v = seen.get(m.name);
+      return !v?.at ? `${C.dim("…")} ${C.dim(m.name)}` : v.error ? `${C.red("✗")} ${C.dim(m.name)}` : `${C.green("●")} ${C.white(m.name)}`;
+    })].join("  "), width - 1) : null;
+    const head = [` ${C.green(C.bold("seldon"))}${" ".repeat(Math.max(1, width - 9 - stripAnsi(counts).length))}${counts}`, ...(machLine ? [machLine] : []),
       filter !== null ? ` ${C.green("⌕")} ${C.white(filter)}${C.green("▏")}` : ` ${C.dim("⌕ / to filter")}`, ""];
     const foot = ["", capLine([["␣", "enter"], ["a", "reply"], ["n", "new"], ["?", ""]], width + 1, "  "), ""];
     const body = []; let curLine = 0, last = null;
