@@ -23,7 +23,7 @@ const out = (bin, args, timeout = 5000) => {
 
 export function readClaude() {
   const raw = out("claude", ["agents", "--json", "--all"]);
-  try { return raw ? JSON.parse(raw) : []; } catch { return []; }
+  try { return raw ? JSON.parse(raw) : raw === null ? null : []; } catch { return null; }   // null: the read failed
 }
 
 export const readTmuxPanes = () => parseTmuxPanes(out("tmux", ["list-panes", "-a", "-F", TMUX_PANE_FORMAT]) || "");
@@ -109,10 +109,14 @@ function tailOf(files) {
   };
 }
 
-export function readLanes() {
+// `strict`: a failed `claude agents` read throws instead of looking like "no Claude agents", so
+// the watcher never tells the steward an agent stopped waiting because of a timeout.
+export function readLanes({ strict = false } = {}) {
   const panes = readTmuxPanes();
   const files = transcripts();
-  const claude = markAsking(markGone(claudeLanes(readClaude()).map((l) =>
+  const entries = readClaude();
+  if (entries === null && strict) throw new Error("could not read Claude's agents (claude agents --json)");
+  const claude = markAsking(markGone(claudeLanes(entries ?? []).map((l) =>
     l.id || !l.pid || !panes.length ? l : { ...l, tmuxSession: tmuxSessionFor(l.pid, panes, parentOf) }), (id) => files.has(id)), tailOf(files));
   const stopped = registryLanes(readJson(LANES_FILE, []), panes.map((p) => p.session));
   const tmux = applyReports(tmuxLanes(panes, knownSessions()), readReports(), sameDir);

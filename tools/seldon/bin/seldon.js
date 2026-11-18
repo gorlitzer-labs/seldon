@@ -17,7 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { configFile, stewardHtml, sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
-import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed, stewardEnv, relayLine, recentRelays, stewardOutbox, stewardInbox, deliverWhenFree, TELLS_PREFIX } from "../lib/steward.mjs";
+import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed, stewardEnv, relayLine, recentRelays, stewardOutbox, stewardInbox, deliverWhenFree, TELLS_PREFIX, freshForSteward, notesSince } from "../lib/steward.mjs";
 import { parseOptions, previewKeys, previewBody, stateWords, askOf, formatBody, summaryOf, agoWords } from "../lib/preview.mjs";
 import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
@@ -1518,6 +1518,7 @@ async function docsView(query = "") {
 
 const STEWARD_RELAYS = path.join(SELDON_HOME, "steward", "relay.jsonl");
 const STEWARD_TELLS = path.join(SELDON_HOME, "steward", "tells.jsonl");      // agents' notes, waiting for the steward
+const STEWARD_TELLS_CURSOR = path.join(SELDON_HOME, "steward", "tells.cursor"); // the newest note it got
 // Running here: its tmux session exists AND this seldon home started it (a marker), so a test
 // sandbox or another setup never sees someone else's steward.
 const STEWARD_MARK = path.join(SELDON_HOME, "steward", "running");
@@ -1886,12 +1887,22 @@ function tellInBackground(fields, profile = null) {
 async function watchCmd(flags) {
   ensureSiblingPath();
   const every = parseDuration(flags.interval, 5000) || 5000;
-  let prev = new Map(), feed = [], outSeen, tellsAt = 0;
+  // the notes cursor lives on disk: a restarted watcher never hands the steward old notes again
+  // (first run: notes already there are old news)
+  const readCursor = () => { try { return Number(fs.readFileSync(STEWARD_TELLS_CURSOR, "utf8")) || 0; } catch { return null; } };
+  let prev = new Map(), feed = [], outSeen, tellsAt = readCursor();
+  if (tellsAt === null) { tellsAt = Date.now(); try { fs.mkdirSync(path.dirname(STEWARD_TELLS_CURSOR), { recursive: true }); fs.writeFileSync(STEWARD_TELLS_CURSOR, String(tellsAt)); } catch {} }
   const stamp = () => new Date().toTimeString().slice(0, 8);
   console.log(`${stamp()} seldon watch — every ${every / 1000}s`);
   for (;;) {
     let lanes = [], readOk = true;
-    try { lanes = readLanes().flatMap((g) => g.lanes); } catch (e) { readOk = false; console.log(`${stamp()} read failed: ${e.message}`); }
+    // a partial read (claude agents timed out) still serves the per-agent news, but the steward's
+    // feed gets "read failed": an agent missing from a bad read has not stopped waiting
+    try { lanes = readLanes({ strict: true }).flatMap((g) => g.lanes); }
+    catch (e) {
+      readOk = false; console.log(`${stamp()} read failed: ${e.message}`);
+      try { lanes = readLanes().flatMap((g) => g.lanes); } catch {}
+    }
     for (const e of transitions(prev, lanes)) {
       console.log(`${stamp()} ${e.text}`);
       const where = path.basename(e.lane.project || e.lane.cwd || "");
@@ -1904,13 +1915,14 @@ async function watchCmd(flags) {
     prev = new Map(lanes.map((l) => [l.key, l.state]));
     // the steward, if it runs, hears about new waits on its own (batched, only while it is free)
     const f = stewardFeed(feed, readOk ? lanes : null);   // a failed read is not "nobody waits"
-    feed = f.queue;
     if (f.say) {
       const steward = lanes.find((l) => l.name === STEWARD && !l.machine);
       const how = steward ? sayCommands(steward, f.say) : { why: "not running" };
       const ok = !how.why && how.cmds.every(([b, ...a]) => spawnSync(b, a).status === 0);
       console.log(`${stamp()} steward ${ok ? "told" : "not told (" + (how.why || "tmux refused") + ")"}: ${f.say}`);
-    }
+      // only what reached it counts as told: a refused type is tried again next poll
+      if (ok) feed = f.queue;
+    } else feed = f.queue;
     const steward = lanes.find((l) => l.name === STEWARD && !l.machine);
     if (steward) {
       // the steward's new message → your phone, as one card
@@ -1920,11 +1932,15 @@ async function watchCmd(flags) {
       if (o.send) { tellInBackground({ steward: true, text: o.send }, stewardBot() ? "steward" : null); console.log(`${stamp()} steward → telegram`); }
       // agents' notes that waited for it
       let notes = [];
-      try { notes = fs.readFileSync(STEWARD_TELLS, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((n) => n.at > tellsAt); } catch {}
+      try { notes = notesSince(fs.readFileSync(STEWARD_TELLS, "utf8"), tellsAt); } catch {}
       const d = deliverWhenFree(notes.map((n) => `${n.from} (${n.kind}): ${n.text}`), steward.state, TELLS_PREFIX);
       if (d.say) {
         const how = sayCommands(steward, d.say);
-        if (!how.why && how.cmds.every(([b, ...a]) => spawnSync(b, a).status === 0)) { tellsAt = Math.max(...notes.map((n) => n.at)); console.log(`${stamp()} steward got ${notes.length} note(s)`); }
+        if (!how.why && how.cmds.every(([b, ...a]) => spawnSync(b, a).status === 0)) {
+          tellsAt = Math.max(...notes.map((n) => n.at));
+          try { fs.writeFileSync(STEWARD_TELLS_CURSOR, String(tellsAt)); } catch {}
+          console.log(`${stamp()} steward got ${notes.length} note(s)`);
+        }
       }
     }
     if (flags.once) return;
@@ -2394,7 +2410,7 @@ async function inboxCmd(flags) {
           await downloadFile(t.token, f.fileId, path.join(dir, name));
           fs.appendFileSync(path.join(dir, "notes.md"), noteLine(when, { file: name, text }), { mode: 0o600 });
           console.log(`${stamp()} saved ${name}`);
-        } else if (text && !text.startsWith("/") && flags.steward && stewardUp()) {
+        } else if (text && !text.startsWith("/") && flags.steward && stewardUp() && freshForSteward(when)) {
           toSteward.push(text);                 // your words, for the steward; sent once it is free
           console.log(`${stamp()} for the steward`);
         } else if (text && !text.startsWith("/")) {
