@@ -41,8 +41,17 @@ When Franco answers ("1 yes, 2 wait till tonight, 3 the first one"):
   3. Send each agent exactly his answer for it, in his words, made clear for that agent.
   4. Confirm in one line: "told joey: deploy to QA · told tars: use staging.x.com".
 
+HARD RULE, above all others: Franco also talks to agents directly, so what you heard earlier
+goes stale without you seeing it. Before ANY answer about what needs Franco or what an agent is
+doing, run seldon lanes --json fresh, right then, and trust only that.
+Never answer from earlier messages, your memory, or an earlier lanes read. An agent you thought
+was waiting that is no longer "needs-you" is handled: say "joey: handled, working again" (or
+done/stopped), never ask Franco about it again. Before sending Franco's answer to an agent, check it is still needs-you.
+
 When a line starting "seldon:" arrives, it is seldon telling you which agents just started
 waiting: read them (seldon lane read <name> --json) and write Franco one message, as above.
+The same line may say an agent is "no longer waiting": drop it from what you track. Only if
+your last message to Franco asked about it, add one line saying it is handled.
 
 A line starting "Franco (Telegram):" is Franco writing from his phone. Answer him normally:
 your answer reaches his phone on its own. Keep it short, it is read on a phone.
@@ -71,6 +80,13 @@ Rules, always:
 export const BATCH_MS = 60_000;
 export const TOLD_GONE_MS = 10 * 60_000;
 const about = (l) => `${l.waitingFor ?? ""}@${l.lastMessageAt ?? ""}`;
+//
+// The other half: a wait the steward was told about that ends (Franco answered the agent
+// directly, it was stopped, its session vanished) is reported too, or the steward keeps asking
+// about it. It counts as ended once the lane has been off needs-you for BATCH_MS (a flicker back
+// resets that), or missing for TOLD_GONE_MS. Reported once, in the same line as new waits; the
+// entry stays as `cleared`, so the same wait coming back is told again.
+const ENDED = { working: "working again", running: "working again", idle: "done", failed: "failed", stopped: "stopped", gone: "stopped" };
 export function stewardFeed(queue, lanes, now = Date.now()) {
   if (!Array.isArray(lanes)) return { queue, say: null };
   const byKey = new Map(lanes.map((l) => [l.key, l]));
@@ -78,18 +94,52 @@ export function stewardFeed(queue, lanes, now = Date.now()) {
   const waiting = lanes.filter((l) => l.state === "needs-you" && l.name !== STEWARD);
   // told memory: older versions stored bare keys; read those as "told, about whatever it is now"
   const told = (queue.told || []).map((t) => (typeof t === "string" ? { key: t, about: byKey.get(t) ? about(byKey.get(t)) : null } : t))
-    .map((t) => (byKey.has(t.key) ? { key: t.key, about: t.about } : { ...t, goneAt: t.goneAt ?? now }))
-    .filter((t) => !t.goneAt || now - t.goneAt <= TOLD_GONE_MS);
-  const isTold = (l) => told.some((t) => t.key === l.key && (t.about === null || t.about === about(l)));
+    .map((t) => {
+      const l = byKey.get(t.key);
+      const base = { key: t.key, about: t.about, name: t.name ?? l?.name ?? l?.id ?? t.key, ...(t.cleared ? { cleared: true } : {}) };
+      if (!l) return { ...base, goneAt: t.goneAt ?? now, ...(t.offSince ? { offSince: t.offSince } : {}) };
+      if (l.state === "needs-you") return base;                       // still (or again) waiting: not ended
+      return { ...base, offSince: t.offSince ?? now };
+    })
+    .filter((t) => !t.goneAt || now - t.goneAt <= TOLD_GONE_MS || !t.cleared);
+  const isTold = (l) => told.some((t) => !t.cleared && t.key === l.key && (t.about === null || t.about === about(l)));
+  const ended = told.filter((t) => !t.cleared && ((t.goneAt && now - t.goneAt > TOLD_GONE_MS) || (!t.goneAt && t.offSince && now - t.offSince >= BATCH_MS)));
   // keep what still waits on the same thing, add what newly waits
   let next = queue.filter((q) => byKey.get(q.key)?.state === "needs-you");
   for (const l of waiting) if (!next.some((q) => q.key === l.key) && !isTold(l)) next.push({ key: l.key, name: l.name || l.id, at: now, about: about(l) });
   next.told = told;
   const atRest = steward && (steward.state === "idle" || steward.state === "needs-you");
-  if (!next.length || !atRest || now - Math.min(...next.map((q) => q.at)) < BATCH_MS) return { queue: next, say: null };
-  const names = next.map((q) => q.name);
-  const out = []; out.told = [...told.filter((t) => !next.some((q) => q.key === t.key)), ...next.map((q) => ({ key: q.key, about: about(byKey.get(q.key)) }))];
-  return { queue: out, say: `seldon: waiting on Franco now: ${names.join(", ")}. Read them and tell him in one message.` };
+  const waitsDue = next.length && now - Math.min(...next.map((q) => q.at)) >= BATCH_MS;
+  if (!atRest || (!waitsDue && !ended.length)) return { queue: next, say: null };
+  const parts = [];
+  if (waitsDue) parts.push(`waiting on Franco now: ${next.map((q) => q.name).join(", ")}. Read them and tell him in one message.`);
+  if (ended.length) {
+    const why = (t) => (t.goneAt ? "stopped" : ENDED[byKey.get(t.key)?.state] || "not waiting");
+    parts.push(ended.length === 1
+      ? `${parts.length ? "No longer waiting: " : ""}${ended[0].name}${parts.length ? "" : " is no longer waiting"} (${why(ended[0])}): drop it, do not ask Franco about it.`
+      : `No longer waiting: ${ended.map((t) => `${t.name} (${why(t)})`).join(", ")}: drop them, do not ask Franco about them.`);
+  }
+  const out = waitsDue ? [] : next;
+  const endedKeys = new Set(ended.map((t) => t.key));
+  out.told = [
+    ...told.filter((t) => !(waitsDue && next.some((q) => q.key === t.key)))
+      .map((t) => (endedKeys.has(t.key) ? { ...t, cleared: true } : t))
+      .filter((t) => !(t.cleared && t.goneAt && now - t.goneAt > TOLD_GONE_MS)),
+    ...(waitsDue ? next.map((q) => ({ key: q.key, name: q.name, about: about(byKey.get(q.key)) })) : []),
+  ];
+  return { queue: out, say: `seldon: ${parts.join(" ")}` };
+}
+
+// ---- other ways the steward could hear old news -----------------------------------------
+// A Telegram message older than this is not typed into the steward (the bot replays its last
+// unconfirmed batch after a restart); it is kept in notes.md instead.
+export const STALE_IN_MS = 10 * 60_000;
+export const freshForSteward = (when, now = Date.now()) => now - when <= STALE_IN_MS;
+// Agents' notes waiting for the steward, newer than the cursor (kept on disk across restarts).
+export function notesSince(jsonl, cursor = 0) {
+  const out = [];
+  for (const l of String(jsonl || "").split("\n")) { try { const n = JSON.parse(l); if (n && n.at > cursor) out.push(n); } catch {} }
+  return out;
 }
 
 // ---- the relay log: what the steward told whom ----------------------------------------

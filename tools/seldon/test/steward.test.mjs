@@ -139,6 +139,75 @@ test("steward feed: a failed poll changes nothing, and a briefly missing lane ke
   assert.equal(q.told.length, 0, "forgotten once gone for good");
 });
 
+test("the brief makes the steward check live state before every answer about who needs Franco", () => {
+  assert.match(STEWARD_BRIEF, /[Bb]efore ANY answer[\s\S]{0,120}seldon lanes --json fresh/);
+  assert.match(STEWARD_BRIEF, /never answer from earlier messages/i);
+  assert.match(STEWARD_BRIEF, /no longer waiting/);
+  assert.match(STEWARD_BRIEF, /handled/);
+});
+
+test("steward feed: a told wait that ends is reported once, after the batch window, and a flicker is not", async () => {
+  const { stewardFeed, BATCH_MS } = await import("../lib/steward.mjs");
+  const L = (name, state, extra = {}) => ({ key: name, name, state, ...extra });
+  const stew = L("steward", "idle");
+  const ask = L("joey", "needs-you", { waitingFor: "a question", lastMessageAt: 5 });
+  let q = [], now = 1e12, r;
+  r = stewardFeed(q, [stew, ask], now); q = r.queue;
+  r = stewardFeed(q, [stew, ask], now + BATCH_MS + 1); q = r.queue;
+  assert.match(r.say || "", /waiting on Franco now: joey/);
+  // Franco answered joey directly: it works for a moment, then flickers back to the same wait
+  r = stewardFeed(q, [stew, L("joey", "working")], now + BATCH_MS + 2); q = r.queue;
+  assert.equal(r.say, null, "not at once: it may be a flicker");
+  r = stewardFeed(q, [stew, ask], now + BATCH_MS + 5e3); q = r.queue;
+  r = stewardFeed(q, [stew, ask], now + 3 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, null, "a flicker back to the same wait is not news either way");
+  // now really answered
+  r = stewardFeed(q, [stew, L("joey", "working")], now + 4 * BATCH_MS); q = r.queue;
+  r = stewardFeed(q, [stew, L("joey", "working")], now + 4.5 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, null, "still inside the window");
+  r = stewardFeed(q, [L("steward", "working"), L("joey", "working")], now + 5.1 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, null, "never while the steward is busy");
+  r = stewardFeed(q, [stew, L("joey", "working")], now + 5.2 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, "seldon: joey is no longer waiting (working again): drop it, do not ask Franco about it.");
+  r = stewardFeed(q, [stew, L("joey", "working")], now + 8 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, null, "said once");
+  // the same question shows up again after it was dropped: news, the steward was told to forget it
+  r = stewardFeed(q, [stew, ask], now + 9 * BATCH_MS); q = r.queue;
+  r = stewardFeed(q, [stew, ask], now + 10.1 * BATCH_MS); q = r.queue;
+  assert.match(r.say || "", /waiting on Franco now: joey/);
+});
+
+test("steward feed: ends and new waits go in one line; a stopped or vanished agent is reported too", async () => {
+  const { stewardFeed, BATCH_MS, TOLD_GONE_MS } = await import("../lib/steward.mjs");
+  const L = (name, state, extra = {}) => ({ key: name, name, state, ...extra });
+  const stew = L("steward", "idle");
+  const w = (n) => L(n, "needs-you", { waitingFor: "a question", lastMessageAt: 1 });
+  let q = [], now = 1e12, r;
+  r = stewardFeed(q, [stew, w("joey"), w("tars"), w("keen")], now); q = r.queue;
+  r = stewardFeed(q, [stew, w("joey"), w("tars"), w("keen")], now + BATCH_MS + 1); q = r.queue;
+  assert.match(r.say, /joey, tars, keen/);
+  r = stewardFeed(q, [stew, L("joey", "idle"), L("tars", "stopped"), w("keen"), w("wheel")], now + 2 * BATCH_MS); q = r.queue;
+  r = stewardFeed(q, [stew, L("joey", "idle"), L("tars", "stopped"), w("keen"), w("wheel")], now + 3.1 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, "seldon: waiting on Franco now: wheel. Read them and tell him in one message. No longer waiting: joey (done), tars (stopped): drop them, do not ask Franco about them.");
+  // keen's session is destroyed: missing from every poll
+  r = stewardFeed(q, [stew, w("wheel")], now + 4 * BATCH_MS); q = r.queue;
+  r = stewardFeed(q, [stew, w("wheel")], now + 5 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, null, "a lane missing for a while may come back");
+  r = stewardFeed(q, [stew, w("wheel")], now + 4 * BATCH_MS + TOLD_GONE_MS + 1); q = r.queue;
+  assert.equal(r.say, "seldon: keen is no longer waiting (stopped): drop it, do not ask Franco about it.");
+  assert.ok(!q.told.some((t) => t.key === "keen"), "and then forgotten");
+});
+
+test("staleness: phone messages too old are not relayed, and agents' notes are delivered once across restarts", async () => {
+  const { freshForSteward, STALE_IN_MS, notesSince } = await import("../lib/steward.mjs");
+  const now = 1e12;
+  assert.equal(freshForSteward(now - 5_000, now), true);
+  assert.equal(freshForSteward(now - STALE_IN_MS - 1, now), false, "a replayed old Telegram message does not reach the steward");
+  const jsonl = [{ from: "a", kind: "info", text: "old", at: 10 }, { from: "b", kind: "info", text: "new", at: 20 }].map((n) => JSON.stringify(n)).join("\n") + "\nnot json\n";
+  assert.deepEqual(notesSince(jsonl, 10).map((n) => n.text), ["new"]);
+  assert.deepEqual(notesSince(jsonl, 0).map((n) => n.text), ["old", "new"]);
+});
+
 test("lanes carry the time of their last message, so a new question can be told apart", async () => {
   const { markAsking } = await import("../lib/lanes.mjs");
   const lane = { harness: "claude", sessionId: "s", state: "needs-you", waitingFor: "you" };
