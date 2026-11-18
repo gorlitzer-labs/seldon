@@ -1890,8 +1890,8 @@ async function watchCmd(flags) {
   const stamp = () => new Date().toTimeString().slice(0, 8);
   console.log(`${stamp()} seldon watch — every ${every / 1000}s`);
   for (;;) {
-    let lanes = [];
-    try { lanes = readLanes().flatMap((g) => g.lanes); } catch (e) { console.log(`${stamp()} read failed: ${e.message}`); }
+    let lanes = [], readOk = true;
+    try { lanes = readLanes().flatMap((g) => g.lanes); } catch (e) { readOk = false; console.log(`${stamp()} read failed: ${e.message}`); }
     for (const e of transitions(prev, lanes)) {
       console.log(`${stamp()} ${e.text}`);
       const where = path.basename(e.lane.project || e.lane.cwd || "");
@@ -1903,7 +1903,7 @@ async function watchCmd(flags) {
     }
     prev = new Map(lanes.map((l) => [l.key, l.state]));
     // the steward, if it runs, hears about new waits on its own (batched, only while it is free)
-    const f = stewardFeed(feed, lanes);
+    const f = stewardFeed(feed, readOk ? lanes : null);   // a failed read is not "nobody waits"
     feed = f.queue;
     if (f.say) {
       const steward = lanes.find((l) => l.name === STEWARD && !l.machine);

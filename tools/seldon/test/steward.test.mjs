@@ -40,8 +40,9 @@ test("the feed batches new waits, waits for the steward to be free, and never re
   r = stewardFeed(q, lanes("idle", L("wheel", "needs-you"), L("joey", "needs-you")), now + 4.2 * BATCH_MS); q = r.queue;
   assert.equal(r.say, null, "…not even after another full batch window");
   r = stewardFeed(q, lanes("idle", L("wheel", "working")), now + 6 * BATCH_MS); q = r.queue;   // wheel was answered
-  r = stewardFeed(q, lanes("idle", L("wheel", "needs-you")), now + 7 * BATCH_MS); q = r.queue;
-  r = stewardFeed(q, lanes("idle", L("wheel", "needs-you")), now + 8 * BATCH_MS + 1);
+  const again = { ...L("wheel", "needs-you"), lastMessageAt: now + 7 * BATCH_MS };   // it asked something new
+  r = stewardFeed(q, lanes("idle", again), now + 7 * BATCH_MS); q = r.queue;
+  r = stewardFeed(q, lanes("idle", again), now + 8 * BATCH_MS + 1);
   assert.match(r.say || "", /wheel/, "a new wait after it was answered is news again");
   assert.equal(stewardFeed([], lanes("needs-you"), now + 11 * BATCH_MS).say, null, "the steward is never told about itself");
   assert.equal(stewardFeed([], [L("wheel", "needs-you")], now).say, null, "no steward running: nothing to tell");
@@ -94,4 +95,53 @@ test("stewardHtml: no agent-card header, wrapped lines joined, items apart with 
   const list = stewardHtml("3 things need you:\n\n1. joey: deploy to QA now?\n2. wheel: merge #196?\n\nWhich first?");
   assert.match(list, /<b>1\. joey<\/b> · deploy to QA now\?\n\n<b>2\. wheel<\/b> · merge #196\?/);
   assert.match(list, /<b>Which first\?<\/b>$/);
+});
+
+test("steward feed: a working/needs-you flicker on the same wait is not news; a new question is", async () => {
+  const { stewardFeed, BATCH_MS } = await import("../lib/steward.mjs");
+  const L = (name, state, extra = {}) => ({ key: name, name, state, ...extra });
+  const stew = L("steward", "idle");
+  const ask = (at, w = "permission: Bash") => L("wheel", "needs-you", { waitingFor: w, lastMessageAt: at });
+  let q = [], now = 1e12, r;
+  r = stewardFeed(q, [stew, ask(5)], now); q = r.queue;
+  r = stewardFeed(q, [stew, ask(5)], now + BATCH_MS + 1); q = r.queue;
+  assert.match(r.say || "", /wheel/);
+  r = stewardFeed(q, [stew, L("wheel", "working")], now + BATCH_MS + 2); q = r.queue;   // a flicker
+  r = stewardFeed(q, [stew, ask(5)], now + BATCH_MS + 3); q = r.queue;
+  r = stewardFeed(q, [stew, ask(5)], now + 3 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, null, "the same wait after a flicker is not told again");
+  r = stewardFeed(q, [stew, ask(5, "permission: Edit")], now + 4 * BATCH_MS); q = r.queue;
+  r = stewardFeed(q, [stew, ask(5, "permission: Edit")], now + 5.1 * BATCH_MS); q = r.queue;
+  assert.match(r.say || "", /wheel/, "a different question is news");
+  r = stewardFeed(q, [stew, ask(9, "permission: Edit")], now + 6 * BATCH_MS); q = r.queue;
+  r = stewardFeed(q, [stew, ask(9, "permission: Edit")], now + 7.1 * BATCH_MS); q = r.queue;
+  assert.match(r.say || "", /wheel/, "a newer message is news");
+});
+
+test("steward feed: a failed poll changes nothing, and a briefly missing lane keeps its told memory", async () => {
+  const { stewardFeed, BATCH_MS, TOLD_GONE_MS } = await import("../lib/steward.mjs");
+  const L = (name, state, extra = {}) => ({ key: name, name, state, ...extra });
+  const stew = L("steward", "idle");
+  const ask = L("wheel", "needs-you", { waitingFor: "a question", lastMessageAt: 5 });
+  let q = [], now = 1e12, r;
+  r = stewardFeed(q, [stew, ask], now); q = r.queue;
+  const failed = stewardFeed(q, null, now + 1);
+  assert.equal(failed.say, null);
+  assert.equal(failed.queue, q, "a failed read (lanes = null) keeps queue and told as they were");
+  r = stewardFeed(q, [stew, ask], now + BATCH_MS + 1); q = r.queue;
+  assert.match(r.say || "", /wheel/);
+  r = stewardFeed(q, [stew], now + BATCH_MS + 2); q = r.queue;             // lane missing for a poll
+  r = stewardFeed(q, [stew, ask], now + BATCH_MS + 3); q = r.queue;
+  r = stewardFeed(q, [stew, ask], now + 3 * BATCH_MS); q = r.queue;
+  assert.equal(r.say, null, "not re-announced after a brief absence");
+  r = stewardFeed(q, [stew], now + 4 * BATCH_MS); q = r.queue;
+  r = stewardFeed(q, [stew], now + 4 * BATCH_MS + TOLD_GONE_MS + 1); q = r.queue;
+  assert.equal(q.told.length, 0, "forgotten once gone for good");
+});
+
+test("lanes carry the time of their last message, so a new question can be told apart", async () => {
+  const { markAsking } = await import("../lib/lanes.mjs");
+  const lane = { harness: "claude", sessionId: "s", state: "needs-you", waitingFor: "you" };
+  const [l] = markAsking([lane], () => ({ text: "ok", mtime: 42 }), 1e6);
+  assert.equal(l.lastMessageAt, 42);
 });
