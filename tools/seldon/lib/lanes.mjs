@@ -328,9 +328,13 @@ export function endsWithQuestion(jsonlTail) {
 // whose turn ended on a question is waiting on you.
 export function markAsking(lanes, tailOf, now = Date.now()) {
   return lanes.map((l) => {
+    if (l.harness === "claude" && l.sessionId && l.state === "needs-you") {   // when it last spoke: tells a new wait from the same one
+      const t = tailOf(l.sessionId);
+      return t ? { ...l, lastMessageAt: t.mtime } : l;
+    }
     if (l.harness !== "claude" || !l.sessionId || !["working", "idle", "running"].includes(l.state)) return l;
     const t = tailOf(l.sessionId);
     if (!t || now - t.mtime < 20_000 || !endsWithQuestion(t.text)) return l;
-    return { ...l, state: "needs-you", waitingFor: "a question" };
+    return { ...l, state: "needs-you", waitingFor: "a question", lastMessageAt: t.mtime };
   });
 }

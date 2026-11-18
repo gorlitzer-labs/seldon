@@ -57,7 +57,7 @@ export function applyReports(lanes, reports, sameDir = (a, b) => a === b) {
     const mine = reports.filter((r) => r.harness === l.harness && r.cwd && sameDir(r.cwd, l.cwd) && (!l.startedAt || r.at >= l.startedAt - 5000));
     if (!mine.length) return l;
     const r = mine.reduce((a, b) => (b.at > a.at ? b : a));
-    return { ...l, state: r.state, waitingFor: r.waitingFor ?? null };
+    return { ...l, state: r.state, waitingFor: r.waitingFor ?? null, ...(r.state === "needs-you" ? { lastMessageAt: r.at } : {}) };
   });
 }
 

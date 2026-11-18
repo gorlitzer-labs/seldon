@@ -64,20 +64,31 @@ Rules, always:
 // once the oldest has waited BATCH_MS (so a few arrive together) and the steward is at rest,
 // one line goes to it naming them. Waits that ended meanwhile are dropped, and the steward is
 // never told about itself.
+// A wait already told stays told until what it is about changes (its waitingFor or the time of
+// its last message): a working/needs-you flicker is the same wait, not news. `lanes === null`
+// means the read failed: nothing changes. A lane missing from a poll keeps its told memory
+// until it has been gone TOLD_GONE_MS.
 export const BATCH_MS = 60_000;
+export const TOLD_GONE_MS = 10 * 60_000;
+const about = (l) => `${l.waitingFor ?? ""}@${l.lastMessageAt ?? ""}`;
 export function stewardFeed(queue, lanes, now = Date.now()) {
+  if (!Array.isArray(lanes)) return { queue, say: null };
   const byKey = new Map(lanes.map((l) => [l.key, l]));
   const steward = lanes.find((l) => l.name === STEWARD && !l.machine);
   const waiting = lanes.filter((l) => l.state === "needs-you" && l.name !== STEWARD);
-  // keep what still waits, add what newly waits
+  // told memory: older versions stored bare keys; read those as "told, about whatever it is now"
+  const told = (queue.told || []).map((t) => (typeof t === "string" ? { key: t, about: byKey.get(t) ? about(byKey.get(t)) : null } : t))
+    .map((t) => (byKey.has(t.key) ? { key: t.key, about: t.about } : { ...t, goneAt: t.goneAt ?? now }))
+    .filter((t) => !t.goneAt || now - t.goneAt <= TOLD_GONE_MS);
+  const isTold = (l) => told.some((t) => t.key === l.key && (t.about === null || t.about === about(l)));
+  // keep what still waits on the same thing, add what newly waits
   let next = queue.filter((q) => byKey.get(q.key)?.state === "needs-you");
-  for (const l of waiting) if (!next.some((q) => q.key === l.key) && !(queue.told || []).includes(l.key)) next.push({ key: l.key, name: l.name || l.id, at: now });
-  const told = (queue.told || []).filter((k) => byKey.get(k)?.state === "needs-you");   // forget a wait once it ends
+  for (const l of waiting) if (!next.some((q) => q.key === l.key) && !isTold(l)) next.push({ key: l.key, name: l.name || l.id, at: now, about: about(l) });
   next.told = told;
   const atRest = steward && (steward.state === "idle" || steward.state === "needs-you");
   if (!next.length || !atRest || now - Math.min(...next.map((q) => q.at)) < BATCH_MS) return { queue: next, say: null };
   const names = next.map((q) => q.name);
-  const out = []; out.told = [...told, ...next.map((q) => q.key)];
+  const out = []; out.told = [...told.filter((t) => !next.some((q) => q.key === t.key)), ...next.map((q) => ({ key: q.key, about: about(byKey.get(q.key)) }))];
   return { queue: out, say: `seldon: waiting on Franco now: ${names.join(", ")}. Read them and tell him in one message.` };
 }
 
