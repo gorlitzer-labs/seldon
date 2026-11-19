@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
-import { ensureSiblingPath, has, forgetProject, newProjectPlan, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
+import { ensureSiblingPath, has, forgetProject, listRooms, looseRooms, closeRoom, newProjectPlan, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
 import { readLanes, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
 import { countByState, openCommand, stopCommand, readCommand, lastAssistantText, sayCommands, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
@@ -959,7 +959,7 @@ const pad = (text, width, color = (x) => x) => color(String(text)) + " ".repeat(
 // factory and apiary; when factory is there its projects and plans are shown too.
 async function panel({ newFor = null } = {}) {
   ensureSiblingPath();
-  let groups = [], state = null, rows = [], cur = 0, note = "";
+  let groups = [], state = null, rows = [], cur = 0, note = "", rooms = [];
   let lastState = 0;
   // What the screen is doing: the home list, a project's plan, a line of text being typed, or
   // picking which agent starts a lane. One at a time; esc always goes back to home.
@@ -988,6 +988,7 @@ async function panel({ newFor = null } = {}) {
     if (force || Date.now() - lastState > 10_000) { state = has("factory") ? loadState() : null; lastState = Date.now(); }
     const prev = rows[cur];
     rows = buildRows(groups, state?.hives || [], sameDir, here);
+    rooms = listRooms();
     // In the workspace the list on the left already shows every agent: here, projects only.
     if (BOARD) rows = rows.filter((r) => r.type === "project");
     // Keep the cursor on the same thing across a refresh, not the same row number.
@@ -1048,13 +1049,18 @@ async function panel({ newFor = null } = {}) {
         if (sel && r.lane.cwd !== r.project.root && !narrow()) out.push(`        ${C.dim(r.lane.cwd)}`);
       }
     });
+    const loose = looseRooms(rooms, state?.hives);
+    if (loose.length) {
+      out.push("");
+      out.push(`  ${C.gold("⚑")} ${C.bold(`${loose.length} room${loose.length > 1 ? "s" : ""} no project owns`)}  ${C.dim(loose.map((r) => r.name).join(", "))}   ${C.cyan("C")} ${C.dim("closes them")}`);
+    }
     const sel = rows[cur];
     const hint = (k, w) => [k, w];
     foot = !rows.length ? [[hint("n", "new agent"), hint("d", "docs"), hint("q", "quit")]] : narrow()
       ? [sel?.type === "lane" ? [hint("⏎", "open"), hint("x", "stop"), hint("?", "keys"), hint("q", "quit")] : [hint("n", "new"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]]
       : [sel?.type === "lane"
         ? [hint("⏎", "open"), hint("n", "new agent"), hint("x", "stop"), hint("R", "resume"), hint("p", "plan"), hint("?", "keys"), hint("q", "quit")]
-        : [hint("⏎", "plan"), hint("n", "new agent"), hint("g", "open"), hint("x", "forget"), hint("U", "voice on"), hint("D", "voice off"), hint("?", "keys")]];
+        : [hint("⏎", "plan"), hint("n", "new agent"), hint("g", "open"), hint("c", "close room"), hint("x", "forget"), hint("U", "voice on"), hint("D", "voice off"), hint("?", "keys")]];
     foot = ["", ...foot.map((hs) => capLine(hs, process.stdout.columns || 100)), ""];
   };
 
@@ -1249,11 +1255,32 @@ async function panel({ newFor = null } = {}) {
         else if (str === "a") { stopTimer(); api.finish(); return fAttach(p.hive.name); }
         else if (str === "b") await runOwned(api, () => spawnSync("factory", ["board"], { stdio: "inherit" }));
         else if (str === "s") confirm(`Start a coordinator on ${p.name}?`, ["A Claude agent that plans the queue", "and hands out the work."], async () => { await runOwned(api, () => { fStaff(p.root); }); note = C.green(`coordinator started on ${p.name}`); });
+        else if (str === "C") {
+          const loose = looseRooms(rooms, state?.hives);
+          if (!loose.length) note = C.dim("no loose rooms: every running room belongs to a project");
+          else confirm(`Close ${loose.length} loose room${loose.length > 1 ? "s" : ""}?`, [loose.map((r) => r.name).join(", "), "Each stops with the agents it started here."], async () => {
+            const bad = [];
+            for (const r of loose) { const res = await runOwned(api, () => closeRoom(r.name)); if (!res.ok) bad.push(r.name); }
+            note = bad.length ? C.red(`could not close: ${bad.join(", ")}`) : C.green(`closed ${loose.map((r) => r.name).join(", ")}`);
+            load(true);
+          });
+        }
+        else if (str === "c") {
+          const room = p.hive && rooms.find((x) => x.name === p.hive.name);
+          if (!room) note = C.dim(`${p.name} has no room running`);
+          else confirm(`Close ${p.name}'s room?`, ["Stops the room and every agent it started here.", "The room's history goes; the folder and git stay.", "g opens a fresh one."], async () => {
+            const res = await runOwned(api, () => closeRoom(room.name));
+            note = res.ok ? C.green(`closed ${room.name}`) : C.red(`could not close ${room.name}: `) + res.out.trim().split("\n").pop();
+            load(true);
+          });
+        }
         else if (str === "x") {
+          const room = p.hive && rooms.find((x) => x.name === p.hive.name);
           if (!p.hive) note = C.dim(`${p.name} only shows because an agent runs there`);
-          else confirm(`Forget ${p.name}?`, ["It leaves seldon and the factory.", "The folder and its git history stay.", `seldon go ${p.name} brings it back.`], async () => {
+          else confirm(`Forget ${p.name}?`, ["It leaves seldon and the factory.", ...(room ? ["Its room closes too, with the agents it started."] : []), "The folder and its git history stay.", `seldon go ${p.name} brings it back.`], async () => {
+            if (room) await runOwned(api, () => closeRoom(room.name));
             const res = forgetProject(p.hive.name);
-            note = res.ok ? C.green(`forgot ${p.name}`) : C.red(`could not forget: ${res.error}`);
+            note = res.ok ? C.green(`forgot ${p.name}${room ? " and closed its room" : ""}`) : C.red(`could not forget: ${res.error}`);
             load(true);
           });
         }

@@ -224,7 +224,7 @@ export const KEYS = [
     ["x", "stop it (asks first)"], ["r", "remove a stopped one"], ["S", "start / stop steward"], ["/", "filter by name"], ["n", "new agent"], ["N", "new project + agent"], ["⇥", "next that needs you"], ["h d", "projects · docs"]]],
   ["anywhere", [["⌥←", "back to the list"], ["⌥1-9", "enter that agent"], ["⌥n", "next that needs you"], ["⌥h", "projects"], ["⌥d", "docs"],
     ["⌥q", "leave, agents keep going"], ["⌃g", "then the key, if ⌥ fails"]]],
-  ["in projects", [["⏎", "the plan"], ["n", "new agent"], ["g", "open: room + agent (asks)"], ["x", "forget (asks)"], ["R", "resume"], ["U D", "voice on · off"]]],
+  ["in projects", [["⏎", "the plan"], ["n", "new agent"], ["g", "open: room + agent (asks)"], ["c", "close its room (asks)"], ["C", "close loose rooms"], ["x", "forget + close (asks)"], ["R", "resume"], ["U D", "voice on · off"]]],
 ];
 export function keyLines(paint = {}) {
   const k = paint.key || ((x) => x), d = paint.dim || ((x) => x), t = paint.title || ((x) => x);

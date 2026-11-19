@@ -114,6 +114,33 @@ export const attach = (name) => passthru("apiary", ["room", "resume", name]);
 
 export const hiveOf = (state, dir) => (state?.hives || []).find((h) => sameDir(h.dir, dir)) || null;
 
+// ---- rooms ------------------------------------------------------------------------------
+// Every apiary room this machine is running, read from apiary's own session files
+// (~/.apiary/sessions/room_<name>.json). A file whose server pid is dead is not a room.
+export function listRooms(dir = path.join(os.homedir(), ".apiary", "sessions"), alive = pidAlive) {
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.startsWith("room_") && f.endsWith(".json")); } catch { return []; }
+  const rooms = [];
+  for (const f of files) {
+    try {
+      const r = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+      if (r?.roomName && Number.isInteger(r.pid) && alive(r.pid)) rooms.push({ name: r.roomName, pid: r.pid });
+    } catch { /* a half-written file: skip it */ }
+  }
+  return rooms.sort((a, b) => a.name.localeCompare(b.name));
+}
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+// Rooms no project on the line owns: started by hand, or left behind by a forgotten project.
+// Nothing else in seldon shows them, so this is where they get closed.
+export const looseRooms = (rooms, hives) => {
+  const owned = new Set((hives || []).map((h) => h?.name));
+  return rooms.filter((r) => !owned.has(r.name));
+};
+
+// Close a room: `apiary stop` stops the agents it started, then its server.
+export const closeRoom = (name) => quiet("apiary", ["stop", name]);
+
 // Forget a project: drop it from the factory's registry (~/.factory/hives.json). Its folder,
 // git history and room file are left exactly as they are; `seldon go <dir>` brings it back.
 export function forgetProject(name, reg = path.join(os.homedir(), ".factory", "hives.json")) {
