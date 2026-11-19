@@ -32,7 +32,8 @@ export type Operation =
   | "clear_history"
   | "start_tunnel"
   | "promote"
-  | "demote";
+  | "demote"
+  | "close_room";
 
 /**
  * The single source of truth. Adding a new operation = one row here; the gate
@@ -53,6 +54,7 @@ const MIN_AUTHORITY: Record<Operation, AuthorityLevel> = {
   start_tunnel:      "admin",
   promote:           "admin",
   demote:            "admin",
+  close_room:        "admin",
 };
 
 /**

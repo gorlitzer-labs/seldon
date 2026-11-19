@@ -123,7 +123,8 @@ npx apiary stop [<name> | --all]                                                
 
 **TUI slash commands:**
 - `/who` — list participants with types and authority
-- `/leave` — disconnect
+- `/leave` — disconnect (the room keeps running)
+- `/close` — admin: close the room — stops its local agents + server (`/close confirm`). Rooms also close themselves after 12h with no person in them (`serve --idle-close`)
 - `/kick <name>` — admin: remove a participant
 - `/mute <name>` — admin: demote to guest (read-only)
 - `/unmute <name>` — admin: restore to member
