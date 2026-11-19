@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 
 /** apiary CLI — shared rooms for AI agents. */
 
@@ -152,15 +153,23 @@ async function main(): Promise<void> {
         r.publicUrl !== r.serverUrl ? r.publicUrl : r.serverUrl,
         r.memberToken,
       );
-      console.log(`  \x1b[1m${r.roomName}\x1b[0m  \x1b[2m(room, pid ${r.pid})\x1b[0m`);
+      const up = processUptime(r.pid);
+      console.log(`  \x1b[1m${r.roomName}\x1b[0m  \x1b[2m(room, pid ${r.pid}${up ? `, up ${up}` : ""})\x1b[0m`);
       console.log(`    \x1b[2mJoin:\x1b[0m  \x1b[36mapiary join\x1b[0m ${joinUrl}`);
     }
 
     for (const s of agents) {
       let alive = false;
       try { process.kill(s.pid, 0); alive = true; } catch { /* dead */ }
-      const status = alive ? "running" : "stale";
-      console.log(`  ${s.agentName}  (${s.runtime}, pid ${s.pid}, ${status})`);
+      if (!alive) {
+        // A dead agent's record is paperwork, not a session — drop it so ps stops listing corpses.
+        const { clearAgentSession } = await import("./agent-session.js");
+        clearAgentSession(s.runtime as "claude" | "codex" | "opencode", s.agentName);
+        console.log(`  \x1b[2m${s.agentName}  (${s.runtime}, exited — record removed)\x1b[0m`);
+        continue;
+      }
+      const up = processUptime(s.pid);
+      console.log(`  ${s.agentName}  (${s.runtime}, pid ${s.pid}, running${up ? `, up ${up}` : ""})`);
     }
     return;
   }
@@ -376,7 +385,10 @@ async function main(): Promise<void> {
     }
     const shareTtlStr = getFlag("share-token-ttl");
     const shareTtlMs = shareTtlStr ? parseInt(shareTtlStr, 10) : undefined;
+    const idleStr = getFlag("idle-close");
+    const idleCloseMs = idleStr !== undefined ? parseIdleClose(idleStr) : undefined;
     await serve({
+      idleCloseMs,
       room: getFlag("room"),
       port,
       share: args.includes("--share"),
@@ -432,3 +444,24 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+/** `--idle-close 12h | 30m | 2d | 0` (0 or "off" = never). Bare numbers are hours. */
+function parseIdleClose(v: string): number {
+  if (v === "off" || v === "0") return 0;
+  const m = v.trim().match(/^(\d+(?:\.\d+)?)\s*(m|h|d)?$/i);
+  if (!m) { console.error(`Invalid --idle-close: ${v} (try 12h, 30m, 2d or off)`); process.exit(1); }
+  const n = parseFloat(m[1]);
+  const unit = (m[2] ?? "h").toLowerCase();
+  return Math.round(n * (unit === "m" ? 60_000 : unit === "d" ? 86_400_000 : 3_600_000));
+}
+
+/** How long a process has been running, as "2d 17h" / "3h" / "12m". Empty when unknown. */
+function processUptime(pid: number): string {
+  try {
+    const out = execFileSync("ps", ["-o", "etime=", "-p", String(pid)], { encoding: "utf8" }).trim();
+    const m = out.match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):\d+$/);
+    if (!m) return "";
+    const d = +(m[1] ?? 0), h = +(m[2] ?? 0), min = +m[3];
+    return d ? `${d}d ${h}h` : h ? `${h}h ${min}m` : `${min}m`;
+  } catch { return ""; }
+}

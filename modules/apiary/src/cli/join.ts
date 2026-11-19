@@ -328,6 +328,7 @@ export async function join(options: JoinOptions): Promise<void> {
             "/promote <name>   promote to product owner",
             "/demote <name>    demote to member",
             "/kick <name>      remove a participant",
+            "/close            close the room: stop its agents and the server",
             "/mute <name>      demote to guest",
             "/unmute <name>    restore to member",
             "/setmode <n> <m>  set engagement mode",
@@ -448,6 +449,20 @@ export async function join(options: JoinOptions): Promise<void> {
         await disconnect();
         tui.stop();
         process.exit(0);
+        return;
+      }
+
+      // ── /close [confirm] (admin only) — end the room for everyone ──
+      case "close": {
+        if (!can(authority, "close_room")) { systemEvent("Only admins can close the room."); return; }
+        if (args[0] !== "confirm") {
+          systemEvent("This stops every agent this machine started for the room, and the server. Type /close confirm to do it — /leave just leaves.");
+          return;
+        }
+        await participantAction({
+          path: "/close", body: {},
+          failVerb: "close the room", success: "Closing the room…",
+        });
         return;
       }
 
@@ -906,6 +921,12 @@ export async function join(options: JoinOptions): Promise<void> {
               const event = JSON.parse(dataLine.slice(6)) as RoomEvent & { _replyToName?: string };
 
               // Handle room clear — wipe TUI and show system message
+              if ((event as { type: string }).type === "RoomClosed") {
+                systemEvent(`Room closed (${(event as any).reason ?? "by an admin"}).`);
+                setTimeout(() => { tui.stop(); process.exit(0); }, 1500);
+                continue;
+              }
+
               if (event.type === "RoomCleared") {
                 tui.clear();
                 systemEvent(`Room cleared by ${(event as any).cleared_by ?? "admin"}.`);

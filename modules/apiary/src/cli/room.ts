@@ -737,7 +737,7 @@ export async function roomCreate(opts: {
   // Tell the user where the rules file lives. Defaults are seeded server-side
   // on first boot; users edit the file by hand and the daemon hot-reloads.
   console.log(`  ${D}Rules:${R}  ${C}${shortenPath(roomRulesPath(daemon.roomName))}${R}  ${D}(edit to customize — hot-reloads)${R}`);
-  console.log(`  Press Ctrl+C to leave — server keeps running.\n`);
+  console.log(`  Ctrl+C leaves, the room keeps running. /close ends it (or it closes itself after 12h with nobody in it).\n`);
 
   const { join } = await import("./join.js");
   const adminJoinUrl = buildShareUrl(daemon.serverUrl, daemon.adminToken);
@@ -893,7 +893,7 @@ export async function roomResume(name: string): Promise<void> {
     }
   }
 
-  console.log(`  Press Ctrl+C to leave — server keeps running.\n`);
+  console.log(`  Ctrl+C leaves, the room keeps running. /close ends it (or it closes itself after 12h with nobody in it).\n`);
 
   const { join } = await import("./join.js");
   const adminJoinUrl = buildShareUrl(serverUrl, adminToken);

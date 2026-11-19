@@ -72,6 +72,31 @@ export interface ServeOptions {
   corsOrigins?: string[];
   /** Share token TTL in ms. Defaults to 24h; use a longer value for persistent sessions. */
   shareTtlMs?: number;
+  /**
+   * Close the room by itself after this long with no person in it and no
+   * person doing anything. Agents talking among themselves don't count —
+   * a room nobody is watching is a room burning tokens for no one.
+   * Defaults to DEFAULT_IDLE_CLOSE_MS; 0 turns it off.
+   */
+  idleCloseMs?: number;
+}
+
+/** 12h: long enough to survive lunch or a night's sleep mid-task, short enough that a forgotten room is gone by the next day. */
+export const DEFAULT_IDLE_CLOSE_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Should an idle room close now? Pure so it can be tested without a server.
+ * A person connected (online or merely slow) always keeps the room open.
+ */
+export function shouldIdleClose(args: {
+  now: number;
+  lastHumanActivityAt: number;
+  humanPresent: boolean;
+  idleCloseMs: number;
+}): boolean {
+  if (args.idleCloseMs <= 0) return false;
+  if (args.humanPresent) return false;
+  return args.now - args.lastHumanActivityAt >= args.idleCloseMs;
 }
 
 export interface ServeResult {
@@ -286,8 +311,12 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const OFFLINE_AFTER_MS = parseInt(process.env.APIARY_OFFLINE_MS ?? String(UNRESPONSIVE_AFTER_MS * 2), 10);
   const PRESENCE_CHECK_INTERVAL_MS = parseInt(process.env.APIARY_PRESENCE_CHECK_MS ?? "30000", 10);
 
+  let lastHumanActivityAt = Date.now();
+
   function touchParticipant(id: string): void {
     lastSeenAt.set(id, Date.now());
+    const tok = idToSession.get(id);
+    if (tok && participants.get(tok)?.type === "human") lastHumanActivityAt = Date.now();
   }
 
   /** Write an SSE frame to every connected client (unfiltered fan-out). */
@@ -1216,6 +1245,19 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         return;
       }
 
+      // ── POST /close ─────────────────────────────────────────────────────
+      // Close the whole room from inside it: stop the agents this machine
+      // started, then the server. Before this the only way was leaving the
+      // room and typing `apiary stop <name>`, so rooms got left running.
+      if (url.pathname === "/close") {
+        if (!session) return jsonError(res, 401, "Invalid session token");
+        if (!can(session.authority, "close_room")) return jsonError(res, 403, "Only admins can close the room");
+        const by = participants.get(sessionToken)?.name ?? session.id;
+        jsonOk(res);
+        void closeRoom(`closed by ${by}`);
+        return;
+      }
+
       // ── POST /kick ──────────────────────────────────────────────────────
       if (url.pathname === "/kick") {
         if (!session) return jsonError(res, 401, "Invalid session token");
@@ -1471,6 +1513,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   // Without this, lastSeenAt / presenceStatus / participants / idToSession /
   // sseConnections retain entries for crashed clients forever.
   const OFFLINE_GC_MS = 24 * 60 * 60 * 1000; // 24h
+  const idleCloseMs = options.idleCloseMs ?? DEFAULT_IDLE_CLOSE_MS;
 
   // Periodic presence checker — runs every 30s
   const presenceInterval = setInterval(() => {
@@ -1498,6 +1541,14 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
         presenceStatus.delete(p.id);
         log(`${p.name} purged after ${Math.round(elapsed / 60_000)}min offline`);
       }
+    }
+
+    const humanPresent = [...participants.values()].some(
+      (p) => p.type === "human" && (presenceStatus.get(p.id) ?? "online") !== "offline",
+    );
+    if (humanPresent) lastHumanActivityAt = now;
+    if (shouldIdleClose({ now, lastHumanActivityAt, humanPresent, idleCloseMs })) {
+      void closeRoom(`idle for ${Math.round((now - lastHumanActivityAt) / 60_000)}min with nobody in it`);
     }
   }, PRESENCE_CHECK_INTERVAL_MS);
   presenceInterval.unref();
@@ -1572,6 +1623,23 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   }
 
   // ── Graceful shutdown ──────────────────────────────────────────────────
+
+  // Closing (as opposed to a plain SIGTERM, which a restart also sends) also
+  // stops the agents this machine started for the room — otherwise they keep
+  // running, attached to nothing, and `apiary ps` keeps listing them.
+  let closing = false;
+  async function closeRoom(reason: string): Promise<void> {
+    if (closing) return;
+    closing = true;
+    log(`closing room: ${reason}`);
+    broadcastToAll({ type: "RoomClosed", room_id: room.roomId, reason, ts: new Date().toISOString() });
+    for (const p of participants.values()) {
+      if (p.type !== "agent") continue;
+      const outcome = terminateLocalAgent(p.name, { killTmux: tmuxKillSession });
+      if (outcome.stopped) log(`close: stopped ${p.name} (${outcome.runtime}, pid ${outcome.pid})`);
+    }
+    await shutdown();
+  }
 
   const shutdown = async () => {
     log("shutting down...");

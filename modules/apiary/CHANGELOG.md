@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.17.0
+
+**Rooms close.** A room used to run until someone typed `apiary stop <name>`: Ctrl+C only left it, and nothing ever ended an unused one, so rooms sat around for days (two had been up almost 3 days, one with an agent still attached).
+
+- `/close` (admins) ends the room from inside it. It stops every agent this machine started for the room, then the server. It asks first: you type `/close confirm`. Everyone still connected sees "Room closed" and their window exits.
+- A room with no person in it and no person active for 12 hours closes itself and its agents. Agents talking among themselves don't keep it open. `apiary serve --idle-close 30m|6h|2d|off` changes this.
+- The Ctrl+C hint and `/leave` now say the room keeps running, and how to end it.
+- `apiary ps` shows how long each room and agent has been up, and removes records of agents that have exited instead of listing them as "stale".
+
 ## v1.16.0
 
 **An agent is no longer woken by its room's history.** Found live on 1.15.0: a restarted session joined a room as "sprouts", posted, and its own pane got `apiary: new messages in room "…" from sprouts`. `apiary serve` replays the room's last 50 events every time the event stream connects; the waker took that replay for live traffic, and yesterday's message from an older "sprouts" seat (same name, another id) passed the "not my own message" check. Every stream reconnect replayed history too. Now only live events wake the agent:

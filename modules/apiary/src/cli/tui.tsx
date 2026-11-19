@@ -130,7 +130,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/watch",   description: "Open an agent's terminal in a new window", params: [
     { label: "name", completions: "participants" },
   ]},
-  { name: "/leave",   description: "Disconnect and exit" },
+  { name: "/leave",   description: "Leave (the room keeps running — /close ends it)" },
   { name: "/share",   description: "Generate share links", op: "create_share_link" },
   { name: "/kick",    description: "Remove a participant", op: "kick", params: [
     { label: "name", completions: "participants" },
@@ -158,6 +158,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
     { label: "name", completions: "participants" },
   ]},
   { name: "/clear",   description: "Wipe room history", op: "clear_history" },
+  { name: "/close",   description: "Close the room: stop its agents + server", op: "close_room" },
   { name: "/tunnel",  description: "Start a cloudflared tunnel", op: "start_tunnel" },
   { name: "/sound",   description: "Toggle notification sounds" },
 ];
