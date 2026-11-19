@@ -9,7 +9,7 @@ import os from "node:os";
 import readline from "node:readline";
 import { MODULES, byId, DEPS, RAW, MONOREPO, withRequires, platformOk } from "../modules.mjs";
 import { ensureSiblingPath, has, forgetProject, listRooms, looseRooms, closeRoom, newProjectPlan, loadState, resolveProject, adopt as fAdopt, staff as fStaff, attach as fAttach, hiveOf, sameDir } from "../lib/projects.mjs";
-import { readLanes, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
+import { readLanes, claudePoller, readPlan, addToPlan, projectRoot, writeReport } from "../lib/agents.mjs";
 import { countByState, openCommand, stopCommand, readCommand, lastAssistantText, sayCommands, transitions, laneForItem, slugify, HARNESSES } from "../lib/lanes.mjs";
 import { startLane, stopLane, resumeLane, removeLane, findLane } from "../lib/actions.mjs";
 import { listMachines, addMachine, fetchLanes, machinePoller, sshArgs, lastJsonLine } from "../lib/machines.mjs";
@@ -982,9 +982,10 @@ async function panel({ newFor = null } = {}) {
     const said = tty ? "" : `${r.stdout || ""}${r.stderr || ""}`.trim().split("\n").filter(Boolean).pop() || "";
     return { ok: r.status === 0, out: r.stdout || "", error: r.status === 0 ? null : said || `ssh exited ${r.status}` };
   };
+  const claudeNow = claudePoller();
   const load = (force = false) => {
     pollMachines();
-    groups = [...readLanes(), ...[...seen.values()].flatMap((v) => v.groups || [])];
+    groups = [...readLanes({ claude: claudeNow }), ...[...seen.values()].flatMap((v) => v.groups || [])];
     if (force || Date.now() - lastState > 10_000) { state = has("factory") ? loadState() : null; lastState = Date.now(); }
     const prev = rows[cur];
     rows = buildRows(groups, state?.hives || [], sameDir, here);
@@ -2163,10 +2164,11 @@ async function wsSidebar() {
     if (list[cur]) wsSave(WS_SEL, list[cur].key);
     if (list[cur] && !previewRunning()) wsShowPreview(false);
   };
+  const claudeNow = claudePoller();
   const load = () => {
     poll();
     let groups = [];
-    try { groups = [...readLanes(), ...[...seen.values()].flatMap((v) => v.groups || [])]; } catch (e) { note = C.red(e.message); }
+    try { groups = [...readLanes({ claude: claudeNow }), ...[...seen.values()].flatMap((v) => v.groups || [])]; } catch (e) { note = C.red(e.message); }
     const down = new Set([...seen].filter(([, v]) => v.error).map(([name]) => name));
     const prev = rows[cur]?.key;
     rows = wsRows(groups, down);

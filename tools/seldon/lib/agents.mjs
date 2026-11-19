@@ -1,7 +1,7 @@
 // The I/O half of lanes.mjs: run the harness commands, resolve projects, hand back lanes.
 // Every source is best-effort — a missing `claude` or no tmux server is an empty list, not
 // an error, because a machine running only Codex (or nothing yet) is a normal machine.
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, rmSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { applyReports } from "./reports.mjs";
 import { sameDir } from "./projects.mjs";
@@ -24,6 +24,27 @@ const out = (bin, args, timeout = 5000) => {
 export function readClaude() {
   const raw = out("claude", ["agents", "--json", "--all"]);
   try { return raw ? JSON.parse(raw) : raw === null ? null : []; } catch { return null; }   // null: the read failed
+}
+
+// A screen that refreshes every 2s must not freeze on `claude agents` (~130ms, a whole node
+// process) each time: keys pressed meanwhile lag. The poller reads it in the background and
+// hands back the last good answer at once; only its very first call, with nothing yet, waits.
+export function claudePoller(run = execFile) {
+  let last, busy = false;
+  const kick = () => {
+    if (busy) return;
+    busy = true;
+    run("claude", ["agents", "--json", "--all"], { encoding: "utf8", timeout: 5000 }, (err, stdout) => {
+      busy = false;
+      if (err) return;                                   // keep the last good answer
+      try { last = JSON.parse(stdout); } catch { /* half an answer: keep the last */ }
+    });
+  };
+  return () => {
+    if (last === undefined) { last = readClaude(); kick(); return last; }
+    kick();
+    return last;
+  };
 }
 
 export const readTmuxPanes = () => parseTmuxPanes(out("tmux", ["list-panes", "-a", "-F", TMUX_PANE_FORMAT]) || "");
@@ -111,10 +132,10 @@ function tailOf(files) {
 
 // `strict`: a failed `claude agents` read throws instead of looking like "no Claude agents", so
 // the watcher never tells the steward an agent stopped waiting because of a timeout.
-export function readLanes({ strict = false } = {}) {
+export function readLanes({ strict = false, claude: readC = readClaude } = {}) {
   const panes = readTmuxPanes();
   const files = transcripts();
-  const entries = readClaude();
+  const entries = readC();
   if (entries === null && strict) throw new Error("could not read Claude's agents (claude agents --json)");
   const claude = markAsking(markGone(claudeLanes(entries ?? []).map((l) =>
     l.id || !l.pid || !panes.length ? l : { ...l, tmuxSession: tmuxSessionFor(l.pid, panes, parentOf) }), (id) => files.has(id)), tailOf(files));
