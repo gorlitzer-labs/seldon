@@ -2309,7 +2309,22 @@ function wsCmd(sub, arg) {
   }
   wsFocus(null, process.stdout.columns || null);      // fit this screen before it shows
   const env = { ...process.env }; delete env.TMUX;
-  process.exitCode = spawnSync("tmux", ["-L", WS_SOCKET, "attach", "-t", WS_SESSION], { stdio: "inherit", env }).status ?? 1;
+  // Opened from inside your own tmux, its bar and the workspace's stack up as two. Hide the
+  // outer one for this session only while the workspace is on screen, then put it back.
+  const outer = process.env.TMUX ? hideOuterStatus() : null;
+  try {
+    process.exitCode = spawnSync("tmux", ["-L", WS_SOCKET, "attach", "-t", WS_SESSION], { stdio: "inherit", env }).status ?? 1;
+  } finally { outer?.restore(); }
+}
+
+// Turn off the status bar of the tmux session seldon was started in; restore() undoes exactly
+// that — back to the session's own value, or to inheriting the global one if it had none.
+function hideOuterStatus() {
+  const tm = (...a) => spawnSync("tmux", a, { encoding: "utf8" });
+  const own = tm("show-options", "-v", "status");                // session-local value only
+  const had = own.status === 0 && own.stdout.trim() ? own.stdout.trim() : null;
+  if (tm("set-option", "status", "off").status !== 0) return null;
+  return { restore: () => (had ? tm("set-option", "status", had) : tm("set-option", "-u", "status")) };
 }
 
 // `seldon tell "…"` — message the operator on Telegram, from any agent. The token comes from
