@@ -1,14 +1,55 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stewardCommand, STEWARD_ALLOWED, STEWARD_DENIED, STEWARD_BRIEF } from "../lib/steward.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { stewardCommand, stewardGuard, STEWARD_ALLOWED, STEWARD_BRIEF } from "../lib/steward.mjs";
 import { wsRows } from "../lib/workspace.mjs";
 
 test("the steward asks before anything outside seldon, even when your sessions bypass permissions", () => {
   const argv = stewardCommand({ brief: "B" });
   assert.equal(argv[argv.indexOf("--permission-mode") + 1], "default");
   assert.ok(STEWARD_ALLOWED.every((t) => /^Bash\(seldon /.test(t)), "only seldon commands run without asking");
-  for (const t of ["Edit", "Write"]) assert.ok(STEWARD_DENIED.includes(t), `${t} is denied`);
+  const denied = argv[argv.indexOf("--disallowedTools") + 1].split(",");
+  for (const t of ["Edit", "Write"]) assert.ok(denied.includes(t), `${t} is denied without a scratch folder`);
   assert.ok(!argv.includes("--dangerously-skip-permissions"));
+});
+
+test("with a scratch folder, file tools are allowed there only, and a guard hook denies the rest", () => {
+  const argv = stewardCommand({ brief: "B", scratch: "/h/.seldon/steward/scratch", guard: "node seldon.js steward guard" });
+  const allowed = argv[argv.indexOf("--allowedTools") + 1].split(",");
+  assert.ok(allowed.includes("Edit(//h/.seldon/steward/scratch/**)"), "one Edit(path) rule: Claude applies it to every file tool");
+  assert.ok(!allowed.some((t) => /^(Write|MultiEdit)\(/.test(t)), "Claude ignores Write(path) rules and warns");
+  assert.ok(!allowed.some((t) => /^(Write|Edit)$/.test(t)), "never the bare tool");
+  assert.ok(argv[argv.indexOf("--disallowedTools") + 1].split(",").includes("NotebookEdit"));
+  const hook = JSON.parse(argv[argv.indexOf("--settings") + 1]).hooks.PreToolUse[0];
+  assert.match(hook.matcher, /Write/); assert.match(hook.matcher, /Edit/);
+  assert.equal(hook.hooks[0].command, "node seldon.js steward guard");
+});
+
+test("the guard lets the steward write in scratch and nowhere else", () => {
+  const s = "/h/.seldon/steward/scratch";
+  const w = (file_path, tool_name = "Write") => stewardGuard({ tool_name, tool_input: { file_path } }, s);
+  assert.equal(w(`${s}/notes.md`), null);
+  assert.equal(w(`${s}/deep/a.txt`, "Edit"), null);
+  for (const p of ["/h/.claude.json", "/h/.claude/settings.json", "/h/.seldon/steward/scratch-x/a", `${s}/../a`, "/h/.seldon/steward/.claude/settings.local.json"])
+    assert.ok(w(p), `${p} is denied`);
+  assert.ok(stewardGuard({ tool_name: "NotebookEdit", tool_input: { notebook_path: "/x.ipynb" } }, s));
+  assert.ok(stewardGuard({ tool_name: "Write", tool_input: {} }, s), "no path is denied");
+  assert.equal(stewardGuard({ tool_name: "Bash", tool_input: { command: "seldon lanes" } }, s), null, "other tools: the normal rules");
+});
+
+test("the guard follows a symlink out of scratch", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-"));
+  const s = path.join(dir, "scratch"); fs.mkdirSync(s);
+  fs.symlinkSync(os.homedir(), path.join(s, "out"));
+  assert.ok(stewardGuard({ tool_name: "Write", tool_input: { file_path: path.join(s, "out", ".claude.json") } }, s));
+  assert.equal(stewardGuard({ tool_name: "Write", tool_input: { file_path: path.join(s, "new", "n.md") } }, s), null);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test("the brief keeps the steward away from trust and settings", () => {
+  assert.match(STEWARD_BRIEF, /Never edit ~\/\.claude\.json/);
 });
 
 test("the brief keeps the rules that make relaying safe", () => {

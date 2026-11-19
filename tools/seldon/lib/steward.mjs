@@ -2,6 +2,9 @@
 // as one short message, and passes your answers and orders back to them through seldon.
 // It is a plain Claude agent in its own tmux session; this file is its brief and its limits.
 
+import { resolve, sep } from "node:path";
+import { realpathSync } from "node:fs";
+
 export const STEWARD = "steward";
 export const STEWARD_SESSION = "seldon_steward";
 
@@ -11,14 +14,48 @@ export const STEWARD_ALLOWED = [
   "Bash(seldon lanes:*)", "Bash(seldon ls:*)", "Bash(seldon lane read:*)", "Bash(seldon lane say:*)",
   "Bash(seldon lane start:*)", "Bash(seldon lane stop:*)", "Bash(seldon machines:*)", "Bash(seldon new:*)",
 ];
-export const STEWARD_DENIED = ["Edit", "Write", "NotebookEdit"];
+export const STEWARD_DENIED = ["NotebookEdit"];
+// The file tools it gets, and only inside its scratch folder (~/.seldon/steward/scratch).
+export const STEWARD_FILE_TOOLS = ["Write", "Edit", "MultiEdit"];
 
-export function stewardCommand({ claude = "claude", model = "sonnet", brief }) {
+// Its own scratch folder is the one place it writes. With Edit/Write denied outright it fell back
+// to shell redirects, which Claude's auto-mode check rightly blocks. Allow rules let it write
+// there without a prompt; the guard hook (stewardGuard, below) denies every other path, so
+// nothing outside scratch is any wider than before — not even a prompt.
+export function stewardCommand({ claude = "claude", model = "sonnet", brief, scratch, guard }) {
+  // One Edit(path) rule covers every file tool (Claude ignores Write(path) / MultiEdit(path)).
+  const allowed = [...STEWARD_ALLOWED, ...(scratch && guard ? [`Edit(/${scratch}/**)`] : [])];
+  const denied = scratch && guard ? STEWARD_DENIED : [...STEWARD_FILE_TOOLS, ...STEWARD_DENIED];
+  const settings = scratch && guard
+    ? ["--settings", JSON.stringify({ hooks: { PreToolUse: [{ matcher: [...STEWARD_FILE_TOOLS, "NotebookEdit"].join("|"), hooks: [{ type: "command", command: guard }] }] } })]
+    : [];
   // Permission mode is set to ask even when your own sessions bypass permissions: anything
   // outside the list above waits for you in the steward's pane.
   return [claude, "-n", STEWARD, "--model", model, "--permission-mode", "default",
-    "--allowedTools", STEWARD_ALLOWED.join(","), "--disallowedTools", STEWARD_DENIED.join(","),
+    "--allowedTools", allowed.join(","), "--disallowedTools", denied.join(","), ...settings,
     "--append-system-prompt", brief];
+}
+
+// Where a file tool would write, made absolute and with symlinks followed as far as they exist,
+// so `scratch/../x` or a link out of scratch cannot pass.
+const realish = (p) => {
+  let head = resolve(p), tail = "";
+  for (;;) {
+    try { return resolve(realpathSync(head), tail); } catch { /* not there yet: go up */ }
+    const up = resolve(head, "..");
+    if (up === head) return resolve(p);
+    tail = tail ? `${head.slice(up.length + 1)}${sep}${tail}` : head.slice(up.length + 1);
+    head = up;
+  }
+};
+// The PreToolUse verdict for one call: null to let the normal rules decide, or the reason it is denied.
+export function stewardGuard(call, scratch) {
+  if (![...STEWARD_FILE_TOOLS, "NotebookEdit"].includes(call?.tool_name)) return null;
+  const target = call.tool_input?.file_path ?? call.tool_input?.notebook_path;
+  if (typeof target !== "string" || !target) return "no file path";
+  const root = realish(scratch), t = realish(target);
+  if (t === root || t.startsWith(root + sep)) return null;
+  return `the steward writes only in ${scratch}. Trust, settings and project files are Franco's (seldon lane start records Claude's folder trust itself).`;
 }
 
 export const STEWARD_BRIEF = `You are the steward: the one agent Franco talks to. Every other agent he runs is your team.
@@ -64,6 +101,9 @@ How to write (it is read on a phone):
 Rules, always:
   - Never decide for Franco. Never answer an agent on your own. If his answer is unclear, ask him.
   - Never type into an agent that is working.
+  - Notes and drafts go in ~/.seldon/steward/scratch (Write/Edit work there, and only there).
+    Never edit ~/.claude.json or any settings to trust a folder: seldon lane start and seldon new
+    record Claude's trust themselves, and if one says Franco must trust a folder, tell him so.
   - Short. No preamble, no summaries of what you are about to do. Plain words, no jargon.
   - Orders he gives you ("stop joey", "start an agent on the save crash") you carry out, then
     say what you did in one line.`;

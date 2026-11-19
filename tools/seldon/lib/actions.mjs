@@ -7,17 +7,26 @@ import { execFileSync } from "node:child_process";
 import {
   readLanes, runSteps, run, harnessBins, recordLane, markLane, forgetLane, projectRoot, SELDON_HOME,
 } from "./agents.mjs";
+import { trustPlan } from "./trust.mjs";
 import { startCommands, resumeCommands, stopCommand, removeCommands, slugify, uniqueSlug, HARNESSES } from "./lanes.mjs";
 
 const branchExists = (root, ref) => {
   try { execFileSync("git", ["-C", root, "rev-parse", "--verify", "--quiet", `refs/heads/${ref}`], { stdio: "ignore" }); return true; } catch { return false; }
 };
 
-export function startLane({ root, name, task, harness = "claude" }) {
+// mayTrust: whoever asked may grant Claude's folder trust for `root` (a person, or seldon on a
+// folder it just made). By default: yes, unless the steward asked (lib/trust.mjs says why).
+export function startLane({ root, name, task, harness = "claude", mayTrust = process.env.SELDON_STEWARD !== "1" }) {
   if (!HARNESSES.includes(harness)) return { ok: false, error: `unknown agent "${harness}" (${HARNESSES.join(", ")})` };
   if (!task || !String(task).trim()) return { ok: false, error: "a lane needs a task" };
   const bins = harnessBins();
   if (!bins[harness]) return { ok: false, slug: slugify(task), error: `${harness} is not installed (not on PATH)` };
+  let trustNote;
+  if (harness === "claude") {      // `claude --bg` refuses an untrusted folder, and no flag skips it
+    const t = trustPlan(root, { mayRecord: mayTrust });
+    if (!t.ok) return { ok: false, slug: slugify(task), error: t.error };
+    trustNote = t.note;
+  }
   const worktreesDir = join(SELDON_HOME, "worktrees", name || root.split("/").pop());
   const names = new Set(allLanes().map((l) => l.name));
   const slug = uniqueSlug(slugify(task), (s) => names.has(s) || existsSync(join(worktreesDir, s)) || existsSync(join(root, ".claude", "worktrees", s)) || branchExists(root, `lane/${s}`));
@@ -25,7 +34,7 @@ export function startLane({ root, name, task, harness = "claude" }) {
   const r = runSteps(cmds);
   const tmux = cmds.find((c) => c.session);
   if (r.ok && tmux) recordLane({ session: tmux.session, harness, task, slug, root, worktree: tmux.cwd, startedAt: Date.now() });
-  return { ...r, slug };
+  return { ...r, slug, trustNote };
 }
 
 export function stopLane(lane) {

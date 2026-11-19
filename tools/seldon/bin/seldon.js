@@ -17,7 +17,7 @@ import { notify } from "../lib/notify.mjs";
 import { configFile, stewardHtml, sendCard, watchCard, KINDS, tokenName, readChat, writeChat, chatFromUpdates, getUpdates, sendText, sendFile, pollUpdates, fileFromMessage, inboxName, freeName, noteLine, downloadFile, react, MAX_DOWNLOAD } from "../lib/telegram.mjs";
 import { reportFromEvent, mergeCodexHooks, removeCodexHooks, opencodePlugin } from "../lib/reports.mjs";
 import { searchDocs, TOPICS } from "../lib/docs.mjs";
-import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardFeed, stewardEnv, relayLine, recentRelays, stewardOutbox, stewardInbox, deliverWhenFree, TELLS_PREFIX, freshForSteward, notesSince } from "../lib/steward.mjs";
+import { STEWARD, STEWARD_SESSION, STEWARD_BRIEF, stewardCommand, stewardGuard,stewardFeed, stewardEnv, relayLine, recentRelays, stewardOutbox, stewardInbox, deliverWhenFree, TELLS_PREFIX, freshForSteward, notesSince } from "../lib/steward.mjs";
 import { parseOptions, previewKeys, previewBody, stateWords, askOf, formatBody, summaryOf, agoWords } from "../lib/preview.mjs";
 import { stripAnsi, box, rule, rule as houseRule, hintRule, keycaps, toastLines, placeToast, placeModal, fresh } from "../lib/tui.mjs";
 import { buildRows, headline, ago, laneDetail, unlistedAgents, GLYPH } from "../lib/home.mjs";
@@ -1556,7 +1556,8 @@ async function newCmd(name, flags) {
     return fail(`made ${plan.dir}, but git init/commit failed — is git set up (user.name, user.email)?`);
   console.log(C.green(`✓ ${plan.dir}`) + C.dim(" — git, first commit"));
   if (!task) return console.log(C.dim(`  an agent on it: seldon lane start ${plan.dir} --task "…"`));
-  const r = startLane({ root: plan.dir, name, task, harness: agent });
+  const r = startLane({ root: plan.dir, name, task, harness: agent, mayTrust: true });   // seldon just made it
+  if (r.trustNote) console.log(C.dim(`  ${r.trustNote}`));
   if (!r.ok) return fail(`the folder is ready, but the agent did not start: ${r.error}`);
   console.log(C.green(`✓ ${agent} started on it`) + C.dim(` (${r.slug}) — it shows in seldon ws`));
 }
@@ -1564,7 +1565,16 @@ async function newCmd(name, flags) {
 // ---- the steward: the one agent you talk to ------------------------------------------
 // `seldon steward` starts it (or says it runs), `steward stop` stops it. It lives in the tmux
 // session seldon_steward, in ~/.seldon/steward, so `lane say` can type into it like any agent.
+const STEWARD_SCRATCH = path.join(SELDON_HOME, "steward", "scratch");
 function stewardCmd(verb, flags) {
+  if (verb === "guard") {
+    // the steward's PreToolUse hook: a file tool call on stdin, a deny out when it is not in scratch
+    let call = null;
+    try { call = JSON.parse(fs.readFileSync(0, "utf8")); } catch { /* unreadable: deny below */ }
+    const why = call ? stewardGuard(call, STEWARD_SCRATCH) : "unreadable tool call";
+    if (why) console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: why } }));
+    return;
+  }
   if (flags.telegram) {
     // connect the steward's own bot: its token in comb as STEWARD_BOT_TOKEN, and you sent it /start
     const r = spawnSync(process.execPath, [SELF, "tell", "--setup", "--token-name", typeof flags["token-name"] === "string" ? flags["token-name"] : "STEWARD_BOT_TOKEN"],
@@ -1585,8 +1595,9 @@ function stewardCmd(verb, flags) {
   ensureSiblingPath();
   if (!has("claude")) { console.log(C.red("the steward is a Claude agent, and claude is not installed here")); process.exitCode = 1; return; }
   const dir = path.join(SELDON_HOME, "steward");
-  fs.mkdirSync(dir, { recursive: true });
-  const argv = stewardCommand({ model: typeof flags.model === "string" ? flags.model : "sonnet", brief: STEWARD_BRIEF });
+  fs.mkdirSync(STEWARD_SCRATCH, { recursive: true });
+  const argv = stewardCommand({ model: typeof flags.model === "string" ? flags.model : "sonnet", brief: STEWARD_BRIEF,
+    scratch: STEWARD_SCRATCH, guard: `${shq(process.execPath)} ${shq(fs.realpathSync(SELF))} steward guard` });
   // seldon's own folder first on its PATH, so `seldon …` runs as is and matches the allowed list
   const r = tm("new-session", "-d", "-s", STEWARD_SESSION, "-c", dir, "-x", "160", "-y", "45", ...stewardEnv(process.env.PATH), argv.map(shq).join(" "));
   if (r.status !== 0) { console.log(C.red("could not start the steward: ") + (r.stderr || "").trim()); process.exitCode = 1; return; }
@@ -1983,6 +1994,7 @@ function laneCmd(verb, arg, flags, rest = []) {
     const root = projectRoot(path.resolve(arg || ".")) || path.resolve(arg || ".");
     const task = typeof flags.task === "string" ? flags.task : "";
     const r = startLane({ root, name: path.basename(root), task, harness: flags.agent || "claude" });
+    if (r.trustNote) console.log(C.dim(r.trustNote));
     return r.ok ? console.log(C.green(`✓ started ${r.slug}`) + C.dim(` (${flags.agent || "claude"}) in ${root}`)) : fail(`could not start: ${r.error}`);
   }
   if (!["stop", "resume", "open", "rm", "read", "say"].includes(verb)) return fail('usage: seldon lane start [dir] --task "…" [--agent claude|codex|opencode] · seldon lane stop|resume|open|rm|read <key> · seldon lane say <key> "text"');
